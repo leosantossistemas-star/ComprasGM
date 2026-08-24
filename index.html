@@ -596,12 +596,13 @@
     const DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
     const PERFIL_KEY = 'cryotronics_perfil'; // ainda usado para persistir a seleção manual
 
-    let DATA = null;
-    let allItems = [];
-    let rcs = [];
-    let fornecedores = [];
-    let carretas = [];
-    let perfilAtual = 'usuario';
+    // CORREÇÃO: usar var em vez de let para evitar Temporal Dead Zone
+    var DATA = null;
+    var allItems = [];
+    var rcs = [];
+    var fornecedores = [];
+    var carretas = [];
+    var perfilAtual = 'usuario';
 
     /* ============================================================
        UTILITÁRIOS
