@@ -399,6 +399,29 @@
     };
 
     /* ============================================================
+       UTILITÁRIOS (movidos para o topo)
+    ============================================================ */
+    const fmt = {
+      money: (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+      num: (v) => v.toLocaleString("pt-BR"),
+      initials: (s) => (s || "?").split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase(),
+      date: (d) => d ? new Date(d).toLocaleDateString("pt-BR") : '—',
+      dateInput: (d) => d ? new Date(d).toISOString().slice(0,10) : '',
+    };
+    function normalize(s) {
+      return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+    }
+    function parseMoney(value) {
+      if (!value || !value.trim()) return 0;
+      let s = value.replace("R$", "").trim();
+      s = s.replace(/[^\d,.-]/g, "");
+      if (!s || s === "-") return 0;
+      s = s.replace(".", "").replace(",", ".");
+      return parseFloat(s) || 0;
+    }
+    function clean(str) { return (str || "").trim(); }
+
+    /* ============================================================
        FUNÇÕES DE SESSÃO
     ============================================================ */
     function getSession() {
@@ -453,25 +476,8 @@
     document.getElementById('btnLogout').addEventListener('click', logout);
 
     /* ============================================================
-       UTILITÁRIOS
+       FUNÇÕES AUXILIARES
     ============================================================ */
-    const fmt = {
-      money: (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
-      num: (v) => v.toLocaleString("pt-BR"),
-      initials: (s) => (s || "?").split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase(),
-      date: (d) => d ? new Date(d).toLocaleDateString("pt-BR") : '—',
-      dateInput: (d) => d ? new Date(d).toISOString().slice(0,10) : '',
-    };
-    function normalize(s) { return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, ""); }
-    function parseMoney(value) {
-      if (!value || !value.trim()) return 0;
-      let s = value.replace("R$", "").trim();
-      s = s.replace(/[^\d,.-]/g, "");
-      if (!s || s === "-") return 0;
-      s = s.replace(".", "").replace(",", ".");
-      return parseFloat(s) || 0;
-    }
-    function clean(str) { return (str || "").trim(); }
     function getNextCode() {
       if (!allItems.length) return "CRY-0001";
       const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
