@@ -113,6 +113,17 @@
     .header h1 { font-size: 24px; font-weight: 700; }
     .header-meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
     .header-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .profile-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-card);
+      padding: 4px 12px 4px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+    .profile-selector label { font-size: 12px; color: var(--text-muted); }
+    .profile-selector select { background: var(--bg); border: none; color: var(--text); font: inherit; font-size: 13px; padding: 6px 4px; outline: none; }
     .btn {
       padding: 10px 20px;
       border-radius: 999px;
@@ -237,13 +248,14 @@
     .fornecedor-select-wrapper .btn { flex-shrink: 0; margin-bottom: 2px; }
     .status-badge { font-weight: 600; }
     .status-rascunho { color: var(--text-muted); }
-    .status-enviado { color: var(--warning); }
     .status-em_aprovacao { color: #64c8ff; }
     .status-aprovado { color: var(--accent); }
     .status-rejeitado { color: var(--danger); }
     .status-bloqueado { color: var(--danger); }
     .status-arquivado { color: #888; }
     .destino-badge { background: var(--bg); padding: 2px 8px; border-radius: 12px; font-size: 11px; border: 1px solid var(--border); }
+    .limite-info { font-size: 12px; color: var(--accent); margin-top: 4px; }
+    .limite-excedido { color: var(--danger); font-weight: 700; }
     @media (max-width: 1200px) {
       .kpi-grid { grid-template-columns: repeat(2, 1fr); }
       .grid-2, .grid-3 { grid-template-columns: 1fr; }
@@ -297,7 +309,7 @@
       <li><button class="nav-btn" data-section="materiais"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Materiais</button></li>
       <li><button class="nav-btn" data-section="categorias"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>Categorias</button></li>
       <li><button class="nav-btn" data-section="fornecedores"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Fornecedores</button></li>
-      <li><button class="nav-btn" data-section="carretas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="8" width="20" height="12" rx="2"/><circle cx="7" cy="16" r="3"/><circle cx="17" cy="16" r="3"/><path d="M8 8V6a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Carretas</button></li>
+      <li><button class="nav-btn" data-section="frotas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="8" width="20" height="12" rx="2"/><circle cx="7" cy="16" r="3"/><circle cx="17" cy="16" r="3"/><path d="M8 8V6a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Frotas</button></li>
       <li><button class="nav-btn" data-section="novo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Novo Cadastro</button></li>
       <li><button class="nav-btn" data-section="requisicoes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h18M3 14h18M3 18h12"/><rect x="3" y="4" width="18" height="16" rx="1"/></svg>Requisições</button></li>
     </ul>
@@ -312,7 +324,15 @@
         <p class="header-meta" id="pageMeta">Visão geral do cadastro de materiais</p>
       </div>
       <div class="header-actions">
-        <span style="color:var(--text-muted);font-size:13px;" id="userInfo">Usuário: admin</span>
+        <div class="profile-selector">
+          <label>Perfil:</label>
+          <select id="profileSelector">
+            <option value="usuario">Usuário</option>
+            <option value="encarregado">Encarregado</option>
+            <option value="gerente">Gerente</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
         <button class="btn btn-logout" id="btnLogout">Sair</button>
         <button class="btn btn-ghost" id="btnResetFilters">Limpar filtros</button>
         <button class="btn btn-ghost" id="btnExportCSV">Exportar CSV</button>
@@ -326,86 +346,9 @@
   </div>
 
   <!-- ===== MODAIS ===== -->
-  <div class="modal-overlay" id="editModal">
-    <div class="modal">
-      <div class="modal-header"><h2>Editar Material</h2><button class="modal-close" id="editModalClose">&times;</button></div>
-      <form id="formEdit">
-        <div class="form-grid">
-          <div class="field"><label>Código</label><input type="text" id="editCodigo" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
-          <div class="field"><label>Data Cadastro</label><input type="text" id="editData" readonly style="background:#1a1f1a;" /></div>
-          <div class="field"><label>Usuário</label><input type="text" id="editUsuario" /></div>
-          <div class="field"><label>Cadastro Completo</label><select id="editCompleto"><option value="SIM">SIM</option><option value="NAO">NÃO</option></select></div>
-          <div class="field"><label>Descrição Simples *</label><input type="text" id="editDescSimples" required /></div>
-          <div class="field"><label>Descrição Curta</label><input type="text" id="editDescCurta" /></div>
-          <div class="field field-full"><label>Descrição Completa</label><textarea id="editDescCompleta" rows="2"></textarea></div>
-          <div class="field"><label>Categoria *</label><select id="editCategoria" required><option value="">Selecione</option></select></div>
-          <div class="field"><label>Subcategoria *</label><select id="editSubcategoria" required><option value="">Selecione</option></select></div>
-          <div class="field"><label>Unidade *</label><select id="editUnid" required><option value="">Selecione</option></select></div>
-          <div class="field"><label>Unidade Detalhe</label><input type="text" id="editUnidDetalhe" /></div>
-          <div class="field"><label>NCM</label><input type="text" id="editNcm" /></div>
-          <div class="field"><label>Marca</label><input type="text" id="editMarca" /></div>
-          <div class="field"><label>Modelo</label><input type="text" id="editModelo" /></div>
-          <div class="field"><label>Tipo Material</label><input type="text" id="editTipoMat" /></div>
-          <div class="field"><label>Dimensões</label><input type="text" id="editDimensoes" /></div>
-          <div class="field"><label>Cor</label><input type="text" id="editCor" /></div>
-          <div class="field"><label>Peso</label><input type="text" id="editPeso" /></div>
-          <div class="field"><label>Tensão</label><input type="text" id="editTensao" /></div>
-          <div class="field"><label>Pressão</label><input type="text" id="editPressao" /></div>
-          <div class="field"><label>Temperatura</label><input type="text" id="editTemperatura" /></div>
-          <div class="field"><label>Certificações</label><input type="text" id="editCertificacoes" /></div>
-          <div class="field"><label>Local Armazenagem</label><input type="text" id="editLocal" /></div>
-          <div class="field"><label>Estoque Mínimo</label><input type="number" id="editEstMin" step="0.01" min="0" value="0" /></div>
-          <div class="field"><label>Estoque Máximo</label><input type="number" id="editEstMax" step="0.01" min="0" value="0" /></div>
-          <div class="field"><label>Ponto Pedido</label><input type="text" id="editPontoPedido" /></div>
-          <div class="field"><label>Lote Mínimo</label><input type="text" id="editLoteMin" /></div>
-          <div class="field"><label>Lead Time</label><input type="text" id="editLeadTime" /></div>
-          <div class="field"><label>Condições Armazenamento</label><input type="text" id="editCondArm" /></div>
-          <div class="field"><label>Custo Unitário</label><input type="text" id="editCustoUnit" placeholder="Ex: 10,50" /></div>
-          <div class="field field-full">
-            <div class="fornecedor-select-wrapper">
-              <div class="field" style="flex:1"><label>Fornecedor *</label><select id="editFornecedor" required><option value="">Selecione</option></select></div>
-              <button type="button" class="btn btn-accent btn-sm" id="editBtnNovoFornecedor" style="white-space:nowrap;">➕ Novo</button>
-            </div>
-          </div>
-          <div class="field"><label>Fornecedores Alt</label><input type="text" id="editFornecedoresAlt" /></div>
-          <div class="field"><label>Código Fornecedor</label><input type="text" id="editCodFornecedor" /></div>
-          <div class="field"><label>Moeda</label><input type="text" id="editMoeda" /></div>
-        </div>
-        <div class="form-actions"><button type="submit" class="btn btn-accent">Salvar Alterações</button><button type="reset" class="btn btn-ghost" id="editCancel">Cancelar</button></div>
-      </form>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="novoFornecedorModal">
-    <div class="modal" style="max-width:500px;">
-      <div class="modal-header"><h2>Novo Fornecedor</h2><button class="modal-close" id="novoFornecedorModalClose">&times;</button></div>
-      <form id="formNovoFornecedor">
-        <div class="field"><label>Nome *</label><input type="text" id="novoFornecedorNome" required placeholder="Nome do fornecedor" /></div>
-        <div class="field"><label>Contato</label><input type="text" id="novoFornecedorContato" placeholder="Nome do contato" /></div>
-        <div class="field"><label>Telefone</label><input type="text" id="novoFornecedorTelefone" placeholder="(11) 99999-9999" /></div>
-        <div class="field"><label>E-mail</label><input type="email" id="novoFornecedorEmail" placeholder="contato@fornecedor.com" /></div>
-        <div class="field"><label>Observações</label><textarea id="novoFornecedorObs" rows="2" placeholder="Informações adicionais"></textarea></div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-accent">Adicionar</button>
-          <button type="button" class="btn btn-ghost" id="novoFornecedorCancel">Cancelar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="rejeitarModal">
-    <div class="modal" style="max-width:500px;">
-      <div class="modal-header"><h2>Rejeitar Requisição</h2><button class="modal-close" id="rejeitarModalClose">&times;</button></div>
-      <form id="formRejeitar">
-        <div class="field"><label>Justificativa *</label><textarea id="rejeitarJustificativa" rows="4" required placeholder="Descreva o motivo da rejeição…"></textarea></div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-danger">Rejeitar</button>
-          <button type="button" class="btn btn-ghost" id="rejeitarCancel">Cancelar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
+  <div class="modal-overlay" id="editModal">...</div>
+  <div class="modal-overlay" id="novoFornecedorModal">...</div>
+  <div class="modal-overlay" id="rejeitarModal">...</div>
   <div id="toast" class="toast"></div>
 
   <script src="data.js"></script>
@@ -415,21 +358,23 @@
     ============================================================ */
     const SESSION_KEY = 'cryotronics_session';
     const USUARIOS = [
-      { usuario: 'admin', senha: 'admin123', perfil: 'admin' },
+      { usuario: 'admin', senha: 'Mechatronics@2026', perfil: 'admin' },
       { usuario: 'gerente', senha: 'gerente123', perfil: 'gerente' },
       { usuario: 'encarregado', senha: 'encarregado123', perfil: 'encarregado' },
       { usuario: 'usuario', senha: 'usuario123', perfil: 'usuario' },
     ];
 
     /* ============================================================
-       CHAVES DE ARMAZENAMENTO
+       CHAVES DE ARMAZENAMENTO (var para evitar TDZ)
     ============================================================ */
-    const STORAGE_KEY = 'cryotronics_materiais';
-    const RC_STORAGE_KEY = 'cryotronics_rcs';
-    const WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
-    const FORNECEDORES_STORAGE_KEY = 'cryotronics_fornecedores';
-    const CARRETAS_STORAGE_KEY = 'cryotronics_carretas';
-    const DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
+    var STORAGE_KEY = 'cryotronics_materiais';
+    var RC_STORAGE_KEY = 'cryotronics_rcs';
+    var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
+    var FORNECEDORES_STORAGE_KEY = 'cryotronics_fornecedores';
+    var FROTAS_STORAGE_KEY = 'cryotronics_frotas';
+    var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
+    var PERFIL_KEY = 'cryotronics_perfil';
+    var LIMITE_PERCENTUAL_KEY = 'cryotronics_limite_percentual';
 
     /* ============================================================
        VARIÁVEIS GLOBAIS
@@ -438,9 +383,9 @@
     var allItems = [];
     var rcs = [];
     var fornecedores = [];
-    var carretas = [];
+    var frotas = [];
     var perfilAtual = 'usuario';
-    var usuarioLogado = '';
+    var limitePercentual = 20; // padrão 20%
 
     /* ============================================================
        ESTADO GLOBAL
@@ -478,7 +423,7 @@
     function clean(str) { return (str || "").trim(); }
 
     /* ============================================================
-       SESSÃO
+       FUNÇÕES DE SESSÃO
     ============================================================ */
     function getSession() {
       try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
@@ -500,9 +445,7 @@
       if (sess) {
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
-        perfilAtual = sess.perfil;
-        usuarioLogado = sess.usuario;
-        document.getElementById('userInfo').textContent = 'Usuário: ' + sess.usuario + ' (' + sess.perfil + ')';
+        document.getElementById('profileSelector').value = sess.perfil;
         iniciarSistema();
       } else {
         document.getElementById('loginScreen').classList.remove('hidden');
@@ -531,8 +474,22 @@
     document.getElementById('btnLogout').addEventListener('click', logout);
 
     /* ============================================================
-       FUNÇÕES DE DADOS (fornecedores, carretas, materiais, RCs)
+       FUNÇÕES AUXILIARES
     ============================================================ */
+    function getNextCode() {
+      if (!allItems.length) return "CRY-0001";
+      const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
+      let max = 0;
+      codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
+      return "CRY-" + String(max + 1).padStart(4, "0");
+    }
+    function getNextRCNumber() {
+      const stored = loadRCs();
+      const nums = stored.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
+      const max = Math.max(0, ...nums);
+      return "RC " + String(max + 1).padStart(4, "0");
+    }
+
     function getWhatsAppNumbers() {
       const saved = localStorage.getItem(WHATSAPP_STORAGE_KEY);
       if (saved) { try { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length === 3) return parsed; } catch(e) {} }
@@ -540,7 +497,29 @@
     }
     function setWhatsAppNumbers(numbers) { localStorage.setItem(WHATSAPP_STORAGE_KEY, JSON.stringify(numbers)); }
 
-    // Fornecedores
+    function getPerfil() {
+      const sess = getSession();
+      if (sess) return sess.perfil;
+      return 'usuario';
+    }
+    function setPerfil(p) {
+      const sess = getSession();
+      if (sess) { sess.perfil = p; localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); }
+      localStorage.setItem(PERFIL_KEY, p);
+      perfilAtual = p;
+    }
+
+    function getLimitePercentual() {
+      const saved = localStorage.getItem(LIMITE_PERCENTUAL_KEY);
+      if (saved) { const val = parseFloat(saved); if (!isNaN(val) && val > 0) return val; }
+      return 20;
+    }
+    function setLimitePercentual(val) {
+      localStorage.setItem(LIMITE_PERCENTUAL_KEY, String(val));
+      limitePercentual = val;
+    }
+
+    // ===== FORNECEDORES =====
     function loadFornecedores() { try { const stored = localStorage.getItem(FORNECEDORES_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
     function saveFornecedores(list) { localStorage.setItem(FORNECEDORES_STORAGE_KEY, JSON.stringify(list)); fornecedores = list; }
     function addFornecedor(nome, contato, telefone, email, obs) {
@@ -583,26 +562,40 @@
       if (changed) saveFornecedores(list);
     }
 
-    // Carretas
-    function loadCarretas() { try { const stored = localStorage.getItem(CARRETAS_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
-    function saveCarretas(list) { localStorage.setItem(CARRETAS_STORAGE_KEY, JSON.stringify(list)); carretas = list; }
-    function addCarreta(nome, placa) {
-      const list = loadCarretas();
+    // ===== FROTAS =====
+    function loadFrotas() { try { const stored = localStorage.getItem(FROTAS_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
+    function saveFrotas(list) { localStorage.setItem(FROTAS_STORAGE_KEY, JSON.stringify(list)); frotas = list; }
+    function addFrota(nome, valorOrcamento) {
+      const list = loadFrotas();
       const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
-      const nova = { id, nome: clean(nome), placa: clean(placa) };
+      const nova = { id, nome: clean(nome), valorOrcamento: parseFloat(valorOrcamento) || 0 };
       list.push(nova);
-      saveCarretas(list);
+      saveFrotas(list);
       return nova;
     }
-    function deleteCarreta(id) {
-      let list = loadCarretas();
-      list = list.filter(c => c.id !== id);
-      saveCarretas(list);
+    function updateFrota(id, data) {
+      const list = loadFrotas();
+      const idx = list.findIndex(f => f.id === id);
+      if (idx === -1) return false;
+      list[idx] = { ...list[idx], ...data };
+      saveFrotas(list);
       return true;
     }
-    function getCarretaById(id) { return carretas.find(c => c.id === id) || null; }
+    function deleteFrota(id) {
+      let list = loadFrotas();
+      list = list.filter(f => f.id !== id);
+      saveFrotas(list);
+      return true;
+    }
+    function getFrotaById(id) { return frotas.find(f => f.id === id) || null; }
+    function getFrotaByNome(nome) { return frotas.find(f => f.nome === nome) || null; }
+    function getLimiteFrota(frotaNome) {
+      const frota = getFrotaByNome(frotaNome);
+      if (!frota) return 0;
+      return frota.valorOrcamento * (limitePercentual / 100);
+    }
 
-    // Materiais
+    // ===== MATERIAIS =====
     function loadLocalItems() { try { const stored = localStorage.getItem(STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
     function saveLocalItems(items) { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
     function getCombinedItems() {
@@ -658,7 +651,7 @@
       return false;
     }
 
-    // RCs
+    // ===== RCs =====
     function loadRCs() { try { const stored = localStorage.getItem(RC_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
     function saveRCs(list) { localStorage.setItem(RC_STORAGE_KEY, JSON.stringify(list)); rcs = list; }
     function addRC(rc) { const list = loadRCs(); list.push(rc); saveRCs(list); }
@@ -671,9 +664,7 @@
       return true;
     }
 
-    /* ============================================================
-       TOAST
-    ============================================================ */
+    // ===== TOAST =====
     let toastTimeout;
     function showToast(msg, isError = false) {
       const el = document.getElementById("toast");
@@ -686,26 +677,17 @@
     }
 
     /* ============================================================
-       FUNÇÕES AUXILIARES
+       FILTROS E ORDENAÇÃO
     ============================================================ */
-    function getNextCode() {
-      if (!allItems.length) return "CRY-0001";
-      const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
-      let max = 0;
-      codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
-      return "CRY-" + String(max + 1).padStart(4, "0");
-    }
-    function getNextRCNumber() {
-      const stored = loadRCs();
-      const nums = stored.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
-      const max = Math.max(0, ...nums);
-      return "RC " + String(max + 1).padStart(4, "0");
-    }
-
     function getUniqueValues(key) {
-      if (key === 'fornecedor') return fornecedores.map(f => f.nome).sort();
+      if (key === 'fornecedor') {
+        return fornecedores.map(f => f.nome).sort();
+      }
       const set = new Set();
-      allItems.forEach(i => { const val = i[key]; if (val) set.add(val); });
+      allItems.forEach(i => {
+        const val = i[key];
+        if (val) set.add(val);
+      });
       return [...set].sort();
     }
 
@@ -743,6 +725,9 @@
       });
     }
 
+    /* ============================================================
+       FILTROS PARA RCs
+    ============================================================ */
     function getFilteredRCs() {
       const f = state.rcFilters;
       return rcs.filter(rc => {
@@ -750,19 +735,20 @@
         if (f.dataIni && rc.data < f.dataIni) return false;
         if (f.dataFim && rc.data > f.dataFim) return false;
         if (f.fornecedor && rc.fornecedor !== f.fornecedor) return false;
-        if (f.destino && rc.destino !== f.destino) return false;
+        if (f.destino && rc.aplicacao !== f.destino) return false;
         return true;
       });
     }
 
     /* ============================================================
-       RENDERIZAÇÃO (MATERIAIS)
+       RENDERIZAÇÃO (Materiais - mantido)
     ============================================================ */
     function renderFilters(extraFields = true) {
       const categorias = getUniqueValues('categoria');
       const subcategorias = getUniqueValues('subcategoria');
       const fornecedoresList = getUniqueValues('fornecedor');
       const unidades = getUniqueValues('unid');
+
       return `
         <div class="card filters-card">
           <div class="card-header">
@@ -957,6 +943,7 @@
       return `${renderFilters(false)}<div class="grid-2">${cards}</div>`;
     }
 
+    // =========== SEÇÃO FORNECEDORES ===========
     function renderFornecedores() {
       const list = loadFornecedores();
       let html = `
@@ -991,36 +978,52 @@
       return html;
     }
 
-    function renderCarretas() {
-      const list = loadCarretas();
+    // =========== SEÇÃO FROTAS ===========
+    function renderFrotas() {
+      const list = loadFrotas();
+      const perfil = perfilAtual;
+      const isAdminGerente = perfil === 'admin' || perfil === 'gerente';
+      const isEncarregado = perfil === 'encarregado' || perfil === 'admin';
+
       let html = `
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
-            <div><div class="card-title">Cadastro de Carretas</div><div class="card-sub">Lista de carretas para opção de destino "Reforma de Carreta"</div></div>
-            <button class="btn btn-accent" id="btnAbrirModalCarreta">+ Adicionar Carreta</button>
+            <div><div class="card-title">Cadastro de Frotas</div><div class="card-sub">Gerencie as frotas para manutenção</div></div>
+            ${isEncarregado ? `<button class="btn btn-accent" id="btnAbrirModalFrota">+ Adicionar Frota</button>` : ''}
           </div>
           <div style="overflow-x:auto;">
             <table>
-              <thead><tr><th>Nome</th><th>Placa</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Nome da Frota</th><th>Valor do Orçamento</th><th>Limite (${limitePercentual}%)</th><th>Ações</th></tr></thead>
               <tbody>
-                ${list.length === 0 ? `<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma carreta cadastrada.</td></tr>` : ''}
-                ${list.map(c => `
+                ${list.length === 0 ? `<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma frota cadastrada.</td></tr>` : ''}
+                ${list.map(f => {
+                  const limite = f.valorOrcamento * (limitePercentual / 100);
+                  return `
                   <tr>
-                    <td><strong>${c.nome}</strong></td>
-                    <td>${c.placa || '—'}</td>
+                    <td><strong>${f.nome}</strong></td>
+                    <td>${fmt.money(f.valorOrcamento)}</td>
+                    <td>${fmt.money(limite)}</td>
                     <td>
-                      <button class="btn btn-danger btn-sm" data-excluir-carreta="${c.id}">Excluir</button>
+                      ${isAdminGerente ? `<button class="btn btn-ghost btn-sm" data-editar-limite="${f.id}">Editar %</button>` : ''}
+                      ${isEncarregado ? `<button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>` : ''}
                     </td>
-                  </tr>
-                `).join('')}
+                  </tr>`;
+                }).join('')}
               </tbody>
             </table>
           </div>
+          ${isAdminGerente ? `
+          <div style="margin-top:16px;padding:12px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border);">
+            <label style="font-size:13px;color:var(--text-muted);">Alterar % do Limite Global:</label>
+            <input type="number" id="inputLimitePercentual" value="${limitePercentual}" min="1" max="100" style="width:80px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);margin-left:10px;" />
+            <button class="btn btn-accent btn-sm" id="btnSalvarLimitePercentual" style="margin-left:10px;">Salvar %</button>
+          </div>` : ''}
         </div>
       `;
       return html;
     }
 
+    // =========== NOVO MATERIAL ===========
     function renderNovo() {
       const nextCode = getNextCode();
       const today = new Date().toLocaleDateString("pt-BR");
@@ -1081,7 +1084,7 @@
     }
 
     /* ============================================================
-       RENDERIZAÇÃO DE RCs
+       SEÇÃO REQUISIÇÕES DE COMPRA (com novo fluxo)
     ============================================================ */
     function renderRequisicoes() {
       const filtered = getFilteredRCs();
@@ -1090,11 +1093,11 @@
       const total = filtered.length;
       const totalValor = filtered.reduce((s, r) => s + (r.total || 0), 0);
       const aprovados = filtered.filter(r => r.status === 'aprovado').length;
-      const pendentes = filtered.filter(r => r.status === 'em_aprovacao' || r.status === 'aguardando_encarregado').length;
+      const pendentes = filtered.filter(r => r.status === 'em_aprovacao').length;
 
-      const statusOptions = ['rascunho','aguardando_encarregado','em_aprovacao','aprovado','rejeitado','bloqueado','arquivado'];
+      const statusOptions = ['rascunho','em_aprovacao','aprovado','rejeitado','bloqueado','arquivado'];
       const fornecedoresList = [...new Set(rcs.map(r => r.fornecedor).filter(Boolean))].sort();
-      const destinosList = [...new Set(rcs.map(r => r.destino).filter(Boolean))].sort();
+      const destinosList = [...new Set(rcs.map(r => r.aplicacao).filter(Boolean))].sort();
 
       let html = `
         <div class="card" style="margin-bottom:20px;">
@@ -1126,6 +1129,9 @@
       return html;
     }
 
+    /* ============================================================
+       TABELA DE RCs
+    ============================================================ */
     function renderRCTable(items) {
       const perfil = perfilAtual;
       const total = items.length;
@@ -1149,7 +1155,6 @@
       const rows = pageItems.map(rc => {
         const statusMap = {
           rascunho: { label: 'Rascunho', cls: 'status-rascunho' },
-          aguardando_encarregado: { label: 'Aguardando Encarregado', cls: 'status-enviado' },
           em_aprovacao: { label: 'Em Aprovação', cls: 'status-em_aprovacao' },
           aprovado: { label: 'Aprovado', cls: 'status-aprovado' },
           rejeitado: { label: 'Rejeitado', cls: 'status-rejeitado' },
@@ -1157,18 +1162,16 @@
           arquivado: { label: 'Arquivado', cls: 'status-arquivado' },
         };
         const st = statusMap[rc.status] || { label: rc.status, cls: '' };
-        const destinoLabel = rc.destino || '—';
+        const destinoLabel = rc.aplicacao || '—';
         const totalVal = rc.total || 0;
 
         let acoes = [];
 
-        // Ações comuns (PDF/Whats) para status que não são rascunho/arquivado
         if (rc.status !== 'rascunho' && rc.status !== 'arquivado') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-pdf="${rc.numero}">PDF</button>`);
           acoes.push(`<button class="btn btn-ghost btn-sm" data-whats-rc="${rc.numero}">Whats</button>`);
         }
 
-        // Ações por perfil
         if (perfil === 'usuario' || perfil === 'admin') {
           if (rc.status === 'rascunho' && rc.criadoPor === perfilAtual) {
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
@@ -1177,16 +1180,6 @@
           }
           if (rc.status === 'arquivado' && rc.criadoPor === perfilAtual) {
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-reabrir-rc="${rc.numero}">Reabrir</button>`);
-          }
-        }
-
-        if (perfil === 'encarregado' || perfil === 'admin') {
-          if (rc.status === 'aguardando_encarregado') {
-            if (!rc.destino) {
-              acoes.unshift(`<button class="btn btn-ghost btn-sm" data-preencher-destino="${rc.numero}">Preencher Destino</button>`);
-            } else if (perfil === 'admin') {
-              acoes.unshift(`<button class="btn btn-ghost btn-sm" data-preencher-destino="${rc.numero}">Editar Destino</button>`);
-            }
           }
         }
 
@@ -1237,18 +1230,18 @@
     }
 
     /* ============================================================
-       FORMULÁRIOS RC
+       FORMULÁRIO DE NOVA RC (com destino = frota)
     ============================================================ */
     function renderFormRC(editData = null) {
       const isEdit = !!editData;
       const nextNum = isEdit ? editData.numero : getNextRCNumber();
       const today = new Date().toISOString().slice(0,10);
       const fornecedoresList = getUniqueValues('fornecedor');
-      const carretasList = loadCarretas();
-      const showReforma = carretasList.length > 0;
+      const frotasList = loadFrotas();
 
       const data = isEdit ? editData : {};
       const condPagOptions = ['À vista','7 dias','15 dias','30 dias','60 dias'];
+      const selectedFrota = data.aplicacao || '';
 
       return `
         <div class="card" style="margin-top:20px; border:2px solid var(--accent);">
@@ -1276,6 +1269,18 @@
               <div class="field"><label>Data Base *</label><input type="date" id="rcDataBase" value="${data.dataBase || today}" required /></div>
               <div class="field"><label>Vencimento (automático)</label><input type="date" id="rcVencimento" value="${data.vencimento || ''}" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
               <div class="field"><label>Solicitante *</label><input type="text" id="rcSolicitante" value="${data.solicitante || perfilAtual}" required placeholder="Seu nome" /></div>
+              <div class="field"><label>Destino (Frota) *</label>
+                <select id="rcDestino" required>
+                  <option value="">Selecione uma frota</option>
+                  ${frotasList.map(f => {
+                    const limite = f.valorOrcamento * (limitePercentual / 100);
+                    return `<option value="${f.nome}" data-limite="${limite}" data-valor="${f.valorOrcamento}" ${selectedFrota===f.nome?'selected':''}>${f.nome} (Limite: ${fmt.money(limite)})</option>`;
+                  }).join('')}
+                </select>
+              </div>
+              <div class="field"><label>Limite Disponível</label>
+                <input type="text" id="rcLimiteDisplay" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" value="${selectedFrota ? fmt.money(getLimiteFrota(selectedFrota)) : 'R$ 0,00'}" />
+              </div>
               <div class="field"><label>Observações</label><input type="text" id="rcObservacoes" value="${data.observacoes || ''}" placeholder="Observações gerais" /></div>
             </div>
 
@@ -1288,52 +1293,14 @@
             <div class="rc-summary">
               <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
                 <span><strong>Total:</strong> <span id="rcTotalDisplay">R$ 0,00</span></span>
+                <span id="rcLimiteStatus" style="font-weight:600;"></span>
               </div>
             </div>
 
             <div class="form-actions">
               <button type="submit" class="btn btn-accent">${isEdit ? 'Salvar Alterações' : 'Salvar como Rascunho'}</button>
-              <button type="button" class="btn btn-accent" id="btnEnviarRC">Enviar para Aprovação</button>
+              <button type="button" class="btn btn-accent" id="btnEnviarRC" disabled>Enviar para Aprovação</button>
               <button type="reset" class="btn btn-ghost">Limpar</button>
-            </div>
-          </form>
-        </div>
-      `;
-    }
-
-    function renderFormDestino(rcNumero) {
-      const rc = rcs.find(r => r.numero === rcNumero);
-      if (!rc) return '<p>Requisição não encontrada.</p>';
-      const carretasList = loadCarretas();
-      const showReforma = carretasList.length > 0;
-
-      return `
-        <div class="card" style="margin-top:20px; border:2px solid var(--warning);">
-          <div class="card-header">
-            <div><div class="card-title">Preencher Destino - ${rc.numero}</div>
-            <div class="card-sub">Informe o destino da compra e, se for reforma, o valor do orçamento</div></div>
-            <button class="btn btn-ghost" id="btnCancelarDestino">Cancelar</button>
-          </div>
-          <form id="formDestino">
-            <input type="hidden" id="destinoRCNumero" value="${rc.numero}" />
-            <div class="form-grid">
-              <div class="field"><label>Destino *</label>
-                <select id="destinoTipo" required>
-                  <option value="">Selecione</option>
-                  <option value="estoque">Estoque</option>
-                  <option value="oficina">Oficina</option>
-                  ${showReforma ? `<option value="reforma">Reforma de Carreta</option>` : ''}
-                  <option value="outro">Outro</option>
-                </select>
-              </div>
-              <div class="field" id="destinoOrcamentoGroup" style="display:none;">
-                <label>Valor do Orçamento da Reforma *</label>
-                <input type="text" id="destinoOrcamento" placeholder="Ex: 5000,00" />
-              </div>
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="btn btn-accent">Salvar e Validar</button>
-              <button type="button" class="btn btn-ghost" id="btnCancelarDestino2">Cancelar</button>
             </div>
           </form>
         </div>
@@ -1420,6 +1387,26 @@
       });
       const display = document.getElementById('rcTotalDisplay');
       if (display) display.textContent = fmt.money(sum);
+
+      // Verificar limite
+      const destinoSelect = document.getElementById('rcDestino');
+      const limiteDisplay = document.getElementById('rcLimiteDisplay');
+      const btnEnviar = document.getElementById('btnEnviarRC');
+      const statusEl = document.getElementById('rcLimiteStatus');
+
+      if (destinoSelect && destinoSelect.value) {
+        const limite = parseMoney(limiteDisplay.value);
+        if (sum > limite && limite > 0) {
+          btnEnviar.disabled = true;
+          statusEl.innerHTML = '<span class="limite-excedido">⚠️ VALOR LIMITE ATINGIDO, SOLICITE APROVAÇÃO</span>';
+        } else {
+          btnEnviar.disabled = false;
+          statusEl.innerHTML = '<span style="color:var(--accent);">✅ Dentro do limite</span>';
+        }
+      } else {
+        btnEnviar.disabled = true;
+        statusEl.innerHTML = '<span style="color:var(--text-muted);">Selecione um destino</span>';
+      }
       return sum;
     }
 
@@ -1433,7 +1420,7 @@
     }
 
     /* ============================================================
-       HANDLERS RC
+       HANDLERS DAS RCs
     ============================================================ */
     function handleNovaRC() {
       const container = document.getElementById('rcFormContainer');
@@ -1457,6 +1444,14 @@
         const vencInput = document.getElementById('rcVencimento');
         if (vencInput) vencInput.value = venc;
       });
+      // Atualizar limite ao mudar destino
+      document.getElementById('rcDestino')?.addEventListener('change', function() {
+        const selected = this.options[this.selectedIndex];
+        const limite = selected ? parseMoney(selected.dataset.limite) : 0;
+        const display = document.getElementById('rcLimiteDisplay');
+        if (display) display.value = fmt.money(limite);
+        recalcularTotalRC();
+      });
       document.getElementById('formRC')?.addEventListener('submit', (e) => {
         e.preventDefault();
         salvarRascunho();
@@ -1468,6 +1463,17 @@
         document.getElementById('rcFormContainer').innerHTML = '';
         render();
       });
+      // Inicializar limite
+      const destinoSelect = document.getElementById('rcDestino');
+      if (destinoSelect) {
+        const selected = destinoSelect.options[destinoSelect.selectedIndex];
+        if (selected && selected.value) {
+          const limite = parseMoney(selected.dataset.limite);
+          const display = document.getElementById('rcLimiteDisplay');
+          if (display) display.value = fmt.money(limite);
+        }
+        recalcularTotalRC();
+      }
     }
 
     function salvarRascunho(enviar = false) {
@@ -1480,9 +1486,10 @@
       const dataBase = getVal('rcDataBase');
       const vencimento = getVal('rcVencimento');
       const solicitante = getVal('rcSolicitante');
+      const aplicacao = getVal('rcDestino');
       const observacoes = getVal('rcObservacoes');
 
-      if (!fornecedor || !data || !prazoEntrega || !condPag || !dataBase || !solicitante) {
+      if (!fornecedor || !data || !prazoEntrega || !condPag || !dataBase || !solicitante || !aplicacao) {
         showToast('Preencha todos os campos obrigatórios.', true);
         return;
       }
@@ -1508,8 +1515,18 @@
         return;
       }
 
+      // Validar limite
+      const frota = getFrotaByNome(aplicacao);
+      if (frota) {
+        const limite = frota.valorOrcamento * (limitePercentual / 100);
+        if (total > limite) {
+          showToast('VALOR LIMITE ATINGIDO! Solicite aprovação ao gerente.', true);
+          return;
+        }
+      }
+
       const existing = rcs.find(r => r.numero === numero);
-      const status = enviar ? 'aguardando_encarregado' : 'rascunho';
+      const status = enviar ? 'em_aprovacao' : 'rascunho';
       const rcData = {
         numero,
         data,
@@ -1519,13 +1536,12 @@
         dataBase,
         vencimento,
         solicitante,
+        aplicacao,
         observacoes,
         itens,
         total,
         status,
         criadoPor: perfilAtual,
-        destino: '',
-        orcamento: 0,
         justificativa: '',
       };
 
@@ -1536,140 +1552,48 @@
         addRC(rcData);
         showToast(`Requisição ${numero} criada como ${status}.`);
       }
+
+      // Se enviar, disparar WhatsApp
+      if (enviar) {
+        enviarWhatsApp(rcData);
+      }
+
       document.getElementById('rcFormContainer').innerHTML = '';
       render();
     }
 
-    function handlePreencherDestino(numero) {
-      const container = document.getElementById('rcFormContainer');
-      if (!container) return;
-      container.innerHTML = renderFormDestino(numero);
-
-      document.getElementById('destinoTipo')?.addEventListener('change', function() {
-        const group = document.getElementById('destinoOrcamentoGroup');
-        if (this.value === 'reforma') {
-          group.style.display = 'block';
-        } else {
-          group.style.display = 'none';
-        }
-      });
-
-      document.getElementById('formDestino')?.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const rcNum = document.getElementById('destinoRCNumero').value;
-        const destino = document.getElementById('destinoTipo').value;
-        const orcamento = parseMoney(document.getElementById('destinoOrcamento').value);
-
-        if (!destino) {
-          showToast('Selecione um destino.', true);
-          return;
-        }
-        if (destino === 'reforma' && !orcamento) {
-          showToast('Informe o valor do orçamento para reforma.', true);
-          return;
-        }
-
-        const rc = rcs.find(r => r.numero === rcNum);
-        if (!rc) return;
-
-        let novoStatus = 'em_aprovacao';
-        let msg = '';
-        if (destino === 'reforma') {
-          const limite = orcamento * 0.2;
-          if (rc.total > limite) {
-            novoStatus = 'bloqueado';
-            msg = ' O valor total excede 20% do orçamento. Requisição bloqueada.';
-          }
-        }
-
-        const updateData = {
-          destino: destino,
-          orcamento: orcamento,
-          status: novoStatus,
-        };
-        if (updateRC(rcNum, updateData)) {
-          showToast(`Destino preenchido: ${destino}${msg}`);
-          document.getElementById('rcFormContainer').innerHTML = '';
-          render();
-        } else {
-          showToast('Erro ao atualizar.', true);
-        }
-      });
-
-      document.getElementById('btnCancelarDestino')?.addEventListener('click', () => {
-        document.getElementById('rcFormContainer').innerHTML = '';
-        render();
-      });
-      document.getElementById('btnCancelarDestino2')?.addEventListener('click', () => {
-        document.getElementById('rcFormContainer').innerHTML = '';
-        render();
-      });
-    }
-
-    function handleAprovarRC(numero) {
-      if (!confirm(`Aprovar requisição ${numero}?`)) return;
-      if (updateRC(numero, { status: 'aprovado' })) {
-        showToast(`Requisição ${numero} aprovada!`);
-        render();
-      } else {
-        showToast('Erro ao aprovar.', true);
-      }
-    }
-
-    function handleRejeitarRC(numero) {
-      const modal = document.getElementById('rejeitarModal');
-      modal.classList.add('active');
-      document.getElementById('rejeitarJustificativa').value = '';
-      modal.dataset.rcNumero = numero;
-    }
-
-    function handleArquivarRC(numero) {
-      if (updateRC(numero, { status: 'arquivado' })) {
-        showToast(`Requisição ${numero} arquivada.`);
-        render();
-      }
-    }
-    function handleReabrirRC(numero) {
-      if (updateRC(numero, { status: 'rascunho' })) {
-        showToast(`Requisição ${numero} reaberta.`);
-        render();
-      }
-    }
-
     /* ============================================================
-       PDF E WHATSAPP
+       GERAR PDF E WHATSAPP
     ============================================================ */
     function gerarPDF(rcData) {
       const container = document.createElement('div');
       container.style.cssText = 'position:absolute;left:-9999px;top:0;width:800px;background:white;color:black;padding:30px;font-family:Arial,sans-serif;';
       container.innerHTML = `
         <div style="text-align:center;margin-bottom:20px;">
-          <h2>${rcData.empresa || 'Mechatronics'} - Instrumentação e Automação Industrial</h2>
-          <p style="font-weight:bold;">SOLICITAÇÃO DE AUTORIZAÇÃO PARA COMPRA E APROVAÇÃO</p>
-          <p>Formulário de Aprovação nº: ${rcData.numero}</p>
+          <h2>Requisição de Compra</h2>
+          <p><strong>${rcData.numero}</strong></p>
           <p>Data: ${rcData.data}</p>
         </div>
         <div style="border:1px solid #ccc;padding:10px;margin-bottom:15px;">
-          <p><strong>DADOS DO SOLICITANTE</strong></p>
-          <p>Nome: ${rcData.solicitante || ''}</p>
-          <p>Matrícula: ${rcData.matricula || ''} &nbsp;|&nbsp; Função: ${rcData.funcao || ''} &nbsp;|&nbsp; Setor: ${rcData.setor || ''}</p>
-          <p>Compra para almoxarifado: ${rcData.paraAlmoxarifado ? 'SIM' : 'NÃO'} &nbsp;|&nbsp; ${rcData.paraAlmoxarifado ? '' : 'Ordem de serviço nº: ' + (rcData.os || '')}</p>
-          <p>Aplicação/Destino: ${rcData.aplicacao || ''}</p>
-          <p>Fornecedor: ${rcData.fornecedor || ''}</p>
-          <p>Condição de Compra: ${rcData.condPag || ''}</p>
+          <p><strong>Fornecedor:</strong> ${rcData.fornecedor}</p>
+          <p><strong>Prazo de Entrega:</strong> ${rcData.prazoEntrega}</p>
+          <p><strong>Condição de Pagamento:</strong> ${rcData.condPag}</p>
+          <p><strong>Data Base:</strong> ${rcData.dataBase} | <strong>Vencimento:</strong> ${rcData.vencimento}</p>
+          <p><strong>Solicitante:</strong> ${rcData.solicitante}</p>
+          <p><strong>Destino:</strong> ${rcData.aplicacao || '—'}</p>
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <thead><tr style="background:#eee;"><th style="border:1px solid #ccc;padding:6px;">Item</th><th style="border:1px solid #ccc;padding:6px;">Descrição / Código</th><th style="border:1px solid #ccc;padding:6px;">Qtd</th><th style="border:1px solid #ccc;padding:6px;">Valor Unit.</th><th style="border:1px solid #ccc;padding:6px;">Total</th><th style="border:1px solid #ccc;padding:6px;">Obs</th></tr></thead>
+          <thead><tr style="background:#eee;"><th style="border:1px solid #ccc;padding:6px;">Item</th><th style="border:1px solid #ccc;padding:6px;">Descrição</th><th style="border:1px solid #ccc;padding:6px;">Qtd</th><th style="border:1px solid #ccc;padding:6px;">Valor Unit.</th><th style="border:1px solid #ccc;padding:6px;">Total</th></tr></thead>
           <tbody>
             ${(rcData.itens || []).map((item, idx) => `
-              <tr><td style="border:1px solid #ccc;padding:6px;">${idx+1}</td><td style="border:1px solid #ccc;padding:6px;">${item.descricao || ''}</td><td style="border:1px solid #ccc;padding:6px;">${item.qtd}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.valorUnit || 0)}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.total || 0)}</td><td style="border:1px solid #ccc;padding:6px;">${item.obs || ''}</td></tr>
+              <tr><td style="border:1px solid #ccc;padding:6px;">${idx+1}</td><td style="border:1px solid #ccc;padding:6px;">${item.descricao}</td><td style="border:1px solid #ccc;padding:6px;">${item.qtd}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.valorUnit)}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.total)}</td></tr>
             `).join('')}
-            <tr><td colspan="4" style="text-align:right;border:1px solid #ccc;padding:6px;"><strong>Total</strong></td><td style="border:1px solid #ccc;padding:6px;"><strong>${fmt.money(rcData.total || 0)}</strong></td><td style="border:1px solid #ccc;padding:6px;"></td></tr>
+            <tr><td colspan="4" style="text-align:right;border:1px solid #ccc;padding:6px;"><strong>Total</strong></td><td style="border:1px solid #ccc;padding:6px;"><strong>${fmt.money(rcData.total)}</strong></td></tr>
           </tbody>
         </table>
         <div style="margin-top:20px;font-size:11px;color:#666;">
           <p>Observações: ${rcData.observacoes || ''}</p>
-          <p>Documento gerado automaticamente em ${new Date().toLocaleString()}</p>
+          <p>Gerado em ${new Date().toLocaleString()}</p>
         </div>
       `;
       document.body.appendChild(container);
@@ -1696,7 +1620,7 @@
 
         pdf.save(`RC_${rcData.numero}.pdf`);
         document.body.removeChild(container);
-        showToast(`PDF da ${rcData.numero} gerado com sucesso!`);
+        showToast(`PDF da ${rcData.numero} gerado!`);
       }).catch(err => {
         console.error(err);
         showToast('Erro ao gerar PDF.', true);
@@ -1707,186 +1631,38 @@
     function enviarWhatsApp(rcData) {
       const numbers = getWhatsAppNumbers().filter(n => n && n.trim() !== '');
       if (numbers.length === 0) {
-        showToast('Configure pelo menos 1 número do WhatsApp na aba Requisições.', true);
+        showToast('Configure números do WhatsApp para aprovação.', true);
         return;
       }
 
-      let mensagem = `*REQUISIÇÃO DE COMPRA ${rcData.numero}*\n`;
-      mensagem += `Empresa: ${rcData.empresa || 'Mechatronics'}\n`;
+      let mensagem = `*NOVA REQUISIÇÃO DE COMPRA - ${rcData.numero}*\n`;
       mensagem += `Data: ${rcData.data}\n`;
       mensagem += `Solicitante: ${rcData.solicitante}\n`;
       mensagem += `Fornecedor: ${rcData.fornecedor}\n`;
-      mensagem += `Destino/Aplicação: ${rcData.aplicacao}\n`;
-      mensagem += `Compra para almoxarifado: ${rcData.paraAlmoxarifado ? 'SIM' : 'NÃO'}`;
-      if (!rcData.paraAlmoxarifado) mensagem += ` (OS: ${rcData.os || '—'})`;
-      mensagem += `\n\n*Itens:*\n`;
+      mensagem += `Destino: ${rcData.aplicacao || '—'}\n`;
+      mensagem += `Total: ${fmt.money(rcData.total)}\n\n`;
+      mensagem += `*Itens:*\n`;
       (rcData.itens || []).forEach((item, idx) => {
         mensagem += `${idx+1}. ${item.descricao} – Qtd: ${item.qtd} – Unit: ${fmt.money(item.valorUnit)} – Total: ${fmt.money(item.total)}\n`;
       });
-      mensagem += `\n*Total da RC: ${fmt.money(rcData.total)}*\n`;
-      mensagem += `\nPDF anexo. Por favor, verificar.`;
+      mensagem += `\n*Prazo de Entrega:* ${rcData.prazoEntrega}`;
+      mensagem += `\n*Condição de Pagamento:* ${rcData.condPag}`;
+      mensagem += `\n*Vencimento:* ${rcData.vencimento}`;
+      mensagem += `\n\nPor favor, analise e aprove/rejeite.`;
 
       const texto = encodeURIComponent(mensagem);
-
       numbers.forEach((num, index) => {
         setTimeout(() => {
           const url = `https://api.whatsapp.com/send?phone=${num.trim()}&text=${texto}`;
           window.open(url, '_blank');
         }, index * 300);
       });
-
       gerarPDF(rcData);
     }
 
     /* ============================================================
-       HANDLERS GERAIS
+       EXPORTAÇÕES E RESET
     ============================================================ */
-    function handleFormNovo() {
-      const getVal = (id) => document.getElementById(id)?.value || '';
-      const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
-
-      const codigo = getVal('novoCodigo');
-      const dataCadastro = getVal('novoData') || new Date().toLocaleDateString('pt-BR');
-      const usuario = getVal('novoUsuario') || 'Leonardo Santos';
-      const cadastroCompleto = getVal('novoCompleto') || 'SIM';
-      const descricaoSimples = getVal('novoDescSimples').trim();
-      const descricaoCurta = getVal('novoDescCurta').trim();
-      const descricaoCompleta = getVal('novoDescCompleta').trim();
-      const categoria = getVal('novoCategoria');
-      const subcategoria = getVal('novoSubcategoria');
-      const unid = getVal('novoUnid');
-      const unidDetalhe = getVal('novoUnidDetalhe');
-      const ncm = getVal('novoNcm');
-      const marca = getVal('novoMarca');
-      const modelo = getVal('novoModelo');
-      const tipoMaterial = getVal('novoTipoMat');
-      const dimensoes = getVal('novoDimensoes');
-      const cor = getVal('novoCor');
-      const peso = getVal('novoPeso');
-      const tensao = getVal('novoTensao');
-      const pressao = getVal('novoPressao');
-      const temperatura = getVal('novoTemperatura');
-      const certificacoes = getVal('novoCertificacoes');
-      const localArmazenagem = getVal('novoLocal');
-      const estoqueMin = getNum('novoEstMin');
-      const estoqueMax = getNum('novoEstMax');
-      const pontoPedido = getVal('novoPontoPedido');
-      const loteMinimo = getVal('novoLoteMin');
-      const leadTime = getVal('novoLeadTime');
-      const condicoesArmazenamento = getVal('novoCondArm');
-      const custoUnitario = getVal('novoCustoUnit');
-      const fornecedor = getVal('novoFornecedor');
-      const fornecedoresAlt = getVal('novoFornecedoresAlt');
-      const codigoFornecedor = getVal('novoCodFornecedor');
-      const moeda = getVal('novoMoeda') || 'Real';
-
-      if (!descricaoSimples || !categoria || !subcategoria || !unid || !fornecedor) {
-        showToast('Preencha os campos obrigatórios: Descrição, Categoria, Subcategoria, Unidade e Fornecedor.', true);
-        return;
-      }
-
-      const newItem = {
-        item: allItems.length + 1,
-        dataCadastro,
-        usuario,
-        cadastroCompleto,
-        codigo,
-        descricaoSimples,
-        descricaoCurta,
-        descricaoCompleta,
-        categoria,
-        subcategoria,
-        unid,
-        unidDetalhe,
-        ncm,
-        marca,
-        modelo,
-        tipoMaterial,
-        dimensoes,
-        cor,
-        peso,
-        tensao,
-        pressao,
-        temperatura,
-        certificacoes,
-        localArmazenagem,
-        estoqueMin: String(estoqueMin),
-        estoqueMax: String(estoqueMax),
-        pontoPedido,
-        loteMinimo,
-        leadTime,
-        condicoesArmazenamento,
-        custoUnitario: custoUnitario ? `R$ ${custoUnitario}` : "",
-        custoEstoqueMin: `R$ ${(estoqueMin * parseMoney(custoUnitario)).toFixed(2)}`,
-        custoEstoqueMax: `R$ ${(estoqueMax * parseMoney(custoUnitario)).toFixed(2)}`,
-        fornecedor,
-        fornecedoresAlt,
-        codigoFornecedor,
-        moeda,
-        custoUnitarioNum: parseMoney(custoUnitario),
-        custoEstoqueMinNum: estoqueMin * parseMoney(custoUnitario),
-        custoEstoqueMaxNum: estoqueMax * parseMoney(custoUnitario),
-      };
-
-      addNewItem(newItem);
-      showToast(`Material ${codigo} cadastrado com sucesso!`);
-      document.getElementById('formNovo')?.reset();
-      document.getElementById('novoCodigo').value = getNextCode();
-      document.getElementById('novoData').value = new Date().toLocaleDateString('pt-BR');
-    }
-
-    function abrirModalEdicao(codigo) {
-      const item = allItems.find(i => i.codigo === codigo);
-      if (!item) { showToast('Material não encontrado.', true); return; }
-
-      document.getElementById('editCodigo').value = item.codigo;
-      document.getElementById('editData').value = item.dataCadastro || '';
-      document.getElementById('editUsuario').value = item.usuario || '';
-      document.getElementById('editCompleto').value = item.cadastroCompleto || 'SIM';
-      document.getElementById('editDescSimples').value = item.descricaoSimples || '';
-      document.getElementById('editDescCurta').value = item.descricaoCurta || '';
-      document.getElementById('editDescCompleta').value = item.descricaoCompleta || '';
-      document.getElementById('editUnidDetalhe').value = item.unidDetalhe || '';
-      document.getElementById('editNcm').value = item.ncm || '';
-      document.getElementById('editMarca').value = item.marca || '';
-      document.getElementById('editModelo').value = item.modelo || '';
-      document.getElementById('editTipoMat').value = item.tipoMaterial || '';
-      document.getElementById('editDimensoes').value = item.dimensoes || '';
-      document.getElementById('editCor').value = item.cor || '';
-      document.getElementById('editPeso').value = item.peso || '';
-      document.getElementById('editTensao').value = item.tensao || '';
-      document.getElementById('editPressao').value = item.pressao || '';
-      document.getElementById('editTemperatura').value = item.temperatura || '';
-      document.getElementById('editCertificacoes').value = item.certificacoes || '';
-      document.getElementById('editLocal').value = item.localArmazenagem || '';
-      document.getElementById('editEstMin').value = parseFloat(item.estoqueMin) || 0;
-      document.getElementById('editEstMax').value = parseFloat(item.estoqueMax) || 0;
-      document.getElementById('editPontoPedido').value = item.pontoPedido || '';
-      document.getElementById('editLoteMin').value = item.loteMinimo || '';
-      document.getElementById('editLeadTime').value = item.leadTime || '';
-      document.getElementById('editCondArm').value = item.condicoesArmazenamento || '';
-      document.getElementById('editCustoUnit').value = item.custoUnitario ? item.custoUnitario.replace('R$ ', '') : '';
-      document.getElementById('editFornecedoresAlt').value = item.fornecedoresAlt || '';
-      document.getElementById('editCodFornecedor').value = item.codigoFornecedor || '';
-      document.getElementById('editMoeda').value = item.moeda || 'Real';
-
-      const categorias = getUniqueValues('categoria');
-      const subcategorias = getUniqueValues('subcategoria');
-      const unidades = getUniqueValues('unid');
-      const fornecedoresList = getUniqueValues('fornecedor');
-
-      const catSelect = document.getElementById('editCategoria');
-      catSelect.innerHTML = '<option value="">Selecione</option>' + categorias.map(c => `<option value="${c}" ${c===item.categoria?'selected':''}>${c}</option>`).join('');
-      const subSelect = document.getElementById('editSubcategoria');
-      subSelect.innerHTML = '<option value="">Selecione</option>' + subcategorias.map(s => `<option value="${s}" ${s===item.subcategoria?'selected':''}>${s}</option>`).join('');
-      const unidSelect = document.getElementById('editUnid');
-      unidSelect.innerHTML = '<option value="">Selecione</option>' + unidades.map(u => `<option value="${u}" ${u===item.unid?'selected':''}>${u}</option>`).join('');
-      const fornSelect = document.getElementById('editFornecedor');
-      fornSelect.innerHTML = '<option value="">Selecione</option>' + fornecedoresList.map(f => `<option value="${f}" ${f===item.fornecedor?'selected':''}>${f}</option>`).join('');
-
-      document.getElementById('editModal').classList.add('active');
-    }
-
     function exportCSV() {
       const items = sortItems(getFilteredItems());
       const headers = ["Código", "Descrição", "Categoria", "Subcategoria", "UN", "Custo Unit.", "Fornecedor", "Cadastro Completo", "Marca", "Lead Time"];
@@ -1953,7 +1729,7 @@
       a.href = URL.createObjectURL(blob);
       a.download = "data.js";
       a.click();
-      showToast("data.js exportado com sucesso! Substitua o arquivo original.");
+      showToast("data.js exportado com sucesso!");
     }
 
     function resetFilters() {
@@ -1973,9 +1749,9 @@
           materiais: { title: 'Materiais', meta: 'Lista completa com ações de edição e exclusão' },
           categorias: { title: 'Categorias', meta: 'Distribuição por categoria e subcategoria' },
           fornecedores: { title: 'Fornecedores', meta: 'Gerenciamento de fornecedores' },
-          carretas: { title: 'Carretas', meta: 'Cadastro de carretas para reforma' },
+          frotas: { title: 'Frotas', meta: 'Cadastro de frotas e orçamentos' },
           novo: { title: 'Novo Cadastro', meta: 'Adicione um novo material à base' },
-          requisicoes: { title: 'Requisições de Compra', meta: 'Gestão de compras com WhatsApp' },
+          requisicoes: { title: 'Requisições de Compra', meta: 'Fluxo completo de aprovação' },
         };
         const info = titleMap[sec] || titleMap.dashboard;
         document.getElementById('pageTitle').textContent = info.title;
@@ -1986,7 +1762,7 @@
         else if (sec === 'materiais') html = renderMateriais();
         else if (sec === 'categorias') html = renderCategorias();
         else if (sec === 'fornecedores') html = renderFornecedores();
-        else if (sec === 'carretas') html = renderCarretas();
+        else if (sec === 'frotas') html = renderFrotas();
         else if (sec === 'novo') html = renderNovo();
         else if (sec === 'requisicoes') html = renderRequisicoes();
         else html = '<div class="loading"><span>Carregando…</span></div>';
@@ -2206,27 +1982,59 @@
         });
       });
 
-      // ===== CARRETAS =====
-      document.getElementById('btnAbrirModalCarreta')?.addEventListener('click', () => {
-        const nome = prompt('Nome da carreta:');
+      // ===== FROTAS =====
+      // Abrir modal de nova frota
+      document.getElementById('btnAbrirModalFrota')?.addEventListener('click', () => {
+        const nome = prompt('Nome da frota:');
         if (!nome) return;
-        const placa = prompt('Placa (opcional):') || '';
-        addCarreta(nome, placa);
-        showToast(`Carreta "${nome}" adicionada.`);
-        if (state.section === 'carretas') render();
+        const valor = prompt('Valor total do orçamento (ex: 10000):');
+        if (!valor) return;
+        const valorNum = parseMoney(valor);
+        if (valorNum <= 0) { showToast('Valor inválido.', true); return; }
+        addFrota(nome, valorNum);
+        showToast(`Frota "${nome}" cadastrada com orçamento de ${fmt.money(valorNum)}`);
+        if (state.section === 'frotas') render();
       });
 
-      document.querySelectorAll('[data-excluir-carreta]').forEach(btn => {
+      // Excluir frota
+      document.querySelectorAll('[data-excluir-frota]').forEach(btn => {
         btn.addEventListener('click', () => {
-          const id = btn.dataset.excluirCarreta;
-          const c = getCarretaById(id);
-          if (!c) return;
-          if (confirm(`Excluir carreta "${c.nome}"?`)) {
-            deleteCarreta(id);
-            showToast(`Carreta "${c.nome}" excluída.`);
-            if (state.section === 'carretas') render();
+          const id = btn.dataset.excluirFrota;
+          const f = getFrotaById(id);
+          if (!f) return;
+          if (confirm(`Excluir frota "${f.nome}"?`)) {
+            deleteFrota(id);
+            showToast(`Frota "${f.nome}" excluída.`);
+            if (state.section === 'frotas') render();
           }
         });
+      });
+
+      // Editar limite percentual (Admin/Gerente)
+      document.querySelectorAll('[data-editar-limite]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.editarLimite;
+          const f = getFrotaById(id);
+          if (!f) return;
+          const novoPercentual = prompt(`Alterar % do limite para a frota "${f.nome}" (atual: ${limitePercentual}%):`, limitePercentual);
+          if (novoPercentual === null) return;
+          const p = parseFloat(novoPercentual);
+          if (isNaN(p) || p <= 0 || p > 100) { showToast('Percentual deve ser entre 1 e 100.', true); return; }
+          setLimitePercentual(p);
+          showToast(`Limite percentual alterado para ${p}%`);
+          if (state.section === 'frotas') render();
+        });
+      });
+
+      // Salvar limite percentual global
+      document.getElementById('btnSalvarLimitePercentual')?.addEventListener('click', () => {
+        const input = document.getElementById('inputLimitePercentual');
+        if (!input) return;
+        const p = parseFloat(input.value);
+        if (isNaN(p) || p <= 0 || p > 100) { showToast('Percentual deve ser entre 1 e 100.', true); return; }
+        setLimitePercentual(p);
+        showToast(`Limite percentual global alterado para ${p}%`);
+        if (state.section === 'frotas') render();
       });
 
       // ===== RCs =====
@@ -2268,6 +2076,14 @@
                 const vencInput = document.getElementById('rcVencimento');
                 if (vencInput) vencInput.value = venc;
               });
+              // Atualizar limite ao mudar destino
+              document.getElementById('rcDestino')?.addEventListener('change', function() {
+                const selected = this.options[this.selectedIndex];
+                const limite = selected ? parseMoney(selected.dataset.limite) : 0;
+                const display = document.getElementById('rcLimiteDisplay');
+                if (display) display.value = fmt.money(limite);
+                recalcularTotalRC();
+              });
               document.getElementById('formRC')?.addEventListener('submit', (e) => {
                 e.preventDefault();
                 salvarRascunho();
@@ -2279,6 +2095,17 @@
                 document.getElementById('rcFormContainer').innerHTML = '';
                 render();
               });
+              // Inicializar limite
+              const destinoSelect = document.getElementById('rcDestino');
+              if (destinoSelect) {
+                const selected = destinoSelect.options[destinoSelect.selectedIndex];
+                if (selected && selected.value) {
+                  const limite = parseMoney(selected.dataset.limite);
+                  const display = document.getElementById('rcLimiteDisplay');
+                  if (display) display.value = fmt.money(limite);
+                }
+                recalcularTotalRC();
+              }
             }
           }
           return;
@@ -2299,8 +2126,20 @@
         if (target.dataset.enviarRc) {
           const numero = target.dataset.enviarRc;
           if (confirm(`Enviar requisição ${numero} para aprovação?`)) {
-            if (updateRC(numero, { status: 'aguardando_encarregado' })) {
-              showToast(`Requisição ${numero} enviada! Aguardando encarregado.`);
+            const rc = rcs.find(r => r.numero === numero);
+            if (!rc) { showToast('RC não encontrada.', true); return; }
+            // Verificar limite novamente
+            const frota = getFrotaByNome(rc.aplicacao);
+            if (frota) {
+              const limite = frota.valorOrcamento * (limitePercentual / 100);
+              if (rc.total > limite) {
+                showToast('VALOR LIMITE ATINGIDO! Solicite aprovação ao gerente.', true);
+                return;
+              }
+            }
+            if (updateRC(numero, { status: 'em_aprovacao' })) {
+              showToast(`Requisição ${numero} enviada para aprovação!`);
+              enviarWhatsApp(rc);
               render();
             } else {
               showToast('Erro ao enviar.', true);
@@ -2310,7 +2149,8 @@
         }
 
         if (target.dataset.preencherDestino) {
-          handlePreencherDestino(target.dataset.preencherDestino);
+          // Esta função foi removida – encarregado não preenche destino nas RCs
+          showToast('Funcionalidade removida. O destino é selecionado no formulário.', true);
           return;
         }
 
@@ -2366,7 +2206,192 @@
     }
 
     /* ============================================================
-       INICIALIZAÇÃO
+       FORM NOVO MATERIAL
+    ============================================================ */
+    function handleFormNovo() {
+      const getVal = (id) => document.getElementById(id)?.value || '';
+      const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
+
+      const codigo = getVal('novoCodigo');
+      const dataCadastro = getVal('novoData') || new Date().toLocaleDateString('pt-BR');
+      const usuario = getVal('novoUsuario') || 'Leonardo Santos';
+      const cadastroCompleto = getVal('novoCompleto') || 'SIM';
+      const descricaoSimples = getVal('novoDescSimples').trim();
+      const descricaoCurta = getVal('novoDescCurta').trim();
+      const descricaoCompleta = getVal('novoDescCompleta').trim();
+      const categoria = getVal('novoCategoria');
+      const subcategoria = getVal('novoSubcategoria');
+      const unid = getVal('novoUnid');
+      const unidDetalhe = getVal('novoUnidDetalhe');
+      const ncm = getVal('novoNcm');
+      const marca = getVal('novoMarca');
+      const modelo = getVal('novoModelo');
+      const tipoMaterial = getVal('novoTipoMat');
+      const dimensoes = getVal('novoDimensoes');
+      const cor = getVal('novoCor');
+      const peso = getVal('novoPeso');
+      const tensao = getVal('novoTensao');
+      const pressao = getVal('novoPressao');
+      const temperatura = getVal('novoTemperatura');
+      const certificacoes = getVal('novoCertificacoes');
+      const localArmazenagem = getVal('novoLocal');
+      const estoqueMin = getNum('novoEstMin');
+      const estoqueMax = getNum('novoEstMax');
+      const pontoPedido = getVal('novoPontoPedido');
+      const loteMinimo = getVal('novoLoteMin');
+      const leadTime = getVal('novoLeadTime');
+      const condicoesArmazenamento = getVal('novoCondArm');
+      const custoUnitario = getVal('novoCustoUnit');
+      const fornecedor = getVal('novoFornecedor');
+      const fornecedoresAlt = getVal('novoFornecedoresAlt');
+      const codigoFornecedor = getVal('novoCodFornecedor');
+      const moeda = getVal('novoMoeda') || 'Real';
+
+      if (!descricaoSimples || !categoria || !subcategoria || !unid || !fornecedor) {
+        showToast('Preencha os campos obrigatórios.', true);
+        return;
+      }
+
+      const newItem = {
+        item: allItems.length + 1,
+        dataCadastro,
+        usuario,
+        cadastroCompleto,
+        codigo,
+        descricaoSimples,
+        descricaoCurta,
+        descricaoCompleta,
+        categoria,
+        subcategoria,
+        unid,
+        unidDetalhe,
+        ncm,
+        marca,
+        modelo,
+        tipoMaterial,
+        dimensoes,
+        cor,
+        peso,
+        tensao,
+        pressao,
+        temperatura,
+        certificacoes,
+        localArmazenagem,
+        estoqueMin: String(estoqueMin),
+        estoqueMax: String(estoqueMax),
+        pontoPedido,
+        loteMinimo,
+        leadTime,
+        condicoesArmazenamento,
+        custoUnitario: custoUnitario ? `R$ ${custoUnitario}` : "",
+        custoEstoqueMin: `R$ ${(estoqueMin * parseMoney(custoUnitario)).toFixed(2)}`,
+        custoEstoqueMax: `R$ ${(estoqueMax * parseMoney(custoUnitario)).toFixed(2)}`,
+        fornecedor,
+        fornecedoresAlt,
+        codigoFornecedor,
+        moeda,
+        custoUnitarioNum: parseMoney(custoUnitario),
+        custoEstoqueMinNum: estoqueMin * parseMoney(custoUnitario),
+        custoEstoqueMaxNum: estoqueMax * parseMoney(custoUnitario),
+      };
+
+      addNewItem(newItem);
+      showToast(`Material ${codigo} cadastrado com sucesso!`);
+      document.getElementById('formNovo')?.reset();
+      document.getElementById('novoCodigo').value = getNextCode();
+      document.getElementById('novoData').value = new Date().toLocaleDateString('pt-BR');
+    }
+
+    /* ============================================================
+       EDIÇÃO DE MATERIAL (MODAL)
+    ============================================================ */
+    function abrirModalEdicao(codigo) {
+      const item = allItems.find(i => i.codigo === codigo);
+      if (!item) { showToast('Material não encontrado.', true); return; }
+
+      document.getElementById('editCodigo').value = item.codigo;
+      document.getElementById('editData').value = item.dataCadastro || '';
+      document.getElementById('editUsuario').value = item.usuario || '';
+      document.getElementById('editCompleto').value = item.cadastroCompleto || 'SIM';
+      document.getElementById('editDescSimples').value = item.descricaoSimples || '';
+      document.getElementById('editDescCurta').value = item.descricaoCurta || '';
+      document.getElementById('editDescCompleta').value = item.descricaoCompleta || '';
+      document.getElementById('editUnidDetalhe').value = item.unidDetalhe || '';
+      document.getElementById('editNcm').value = item.ncm || '';
+      document.getElementById('editMarca').value = item.marca || '';
+      document.getElementById('editModelo').value = item.modelo || '';
+      document.getElementById('editTipoMat').value = item.tipoMaterial || '';
+      document.getElementById('editDimensoes').value = item.dimensoes || '';
+      document.getElementById('editCor').value = item.cor || '';
+      document.getElementById('editPeso').value = item.peso || '';
+      document.getElementById('editTensao').value = item.tensao || '';
+      document.getElementById('editPressao').value = item.pressao || '';
+      document.getElementById('editTemperatura').value = item.temperatura || '';
+      document.getElementById('editCertificacoes').value = item.certificacoes || '';
+      document.getElementById('editLocal').value = item.localArmazenagem || '';
+      document.getElementById('editEstMin').value = parseFloat(item.estoqueMin) || 0;
+      document.getElementById('editEstMax').value = parseFloat(item.estoqueMax) || 0;
+      document.getElementById('editPontoPedido').value = item.pontoPedido || '';
+      document.getElementById('editLoteMin').value = item.loteMinimo || '';
+      document.getElementById('editLeadTime').value = item.leadTime || '';
+      document.getElementById('editCondArm').value = item.condicoesArmazenamento || '';
+      document.getElementById('editCustoUnit').value = item.custoUnitario ? item.custoUnitario.replace('R$ ', '') : '';
+      document.getElementById('editFornecedoresAlt').value = item.fornecedoresAlt || '';
+      document.getElementById('editCodFornecedor').value = item.codigoFornecedor || '';
+      document.getElementById('editMoeda').value = item.moeda || 'Real';
+
+      const categorias = getUniqueValues('categoria');
+      const subcategorias = getUniqueValues('subcategoria');
+      const unidades = getUniqueValues('unid');
+      const fornecedoresList = getUniqueValues('fornecedor');
+
+      const catSelect = document.getElementById('editCategoria');
+      catSelect.innerHTML = '<option value="">Selecione</option>' + categorias.map(c => `<option value="${c}" ${c===item.categoria?'selected':''}>${c}</option>`).join('');
+      const subSelect = document.getElementById('editSubcategoria');
+      subSelect.innerHTML = '<option value="">Selecione</option>' + subcategorias.map(s => `<option value="${s}" ${s===item.subcategoria?'selected':''}>${s}</option>`).join('');
+      const unidSelect = document.getElementById('editUnid');
+      unidSelect.innerHTML = '<option value="">Selecione</option>' + unidades.map(u => `<option value="${u}" ${u===item.unid?'selected':''}>${u}</option>`).join('');
+      const fornSelect = document.getElementById('editFornecedor');
+      fornSelect.innerHTML = '<option value="">Selecione</option>' + fornecedoresList.map(f => `<option value="${f}" ${f===item.fornecedor?'selected':''}>${f}</option>`).join('');
+
+      document.getElementById('editModal').classList.add('active');
+    }
+
+    /* ============================================================
+       HANDLERS DE RC (APROVAR/REJEITAR/ARQUIVAR/REABRIR)
+    ============================================================ */
+    function handleAprovarRC(numero) {
+      if (!confirm(`Aprovar requisição ${numero}?`)) return;
+      if (updateRC(numero, { status: 'aprovado' })) {
+        showToast(`Requisição ${numero} aprovada!`);
+        render();
+      } else {
+        showToast('Erro ao aprovar.', true);
+      }
+    }
+
+    function handleRejeitarRC(numero) {
+      const modal = document.getElementById('rejeitarModal');
+      modal.classList.add('active');
+      document.getElementById('rejeitarJustificativa').value = '';
+      modal.dataset.rcNumero = numero;
+    }
+
+    function handleArquivarRC(numero) {
+      if (updateRC(numero, { status: 'arquivado' })) {
+        showToast(`Requisição ${numero} arquivada.`);
+        render();
+      }
+    }
+    function handleReabrirRC(numero) {
+      if (updateRC(numero, { status: 'rascunho' })) {
+        showToast(`Requisição ${numero} reaberta.`);
+        render();
+      }
+    }
+
+    /* ============================================================
+       NAVEGAÇÃO E INICIALIZAÇÃO
     ============================================================ */
     function iniciarSistema() {
       if (typeof window.MATERIAIS_DATA === "undefined") {
@@ -2378,9 +2403,17 @@
       refreshAllItems();
       rcs = loadRCs();
       fornecedores = loadFornecedores();
-      carretas = loadCarretas();
+      frotas = loadFrotas();
+      limitePercentual = getLimitePercentual();
+      perfilAtual = getPerfil();
+      document.getElementById('profileSelector').value = perfilAtual;
       document.getElementById("sidebarSource").textContent = "Fonte: " + DATA.meta.fonte + " + " + (loadLocalItems().length) + " locais";
       render();
+
+      document.getElementById('profileSelector').addEventListener('change', function() {
+        setPerfil(this.value);
+        render();
+      });
 
       document.querySelectorAll(".nav-btn").forEach(btn => {
         btn.addEventListener("click", () => {
