@@ -10,7 +10,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
-    /* ====== ESTILOS (MANTIDOS E ADAPTADOS) ====== */
+    /* ====== ESTILOS (MANTIDOS) ====== */
     :root {
       --bg: #0d0f0d;
       --bg-card: #151815;
@@ -503,8 +503,6 @@
        SISTEMA DE LOGIN
     ============================================================ */
     const SESSION_KEY = 'cryotronics_session';
-
-    // Usuários pré-cadastrados (simulando banco de dados)
     const USUARIOS = [
       { usuario: 'admin', senha: 'admin123', perfil: 'admin' },
       { usuario: 'gerente', senha: 'gerente123', perfil: 'gerente' },
@@ -512,6 +510,31 @@
       { usuario: 'usuario', senha: 'usuario123', perfil: 'usuario' },
     ];
 
+    /* ============================================================
+       CHAVES DE ARMAZENAMENTO (movidas para o topo)
+    ============================================================ */
+    // Usamos 'var' para evitar problemas de Temporal Dead Zone
+    var STORAGE_KEY = 'cryotronics_materiais';
+    var RC_STORAGE_KEY = 'cryotronics_rcs';
+    var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
+    var FORNECEDORES_STORAGE_KEY = 'cryotronics_fornecedores';
+    var CARRETAS_STORAGE_KEY = 'cryotronics_carretas';
+    var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
+    var PERFIL_KEY = 'cryotronics_perfil';
+
+    /* ============================================================
+       VARIÁVEIS GLOBAIS (também com 'var')
+    ============================================================ */
+    var DATA = null;
+    var allItems = [];
+    var rcs = [];
+    var fornecedores = [];
+    var carretas = [];
+    var perfilAtual = 'usuario';
+
+    /* ============================================================
+       FUNÇÕES DE SESSÃO
+    ============================================================ */
     function getSession() {
       try {
         const data = localStorage.getItem(SESSION_KEY);
@@ -545,9 +568,7 @@
       if (sess) {
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
-        // Atualizar seletor de perfil
         document.getElementById('profileSelector').value = sess.perfil;
-        // Iniciar o sistema
         iniciarSistema();
       } else {
         document.getElementById('loginScreen').classList.remove('hidden');
@@ -577,32 +598,11 @@
       }
     });
 
-    // Permitir Enter no login
     document.getElementById('loginSenha').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
     });
 
-    // Botão de logout
     document.getElementById('btnLogout').addEventListener('click', logout);
-
-    /* ============================================================
-       CONFIGURAÇÕES DO SISTEMA
-    ============================================================ */
-    const STORAGE_KEY = 'cryotronics_materiais';
-    const RC_STORAGE_KEY = 'cryotronics_rcs';
-    const WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
-    const FORNECEDORES_STORAGE_KEY = 'cryotronics_fornecedores';
-    const CARRETAS_STORAGE_KEY = 'cryotronics_carretas';
-    const DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
-    const PERFIL_KEY = 'cryotronics_perfil'; // ainda usado para persistir a seleção manual
-
-    // CORREÇÃO: usar var em vez de let para evitar Temporal Dead Zone
-    var DATA = null;
-    var allItems = [];
-    var rcs = [];
-    var fornecedores = [];
-    var carretas = [];
-    var perfilAtual = 'usuario';
 
     /* ============================================================
        UTILITÁRIOS
@@ -673,7 +673,6 @@
       return 'usuario';
     }
     function setPerfil(p) {
-      // Atualiza a sessão e também o localStorage auxiliar
       const sess = getSession();
       if (sess) {
         sess.perfil = p;
@@ -2571,6 +2570,7 @@
        NAVEGAÇÃO E INICIALIZAÇÃO
     ============================================================ */
     function iniciarSistema() {
+      console.log('iniciarSistema() executado');
       // Já foi chamado após login
       if (typeof window.MATERIAIS_DATA === "undefined") {
         document.getElementById("appContent").innerHTML =
