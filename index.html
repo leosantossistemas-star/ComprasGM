@@ -365,7 +365,7 @@
     ];
 
     /* ============================================================
-       CHAVES DE ARMAZENAMENTO (var para evitar TDZ)
+       CHAVES DE ARMAZENAMENTO
     ============================================================ */
     var STORAGE_KEY = 'cryotronics_materiais';
     var RC_STORAGE_KEY = 'cryotronics_rcs';
@@ -385,7 +385,7 @@
     var fornecedores = [];
     var frotas = [];
     var perfilAtual = 'usuario';
-    var limitePercentual = 20; // padrão 20%
+    var limitePercentual = 20;
 
     /* ============================================================
        ESTADO GLOBAL
@@ -978,12 +978,13 @@
       return html;
     }
 
-    // =========== SEÇÃO FROTAS ===========
+    // =========== SEÇÃO FROTAS (CORRIGIDA) ===========
     function renderFrotas() {
       const list = loadFrotas();
       const perfil = perfilAtual;
       const isAdminGerente = perfil === 'admin' || perfil === 'gerente';
       const isEncarregado = perfil === 'encarregado' || perfil === 'admin';
+      const isUsuario = perfil === 'usuario';
 
       let html = `
         <div class="card" style="margin-bottom:20px;">
@@ -993,20 +994,29 @@
           </div>
           <div style="overflow-x:auto;">
             <table>
-              <thead><tr><th>Nome da Frota</th><th>Valor do Orçamento</th><th>Limite (${limitePercentual}%)</th><th>Ações</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Nome da Frota</th>
+                  ${!isUsuario ? `<th>Valor do Orçamento</th>` : ''}
+                  <th>Limite (${limitePercentual}%)</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
               <tbody>
-                ${list.length === 0 ? `<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma frota cadastrada.</td></tr>` : ''}
+                ${list.length === 0 ? `<tr><td colspan="${isUsuario ? 3 : 4}" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma frota cadastrada.</td></tr>` : ''}
                 ${list.map(f => {
                   const limite = f.valorOrcamento * (limitePercentual / 100);
+                  // Ações: só admin/gerente podem excluir/editar %
+                  const acoes = isAdminGerente ? `
+                    <button class="btn btn-ghost btn-sm" data-editar-limite="${f.id}">Editar %</button>
+                    <button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>
+                  ` : (isEncarregado ? `<span style="color:var(--text-muted);font-size:12px;">Sem ações</span>` : '');
                   return `
                   <tr>
                     <td><strong>${f.nome}</strong></td>
-                    <td>${fmt.money(f.valorOrcamento)}</td>
+                    ${!isUsuario ? `<td>${fmt.money(f.valorOrcamento)}</td>` : ''}
                     <td>${fmt.money(limite)}</td>
-                    <td>
-                      ${isAdminGerente ? `<button class="btn btn-ghost btn-sm" data-editar-limite="${f.id}">Editar %</button>` : ''}
-                      ${isEncarregado ? `<button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>` : ''}
-                    </td>
+                    <td>${acoes}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -1084,7 +1094,7 @@
     }
 
     /* ============================================================
-       SEÇÃO REQUISIÇÕES DE COMPRA (com novo fluxo)
+       SEÇÃO REQUISIÇÕES DE COMPRA
     ============================================================ */
     function renderRequisicoes() {
       const filtered = getFilteredRCs();
@@ -1298,7 +1308,7 @@
             </div>
 
             <div class="form-actions">
-              <button type="submit" class="btn btn-accent">${isEdit ? 'Salvar Alterações' : 'Salvar como Rascunho'}</button>
+              <button type="submit" class="btn btn-accent" id="btnSalvarRascunho">${isEdit ? 'Salvar Alterações' : 'Salvar como Rascunho'}</button>
               <button type="button" class="btn btn-accent" id="btnEnviarRC" disabled>Enviar para Aprovação</button>
               <button type="reset" class="btn btn-ghost">Limpar</button>
             </div>
@@ -1452,11 +1462,11 @@
         if (display) display.value = fmt.money(limite);
         recalcularTotalRC();
       });
-      document.getElementById('formRC')?.addEventListener('submit', (e) => {
+      document.getElementById('formRC')?.addEventListener('submit', function(e) {
         e.preventDefault();
-        salvarRascunho();
+        salvarRascunho(false);
       });
-      document.getElementById('btnEnviarRC')?.addEventListener('click', () => {
+      document.getElementById('btnEnviarRC')?.addEventListener('click', function() {
         salvarRascunho(true);
       });
       document.getElementById('btnCancelarFormRC')?.addEventListener('click', () => {
@@ -1983,7 +1993,7 @@
       });
 
       // ===== FROTAS =====
-      // Abrir modal de nova frota
+      // Abrir modal de nova frota (apenas encarregado/admin)
       document.getElementById('btnAbrirModalFrota')?.addEventListener('click', () => {
         const nome = prompt('Nome da frota:');
         if (!nome) return;
@@ -1996,9 +2006,14 @@
         if (state.section === 'frotas') render();
       });
 
-      // Excluir frota
+      // Excluir frota (apenas admin/gerente)
       document.querySelectorAll('[data-excluir-frota]').forEach(btn => {
         btn.addEventListener('click', () => {
+          const perfil = perfilAtual;
+          if (perfil !== 'admin' && perfil !== 'gerente') {
+            showToast('Apenas Gerente e Administrador podem excluir frotas.', true);
+            return;
+          }
           const id = btn.dataset.excluirFrota;
           const f = getFrotaById(id);
           if (!f) return;
@@ -2010,9 +2025,14 @@
         });
       });
 
-      // Editar limite percentual (Admin/Gerente)
+      // Editar limite percentual (apenas admin/gerente)
       document.querySelectorAll('[data-editar-limite]').forEach(btn => {
         btn.addEventListener('click', () => {
+          const perfil = perfilAtual;
+          if (perfil !== 'admin' && perfil !== 'gerente') {
+            showToast('Apenas Gerente e Administrador podem editar o limite.', true);
+            return;
+          }
           const id = btn.dataset.editarLimite;
           const f = getFrotaById(id);
           if (!f) return;
@@ -2076,7 +2096,6 @@
                 const vencInput = document.getElementById('rcVencimento');
                 if (vencInput) vencInput.value = venc;
               });
-              // Atualizar limite ao mudar destino
               document.getElementById('rcDestino')?.addEventListener('change', function() {
                 const selected = this.options[this.selectedIndex];
                 const limite = selected ? parseMoney(selected.dataset.limite) : 0;
@@ -2084,11 +2103,11 @@
                 if (display) display.value = fmt.money(limite);
                 recalcularTotalRC();
               });
-              document.getElementById('formRC')?.addEventListener('submit', (e) => {
+              document.getElementById('formRC')?.addEventListener('submit', function(e) {
                 e.preventDefault();
-                salvarRascunho();
+                salvarRascunho(false);
               });
-              document.getElementById('btnEnviarRC')?.addEventListener('click', () => {
+              document.getElementById('btnEnviarRC')?.addEventListener('click', function() {
                 salvarRascunho(true);
               });
               document.getElementById('btnCancelarFormRC')?.addEventListener('click', () => {
@@ -2145,12 +2164,6 @@
               showToast('Erro ao enviar.', true);
             }
           }
-          return;
-        }
-
-        if (target.dataset.preencherDestino) {
-          // Esta função foi removida – encarregado não preenche destino nas RCs
-          showToast('Funcionalidade removida. O destino é selecionado no formulário.', true);
           return;
         }
 
