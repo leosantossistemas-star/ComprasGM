@@ -384,7 +384,7 @@
     var frotas = [];
     var perfilAtual = 'usuario';
     var limitePercentual = 20;
-    var toastTimeout = null; // <-- CORREÇÃO: declarada no topo
+    var toastTimeout = null;
 
     /* ============================================================
        ESTADO GLOBAL
@@ -478,25 +478,6 @@
     document.getElementById('loginSenha').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
     });
-
-    // ===== BOTÃO SAIR (garantido) =====
-    document.addEventListener('DOMContentLoaded', function() {
-      const btn = document.getElementById('btnLogout');
-      if (btn) {
-        btn.addEventListener('click', logout);
-        console.log('Evento de logout anexado.');
-      } else {
-        console.warn('Botão "Sair" não encontrado no DOM.');
-      }
-    });
-
-    // Também como fallback, anexar diretamente se já estiver carregado
-    (function attachLogout() {
-      const btn = document.getElementById('btnLogout');
-      if (btn) {
-        btn.addEventListener('click', logout);
-      }
-    })();
 
     /* ============================================================
        FUNÇÕES AUXILIARES
@@ -1808,7 +1789,7 @@
     }
 
     /* ============================================================
-       BIND EVENTS (inclui logout já tratado)
+       BIND EVENTS
     ============================================================ */
     function bindEvents() {
       // ===== MATERIAIS =====
@@ -2430,6 +2411,16 @@
       limitePercentual = getLimitePercentual();
       perfilAtual = getPerfil();
       document.getElementById("sidebarSource").textContent = "Fonte: " + DATA.meta.fonte + " + " + (loadLocalItems().length) + " locais";
+
+      // ✅ VINCULE O BOTÃO SAIR AQUI (dentro de iniciarSistema)
+      const btnLogout = document.getElementById('btnLogout');
+      if (btnLogout) {
+        btnLogout.addEventListener('click', logout);
+        console.log('Evento de logout vinculado com sucesso.');
+      } else {
+        console.warn('Botão "Sair" não encontrado em iniciarSistema.');
+      }
+
       render();
 
       document.querySelectorAll(".nav-btn").forEach(btn => {
