@@ -328,7 +328,6 @@
         <p class="header-meta" id="pageMeta">Visão geral do cadastro de materiais</p>
       </div>
       <div class="header-actions">
-        <!-- Exibição fixa do perfil (sem interação) -->
         <div class="profile-display">
           <span>👤 Perfil: <strong id="profileLabel">Carregando...</strong></span>
         </div>
@@ -376,7 +375,7 @@
     var LIMITE_PERCENTUAL_KEY = 'cryotronics_limite_percentual';
 
     /* ============================================================
-       VARIÁVEIS GLOBAIS
+       VARIÁVEIS GLOBAIS (TODAS COM 'var' PARA EVITAR TDZ)
     ============================================================ */
     var DATA = null;
     var allItems = [];
@@ -385,6 +384,7 @@
     var frotas = [];
     var perfilAtual = 'usuario';
     var limitePercentual = 20;
+    var toastTimeout = null; // <-- CORREÇÃO: declarada no topo
 
     /* ============================================================
        ESTADO GLOBAL
@@ -448,7 +448,6 @@
       if (sess) {
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
-        // Atualizar label do perfil
         const label = document.getElementById('profileLabel');
         if (label) {
           const nomes = { admin: 'Administrador', gerente: 'Gerente', encarregado: 'Encarregado', usuario: 'Usuário' };
@@ -479,7 +478,25 @@
     document.getElementById('loginSenha').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
     });
-    document.getElementById('btnLogout').addEventListener('click', logout);
+
+    // ===== BOTÃO SAIR (garantido) =====
+    document.addEventListener('DOMContentLoaded', function() {
+      const btn = document.getElementById('btnLogout');
+      if (btn) {
+        btn.addEventListener('click', logout);
+        console.log('Evento de logout anexado.');
+      } else {
+        console.warn('Botão "Sair" não encontrado no DOM.');
+      }
+    });
+
+    // Também como fallback, anexar diretamente se já estiver carregado
+    (function attachLogout() {
+      const btn = document.getElementById('btnLogout');
+      if (btn) {
+        btn.addEventListener('click', logout);
+      }
+    })();
 
     /* ============================================================
        FUNÇÕES AUXILIARES
@@ -666,10 +683,10 @@
       return true;
     }
 
-    // ===== TOAST =====
-    let toastTimeout;
+    // ===== TOAST (corrigido) =====
     function showToast(msg, isError = false) {
       const el = document.getElementById("toast");
+      if (!el) return;
       el.textContent = msg;
       el.className = "toast" + (isError ? " error" : "");
       clearTimeout(toastTimeout);
@@ -1791,7 +1808,7 @@
     }
 
     /* ============================================================
-       BIND EVENTS
+       BIND EVENTS (inclui logout já tratado)
     ============================================================ */
     function bindEvents() {
       // ===== MATERIAIS =====
