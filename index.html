@@ -9,6 +9,30 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- ===== FIREBASE SDK ===== -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    // 🔑 SUBSTITUA PELAS SUAS CREDENCIAIS DO FIREBASE
+    const firebaseConfig = {
+      apiKey: "AIzaSyAJ6scC0N3QxLzIAgZhrshm3VRhP2kuJ4g",
+      authDomain: "cyrtonics.firebaseapp.com",
+      projectId: "cyrtonics",
+      storageBucket: "cyrtonics.firebasestorage.app",
+      messagingSenderId: "1002852929804",
+      appId: "1:1002852929804:web:31f7a903b1e48b24955b1"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    db.enablePersistence()
+      .then(() => console.log('Firestore: persistência offline ativada'))
+      .catch(err => console.warn('Firestore: persistência offline não suportada', err));
+  </script>
+
   <style>
     /* ====== ESTILOS (MANTIDOS) ====== */
     :root {
@@ -344,12 +368,102 @@
   </div>
 
   <!-- ===== MODAIS ===== -->
-  <div class="modal-overlay" id="editModal">...</div>
-  <div class="modal-overlay" id="novoFornecedorModal">...</div>
-  <div class="modal-overlay" id="rejeitarModal">...</div>
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Editar Material</h2>
+        <button class="modal-close" id="editModalClose">&times;</button>
+      </div>
+      <form id="formEdit">
+        <div class="form-grid">
+          <div class="field"><label>Código</label><input type="text" id="editCodigo" readonly /></div>
+          <div class="field"><label>Data Cadastro</label><input type="text" id="editData" readonly /></div>
+          <div class="field"><label>Usuário</label><input type="text" id="editUsuario" /></div>
+          <div class="field"><label>Cadastro Completo?</label>
+            <select id="editCompleto"><option value="SIM">SIM</option><option value="NAO">NÃO</option></select>
+          </div>
+          <div class="field field-full"><label>Descrição Simples</label><input type="text" id="editDescSimples" /></div>
+          <div class="field field-full"><label>Descrição Curta</label><input type="text" id="editDescCurta" /></div>
+          <div class="field field-full"><label>Descrição Completa</label><textarea id="editDescCompleta" rows="2"></textarea></div>
+          <div class="field"><label>Categoria</label><select id="editCategoria"></select></div>
+          <div class="field"><label>Subcategoria</label><select id="editSubcategoria"></select></div>
+          <div class="field"><label>Unidade</label><select id="editUnid"></select></div>
+          <div class="field"><label>Unidade Detalhe</label><input type="text" id="editUnidDetalhe" /></div>
+          <div class="field"><label>NCM</label><input type="text" id="editNcm" /></div>
+          <div class="field"><label>Marca</label><input type="text" id="editMarca" /></div>
+          <div class="field"><label>Modelo</label><input type="text" id="editModelo" /></div>
+          <div class="field"><label>Tipo Material</label><input type="text" id="editTipoMat" /></div>
+          <div class="field"><label>Dimensões</label><input type="text" id="editDimensoes" /></div>
+          <div class="field"><label>Cor</label><input type="text" id="editCor" /></div>
+          <div class="field"><label>Peso</label><input type="text" id="editPeso" /></div>
+          <div class="field"><label>Tensão</label><input type="text" id="editTensao" /></div>
+          <div class="field"><label>Pressão</label><input type="text" id="editPressao" /></div>
+          <div class="field"><label>Temperatura</label><input type="text" id="editTemperatura" /></div>
+          <div class="field"><label>Certificações</label><input type="text" id="editCertificacoes" /></div>
+          <div class="field"><label>Local Armazenagem</label><input type="text" id="editLocal" /></div>
+          <div class="field"><label>Estoque Mínimo</label><input type="number" id="editEstMin" step="0.01" min="0" /></div>
+          <div class="field"><label>Estoque Máximo</label><input type="number" id="editEstMax" step="0.01" min="0" /></div>
+          <div class="field"><label>Ponto Pedido</label><input type="text" id="editPontoPedido" /></div>
+          <div class="field"><label>Lote Mínimo</label><input type="text" id="editLoteMin" /></div>
+          <div class="field"><label>Lead Time</label><input type="text" id="editLeadTime" /></div>
+          <div class="field"><label>Condições Armazenamento</label><input type="text" id="editCondArm" /></div>
+          <div class="field"><label>Custo Unitário</label><input type="text" id="editCustoUnit" placeholder="Ex: 10,50" /></div>
+          <div class="field field-full">
+            <div class="fornecedor-select-wrapper">
+              <div class="field" style="flex:1"><label>Fornecedor</label><select id="editFornecedor"></select></div>
+              <button type="button" class="btn btn-accent btn-sm" id="editBtnNovoFornecedor" style="white-space:nowrap;">➕ Novo</button>
+            </div>
+          </div>
+          <div class="field"><label>Fornecedores Alt</label><input type="text" id="editFornecedoresAlt" /></div>
+          <div class="field"><label>Código Fornecedor</label><input type="text" id="editCodFornecedor" /></div>
+          <div class="field"><label>Moeda</label><input type="text" id="editMoeda" /></div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-accent">Salvar</button>
+          <button type="button" class="btn btn-ghost" id="editCancel">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="novoFornecedorModal">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-header">
+        <h2>Novo Fornecedor</h2>
+        <button class="modal-close" id="novoFornecedorModalClose">&times;</button>
+      </div>
+      <form id="formNovoFornecedor">
+        <div class="field"><label>Nome *</label><input type="text" id="novoFornecedorNome" required /></div>
+        <div class="field"><label>Contato</label><input type="text" id="novoFornecedorContato" /></div>
+        <div class="field"><label>Telefone</label><input type="text" id="novoFornecedorTelefone" /></div>
+        <div class="field"><label>E-mail</label><input type="email" id="novoFornecedorEmail" /></div>
+        <div class="field"><label>Observações</label><textarea id="novoFornecedorObs" rows="2"></textarea></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-accent">Salvar</button>
+          <button type="button" class="btn btn-ghost" id="novoFornecedorCancel">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="rejeitarModal">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-header">
+        <h2>Rejeitar Requisição</h2>
+        <button class="modal-close" id="rejeitarModalClose">&times;</button>
+      </div>
+      <form id="formRejeitar">
+        <div class="field"><label>Justificativa *</label><textarea id="rejeitarJustificativa" rows="3" required></textarea></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-danger">Rejeitar</button>
+          <button type="button" class="btn btn-ghost" id="rejeitarCancel">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
-  <script src="data.js"></script>
   <script>
     /* ============================================================
        SISTEMA DE LOGIN
@@ -363,21 +477,9 @@
     ];
 
     /* ============================================================
-       CHAVES DE ARMAZENAMENTO
+       VARIÁVEIS GLOBAIS (mantidas)
     ============================================================ */
-    var STORAGE_KEY = 'cryotronics_materiais';
-    var RC_STORAGE_KEY = 'cryotronics_rcs';
-    var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
-    var FORNECEDORES_STORAGE_KEY = 'cryotronics_fornecedores';
-    var FROTAS_STORAGE_KEY = 'cryotronics_frotas';
-    var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
-    var PERFIL_KEY = 'cryotronics_perfil';
-    var LIMITE_PERCENTUAL_KEY = 'cryotronics_limite_percentual';
-
-    /* ============================================================
-       VARIÁVEIS GLOBAIS (TODAS COM 'var' PARA EVITAR TDZ)
-    ============================================================ */
-    var DATA = null;
+    var DATA = null; // não usado mais, mas mantido para compatibilidade
     var allItems = [];
     var rcs = [];
     var fornecedores = [];
@@ -386,9 +488,6 @@
     var limitePercentual = 20;
     var toastTimeout = null;
 
-    /* ============================================================
-       ESTADO GLOBAL
-    ============================================================ */
     var state = {
       section: "dashboard",
       filters: { busca: "", categoria: "", subcategoria: "", fornecedor: "", cadastroCompleto: "", unidade: "", usuario: "" },
@@ -401,7 +500,7 @@
     };
 
     /* ============================================================
-       UTILITÁRIOS
+       UTILITÁRIOS (mantidos)
     ============================================================ */
     const fmt = {
       money: (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
@@ -422,7 +521,7 @@
     function clean(str) { return (str || "").trim(); }
 
     /* ============================================================
-       FUNÇÕES DE SESSÃO
+       FUNÇÕES DE SESSÃO (mantidas)
     ============================================================ */
     function getSession() {
       try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
@@ -480,7 +579,7 @@
     });
 
     /* ============================================================
-       FUNÇÕES AUXILIARES
+       FUNÇÕES AUXILIARES (algumas adaptadas para Firestore)
     ============================================================ */
     function getNextCode() {
       if (!allItems.length) return "CRY-0001";
@@ -489,13 +588,17 @@
       codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
       return "CRY-" + String(max + 1).padStart(4, "0");
     }
+
+    // Adaptado para usar a variável global rcs (atualizada pelo listener)
     function getNextRCNumber() {
-      const stored = loadRCs();
-      const nums = stored.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
+      const nums = rcs.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
       const max = Math.max(0, ...nums);
       return "RC " + String(max + 1).padStart(4, "0");
     }
 
+    // WhatsApp (mantido)
+    var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
+    var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
     function getWhatsAppNumbers() {
       const saved = localStorage.getItem(WHATSAPP_STORAGE_KEY);
       if (saved) { try { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length === 3) return parsed; } catch(e) {} }
@@ -510,161 +613,115 @@
     }
 
     function getLimitePercentual() {
-      const saved = localStorage.getItem(LIMITE_PERCENTUAL_KEY);
+      const saved = localStorage.getItem('cryotronics_limite_percentual');
       if (saved) { const val = parseFloat(saved); if (!isNaN(val) && val > 0) return val; }
       return 20;
     }
     function setLimitePercentual(val) {
-      localStorage.setItem(LIMITE_PERCENTUAL_KEY, String(val));
+      localStorage.setItem('cryotronics_limite_percentual', String(val));
       limitePercentual = val;
     }
 
-    // ===== FORNECEDORES =====
-    function loadFornecedores() { try { const stored = localStorage.getItem(FORNECEDORES_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
-    function saveFornecedores(list) { localStorage.setItem(FORNECEDORES_STORAGE_KEY, JSON.stringify(list)); fornecedores = list; }
-    function addFornecedor(nome, contato, telefone, email, obs) {
-      const list = loadFornecedores();
-      const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
-      const novo = { id, nome: clean(nome), contato: clean(contato), telefone: clean(telefone), email: clean(email), obs: clean(obs) };
-      list.push(novo);
-      saveFornecedores(list);
-      return novo;
-    }
-    function updateFornecedor(id, data) {
-      const list = loadFornecedores();
-      const idx = list.findIndex(f => f.id === id);
-      if (idx === -1) return false;
-      list[idx] = { ...list[idx], ...data };
-      saveFornecedores(list);
-      return true;
-    }
-    function deleteFornecedor(id) {
-      let list = loadFornecedores();
-      list = list.filter(f => f.id !== id);
-      saveFornecedores(list);
-      return true;
-    }
-    function getFornecedorById(id) { return fornecedores.find(f => f.id === id) || null; }
-    function syncFornecedoresFromMateriais() {
-      const list = loadFornecedores();
-      const nomes = new Set(list.map(f => f.nome.toLowerCase()));
-      let changed = false;
-      allItems.forEach(item => {
-        if (item.fornecedor) {
-          const nome = clean(item.fornecedor);
-          if (nome && !nomes.has(nome.toLowerCase())) {
-            list.push({ id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4), nome, contato: '', telefone: '', email: '', obs: '' });
-            nomes.add(nome.toLowerCase());
-            changed = true;
-          }
-        }
-      });
-      if (changed) saveFornecedores(list);
+    /* ============================================================
+       FUNÇÕES FIRESTORE – MATERIAIS
+    ============================================================ */
+    async function salvarMaterial(material) {
+      if (material.id) {
+        await db.collection('materiais').doc(material.id).set(material);
+      } else {
+        const docRef = await db.collection('materiais').add(material);
+        material.id = docRef.id;
+      }
+      return material;
     }
 
-    // ===== FROTAS =====
-    function loadFrotas() { try { const stored = localStorage.getItem(FROTAS_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
-    function saveFrotas(list) { localStorage.setItem(FROTAS_STORAGE_KEY, JSON.stringify(list)); frotas = list; }
-    function addFrota(nome, valorOrcamento) {
-      const list = loadFrotas();
-      const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
-      const nova = { id, nome: clean(nome), valorOrcamento: parseFloat(valorOrcamento) || 0 };
-      list.push(nova);
-      saveFrotas(list);
-      return nova;
+    async function excluirMaterial(id) {
+      await db.collection('materiais').doc(id).delete();
     }
-    function updateFrota(id, data) {
-      const list = loadFrotas();
-      const idx = list.findIndex(f => f.id === id);
-      if (idx === -1) return false;
-      list[idx] = { ...list[idx], ...data };
-      saveFrotas(list);
-      return true;
+
+    async function encontrarMaterialPorCodigo(codigo) {
+      const snapshot = await db.collection('materiais').where('codigo', '==', codigo).get();
+      if (snapshot.empty) return null;
+      const doc = snapshot.docs[0];
+      return { id: doc.id, ...doc.data() };
     }
-    function deleteFrota(id) {
-      let list = loadFrotas();
-      list = list.filter(f => f.id !== id);
-      saveFrotas(list);
-      return true;
+
+    /* ============================================================
+       FUNÇÕES FIRESTORE – FORNECEDORES
+    ============================================================ */
+    async function salvarFornecedor(fornecedor) {
+      if (fornecedor.id) {
+        await db.collection('fornecedores').doc(fornecedor.id).set(fornecedor);
+      } else {
+        const docRef = await db.collection('fornecedores').add(fornecedor);
+        fornecedor.id = docRef.id;
+      }
+      return fornecedor;
     }
-    function getFrotaById(id) { return frotas.find(f => f.id === id) || null; }
-    function getFrotaByNome(nome) { return frotas.find(f => f.nome === nome) || null; }
+
+    async function excluirFornecedor(id) {
+      await db.collection('fornecedores').doc(id).delete();
+    }
+
+    async function getFornecedorById(id) {
+      const doc = await db.collection('fornecedores').doc(id).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...doc.data() };
+    }
+
+    /* ============================================================
+       FUNÇÕES FIRESTORE – FROTAS
+    ============================================================ */
+    async function salvarFrota(frota) {
+      if (frota.id) {
+        await db.collection('frotas').doc(frota.id).set(frota);
+      } else {
+        const docRef = await db.collection('frotas').add(frota);
+        frota.id = docRef.id;
+      }
+      return frota;
+    }
+
+    async function excluirFrota(id) {
+      await db.collection('frotas').doc(id).delete();
+    }
+
+    async function getFrotaById(id) {
+      const doc = await db.collection('frotas').doc(id).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...doc.data() };
+    }
+
+    function getFrotaByNome(nome) {
+      return frotas.find(f => f.nome === nome) || null;
+    }
+
     function getLimiteFrota(frotaNome) {
       const frota = getFrotaByNome(frotaNome);
       if (!frota) return 0;
       return frota.valorOrcamento * (limitePercentual / 100);
     }
 
-    // ===== MATERIAIS =====
-    function loadLocalItems() { try { const stored = localStorage.getItem(STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
-    function saveLocalItems(items) { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
-    function getCombinedItems() {
-      if (!DATA) return [];
-      const base = DATA.items || [];
-      const local = loadLocalItems();
-      const map = new Map();
-      base.forEach(item => map.set(item.codigo, item));
-      local.forEach(item => { if (item.codigo) map.set(item.codigo, item); });
-      return Array.from(map.values());
-    }
-    function refreshAllItems() {
-      allItems = getCombinedItems();
-      syncFornecedoresFromMateriais();
-    }
-    function addNewItem(item) {
-      const local = loadLocalItems();
-      const idx = local.findIndex(i => i.codigo === item.codigo);
-      if (idx !== -1) local.splice(idx, 1);
-      local.push(item);
-      saveLocalItems(local);
-      refreshAllItems();
-    }
-    function updateItem(codigo, newData) {
-      const local = loadLocalItems();
-      const idx = local.findIndex(i => i.codigo === codigo);
-      if (idx !== -1) {
-        local[idx] = { ...local[idx], ...newData };
-        saveLocalItems(local);
-        refreshAllItems();
-        return true;
+    /* ============================================================
+       FUNÇÕES FIRESTORE – RCs
+    ============================================================ */
+    async function salvarRC(rc) {
+      if (rc.id) {
+        await db.collection('requisicoes').doc(rc.id).set(rc);
+      } else {
+        const docRef = await db.collection('requisicoes').add(rc);
+        rc.id = docRef.id;
       }
-      const base = DATA?.items || [];
-      const baseIdx = base.findIndex(i => i.codigo === codigo);
-      if (baseIdx !== -1) {
-        const item = { ...base[baseIdx], ...newData };
-        local.push(item);
-        saveLocalItems(local);
-        refreshAllItems();
-        return true;
-      }
-      return false;
-    }
-    function deleteItem(codigo) {
-      const local = loadLocalItems();
-      const idx = local.findIndex(i => i.codigo === codigo);
-      if (idx !== -1) {
-        local.splice(idx, 1);
-        saveLocalItems(local);
-        refreshAllItems();
-        return true;
-      }
-      return false;
+      return rc;
     }
 
-    // ===== RCs =====
-    function loadRCs() { try { const stored = localStorage.getItem(RC_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
-    function saveRCs(list) { localStorage.setItem(RC_STORAGE_KEY, JSON.stringify(list)); rcs = list; }
-    function addRC(rc) { const list = loadRCs(); list.push(rc); saveRCs(list); }
-    function updateRC(numero, newData) {
-      const list = loadRCs();
-      const idx = list.findIndex(r => r.numero === numero);
-      if (idx === -1) return false;
-      list[idx] = { ...list[idx], ...newData };
-      saveRCs(list);
-      return true;
+    async function excluirRC(id) {
+      await db.collection('requisicoes').doc(id).delete();
     }
 
-    // ===== TOAST (corrigido) =====
+    /* ============================================================
+       TOAST
+    ============================================================ */
     function showToast(msg, isError = false) {
       const el = document.getElementById("toast");
       if (!el) return;
@@ -677,7 +734,7 @@
     }
 
     /* ============================================================
-       FILTROS E ORDENAÇÃO
+       FILTROS E ORDENAÇÃO (mantidos)
     ============================================================ */
     function getUniqueValues(key) {
       if (key === 'fornecedor') {
@@ -726,7 +783,7 @@
     }
 
     /* ============================================================
-       FILTROS PARA RCs
+       FILTROS PARA RCs (mantido)
     ============================================================ */
     function getFilteredRCs() {
       const f = state.rcFilters;
@@ -741,8 +798,116 @@
     }
 
     /* ============================================================
-       RENDERIZAÇÃO (Materiais - mantido)
+       FUNÇÕES DE CRUD ADAPTADAS (substituem as antigas)
     ============================================================ */
+    function addNewItem(item) {
+      salvarMaterial(item)
+        .then(() => showToast('Material salvo com sucesso!'))
+        .catch(err => showToast('Erro ao salvar: ' + err.message, true));
+    }
+
+    function updateItem(codigo, newData) {
+      encontrarMaterialPorCodigo(codigo)
+        .then(material => {
+          if (!material) throw new Error('Material não encontrado');
+          return db.collection('materiais').doc(material.id).update(newData);
+        })
+        .then(() => showToast('Material atualizado com sucesso!'))
+        .catch(err => showToast('Erro ao atualizar: ' + err.message, true));
+    }
+
+    function deleteItem(codigo) {
+      encontrarMaterialPorCodigo(codigo)
+        .then(material => {
+          if (!material) throw new Error('Material não encontrado');
+          return excluirMaterial(material.id);
+        })
+        .then(() => showToast('Material excluído com sucesso!'))
+        .catch(err => showToast('Erro ao excluir: ' + err.message, true));
+    }
+
+    // Fornecedores adaptados
+    function addFornecedor(nome, contato, telefone, email, obs) {
+      const novo = { nome: clean(nome), contato: clean(contato), telefone: clean(telefone), email: clean(email), obs: clean(obs) };
+      salvarFornecedor(novo)
+        .then(() => showToast(`Fornecedor "${nome}" adicionado!`))
+        .catch(err => showToast('Erro ao adicionar fornecedor: ' + err.message, true));
+    }
+
+    function updateFornecedor(id, data) {
+      db.collection('fornecedores').doc(id).update(data)
+        .then(() => showToast('Fornecedor atualizado!'))
+        .catch(err => showToast('Erro ao atualizar: ' + err.message, true));
+    }
+
+    function deleteFornecedor(id) {
+      excluirFornecedor(id)
+        .then(() => showToast('Fornecedor excluído!'))
+        .catch(err => showToast('Erro ao excluir: ' + err.message, true));
+    }
+
+    // Frotas adaptadas
+    function addFrota(nome, valorOrcamento) {
+      const nova = { nome: clean(nome), valorOrcamento: parseFloat(valorOrcamento) || 0 };
+      salvarFrota(nova)
+        .then(() => showToast(`Frota "${nome}" cadastrada!`))
+        .catch(err => showToast('Erro ao adicionar frota: ' + err.message, true));
+    }
+
+    function updateFrota(id, data) {
+      db.collection('frotas').doc(id).update(data)
+        .then(() => showToast('Frota atualizada!'))
+        .catch(err => showToast('Erro ao atualizar: ' + err.message, true));
+    }
+
+    function deleteFrota(id) {
+      excluirFrota(id)
+        .then(() => showToast('Frota excluída!'))
+        .catch(err => showToast('Erro ao excluir: ' + err.message, true));
+    }
+
+    // RCs adaptados
+    function addRC(rc) {
+      salvarRC(rc)
+        .then(() => showToast(`Requisição ${rc.numero} criada!`))
+        .catch(err => showToast('Erro ao criar RC: ' + err.message, true));
+    }
+
+    function updateRC(numero, newData) {
+      const rc = rcs.find(r => r.numero === numero);
+      if (!rc) { showToast('RC não encontrada.', true); return; }
+      db.collection('requisicoes').doc(rc.id).update(newData)
+        .then(() => showToast(`RC ${numero} atualizada!`))
+        .catch(err => showToast('Erro ao atualizar RC: ' + err.message, true));
+    }
+
+    /* ============================================================
+       HANDLERS DAS RCs (adaptados)
+    ============================================================ */
+    function handleAprovarRC(numero) {
+      if (!confirm(`Aprovar requisição ${numero}?`)) return;
+      updateRC(numero, { status: 'aprovado' });
+    }
+
+    function handleRejeitarRC(numero) {
+      const modal = document.getElementById('rejeitarModal');
+      modal.classList.add('active');
+      document.getElementById('rejeitarJustificativa').value = '';
+      modal.dataset.rcNumero = numero;
+    }
+
+    function handleArquivarRC(numero) {
+      updateRC(numero, { status: 'arquivado' });
+    }
+
+    function handleReabrirRC(numero) {
+      updateRC(numero, { status: 'rascunho' });
+    }
+
+    /* ============================================================
+       RENDERIZAÇÃO (TODAS AS FUNÇÕES ORIGINAIS, COM LEVES AJUSTES)
+       ============================================================ */
+
     function renderFilters(extraFields = true) {
       const categorias = getUniqueValues('categoria');
       const subcategorias = getUniqueValues('subcategoria');
@@ -943,9 +1108,9 @@
       return `${renderFilters(false)}<div class="grid-2">${cards}</div>`;
     }
 
-    // =========== SEÇÃO FORNECEDORES ===========
+    // =========== SEÇÃO FORNECEDORES (ajustada para usar variável global) ===========
     function renderFornecedores() {
-      const list = loadFornecedores();
+      const list = fornecedores; // agora usa a variável global atualizada pelo listener
       let html = `
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
@@ -978,9 +1143,9 @@
       return html;
     }
 
-    // =========== SEÇÃO FROTAS ===========
+    // =========== SEÇÃO FROTAS (ajustada para usar variável global) ===========
     function renderFrotas() {
-      const list = loadFrotas();
+      const list = frotas; // agora usa a variável global atualizada pelo listener
       const perfil = perfilAtual;
       const isAdminGerente = perfil === 'admin' || perfil === 'gerente';
       const isEncarregado = perfil === 'encarregado' || perfil === 'admin';
@@ -1093,7 +1258,7 @@
     }
 
     /* ============================================================
-       SEÇÃO REQUISIÇÕES DE COMPRA
+       SEÇÃO REQUISIÇÕES DE COMPRA (usa rcs global)
     ============================================================ */
     function renderRequisicoes() {
       const filtered = getFilteredRCs();
@@ -1246,7 +1411,7 @@
       const nextNum = isEdit ? editData.numero : getNextRCNumber();
       const today = new Date().toISOString().slice(0,10);
       const fornecedoresList = getUniqueValues('fornecedor');
-      const frotasList = loadFrotas();
+      const frotasList = frotas; // usa a variável global
 
       const data = isEdit ? editData : {};
       const condPagOptions = ['À vista','7 dias','15 dias','30 dias','60 dias'];
@@ -1429,7 +1594,7 @@
     }
 
     /* ============================================================
-       HANDLERS DAS RCs
+       HANDLERS DAS RCs (adaptados)
     ============================================================ */
     function handleNovaRC() {
       const container = document.getElementById('rcFormContainer');
@@ -1570,7 +1735,7 @@
     }
 
     /* ============================================================
-       GERAR PDF E WHATSAPP
+       GERAR PDF E WHATSAPP (mantidos)
     ============================================================ */
     function gerarPDF(rcData) {
       const container = document.createElement('div');
@@ -1713,7 +1878,7 @@
           custoEstoqueMin: custoMin,
           custoEstoqueMax: custoMax,
           categoriasCount: categories.length,
-          fonte: DATA ? DATA.meta.fonte : "Cadastro de Materiais_rev6_resumo.csv",
+          fonte: "Firestore",
         },
         filtros: {
           categorias: categories,
@@ -1789,7 +1954,7 @@
     }
 
     /* ============================================================
-       BIND EVENTS
+       BIND EVENTS (adaptado)
     ============================================================ */
     function bindEvents() {
       // ===== MATERIAIS =====
@@ -1896,32 +2061,17 @@
         const telefone = document.getElementById('novoFornecedorTelefone').value.trim();
         const email = document.getElementById('novoFornecedorEmail').value.trim();
         const obs = document.getElementById('novoFornecedorObs').value.trim();
-        const novo = addFornecedor(nome, contato, telefone, email, obs);
-        showToast(`Fornecedor "${nome}" adicionado!`);
-
-        const targetId = document.getElementById('novoFornecedorModal').dataset.targetSelect || '';
-        if (targetId) {
-          const select = document.getElementById(targetId);
-          if (select) {
+        addFornecedor(nome, contato, telefone, email, obs);
+        document.getElementById('novoFornecedorModal').classList.remove('active');
+        document.querySelectorAll('select[id$="Fornecedor"]').forEach(sel => {
+          const exists = Array.from(sel.options).some(o => o.value === nome);
+          if (!exists) {
             const opt = document.createElement('option');
             opt.value = nome;
             opt.textContent = nome;
-            select.appendChild(opt);
-            select.value = nome;
-          }
-        }
-        document.querySelectorAll('select[id$="Fornecedor"]').forEach(sel => {
-          if (sel.id !== targetId) {
-            const exists = Array.from(sel.options).some(o => o.value === nome);
-            if (!exists) {
-              const opt = document.createElement('option');
-              opt.value = nome;
-              opt.textContent = nome;
-              sel.appendChild(opt);
-            }
+            sel.appendChild(opt);
           }
         });
-        document.getElementById('novoFornecedorModal').classList.remove('active');
         if (state.section === 'fornecedores') render();
       });
 
@@ -1951,22 +2101,18 @@
                 email: document.getElementById('novoFornecedorEmail').value.trim(),
                 obs: document.getElementById('novoFornecedorObs').value.trim(),
               };
-              if (updateFornecedor(editId, data)) {
-                showToast(`Fornecedor "${nome}" atualizado!`);
-                document.getElementById('novoFornecedorModal').classList.remove('active');
-                document.querySelectorAll('select[id$="Fornecedor"]').forEach(sel => {
-                  const opts = Array.from(sel.options);
-                  const idx = opts.findIndex(o => o.value === f.nome);
-                  if (idx !== -1) {
-                    sel.options[idx].textContent = nome;
-                    sel.options[idx].value = nome;
-                  }
-                });
-                if (state.section === 'fornecedores') render();
-                form.onsubmit = null;
-              } else {
-                showToast('Erro ao atualizar.', true);
-              }
+              updateFornecedor(editId, data);
+              document.getElementById('novoFornecedorModal').classList.remove('active');
+              document.querySelectorAll('select[id$="Fornecedor"]').forEach(sel => {
+                const opts = Array.from(sel.options);
+                const idx = opts.findIndex(o => o.value === f.nome);
+                if (idx !== -1) {
+                  sel.options[idx].textContent = nome;
+                  sel.options[idx].value = nome;
+                }
+              });
+              if (state.section === 'fornecedores') render();
+              form.onsubmit = null;
             }
           };
         });
@@ -2147,13 +2293,10 @@
                 return;
               }
             }
-            if (updateRC(numero, { status: 'em_aprovacao' })) {
-              showToast(`Requisição ${numero} enviada para aprovação!`);
-              enviarWhatsApp(rc);
-              render();
-            } else {
-              showToast('Erro ao enviar.', true);
-            }
+            updateRC(numero, { status: 'em_aprovacao' });
+            showToast(`Requisição ${numero} enviada para aprovação!`);
+            enviarWhatsApp(rc);
+            render();
           }
           return;
         }
@@ -2198,13 +2341,8 @@
         if (!justificativa) { showToast('Informe a justificativa.', true); return; }
         const numero = document.getElementById('rejeitarModal').dataset.rcNumero;
         if (numero) {
-          if (updateRC(numero, { status: 'rejeitado', justificativa })) {
-            showToast(`Requisição ${numero} rejeitada.`);
-            document.getElementById('rejeitarModal').classList.remove('active');
-            render();
-          } else {
-            showToast('Erro ao rejeitar.', true);
-          }
+          updateRC(numero, { status: 'rejeitado', justificativa });
+          document.getElementById('rejeitarModal').classList.remove('active');
         }
       });
     }
@@ -2362,63 +2500,50 @@
     }
 
     /* ============================================================
-       HANDLERS DE RC (APROVAR/REJEITAR/ARQUIVAR/REABRIR)
-    ============================================================ */
-    function handleAprovarRC(numero) {
-      if (!confirm(`Aprovar requisição ${numero}?`)) return;
-      if (updateRC(numero, { status: 'aprovado' })) {
-        showToast(`Requisição ${numero} aprovada!`);
-        render();
-      } else {
-        showToast('Erro ao aprovar.', true);
-      }
-    }
-
-    function handleRejeitarRC(numero) {
-      const modal = document.getElementById('rejeitarModal');
-      modal.classList.add('active');
-      document.getElementById('rejeitarJustificativa').value = '';
-      modal.dataset.rcNumero = numero;
-    }
-
-    function handleArquivarRC(numero) {
-      if (updateRC(numero, { status: 'arquivado' })) {
-        showToast(`Requisição ${numero} arquivada.`);
-        render();
-      }
-    }
-    function handleReabrirRC(numero) {
-      if (updateRC(numero, { status: 'rascunho' })) {
-        showToast(`Requisição ${numero} reaberta.`);
-        render();
-      }
-    }
-
-    /* ============================================================
-       NAVEGAÇÃO E INICIALIZAÇÃO
+       INICIALIZAÇÃO
     ============================================================ */
     function iniciarSistema() {
-      if (typeof window.MATERIAIS_DATA === "undefined") {
-        document.getElementById("appContent").innerHTML =
-          `<div class="loading"><span style="color:var(--danger)">Erro: data.js não encontrado.<br>Execute <code>python build.py</code> na pasta do projeto.</span></div>`;
-        return;
-      }
-      DATA = window.MATERIAIS_DATA;
-      refreshAllItems();
-      rcs = loadRCs();
-      fornecedores = loadFornecedores();
-      frotas = loadFrotas();
+      // Listeners em tempo real
+      // Materiais
+      db.collection('materiais').onSnapshot((snapshot) => {
+        const items = [];
+        snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+        allItems = items;
+        render();
+        console.log('Materiais sincronizados em tempo real.');
+      }, error => console.error('Erro no listener de materiais:', error));
+
+      // Fornecedores
+      db.collection('fornecedores').onSnapshot((snapshot) => {
+        const list = [];
+        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+        fornecedores = list;
+      }, error => console.error('Erro no listener de fornecedores:', error));
+
+      // Frotas
+      db.collection('frotas').onSnapshot((snapshot) => {
+        const list = [];
+        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+        frotas = list;
+      }, error => console.error('Erro no listener de frotas:', error));
+
+      // RCs
+      db.collection('requisicoes').onSnapshot((snapshot) => {
+        const list = [];
+        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+        rcs = list;
+      }, error => console.error('Erro no listener de RCs:', error));
+
       limitePercentual = getLimitePercentual();
       perfilAtual = getPerfil();
-      document.getElementById("sidebarSource").textContent = "Fonte: " + DATA.meta.fonte + " + " + (loadLocalItems().length) + " locais";
 
-      // ✅ VINCULE O BOTÃO SAIR AQUI (dentro de iniciarSistema)
+      document.getElementById("sidebarSource").textContent = "Dados em tempo real - Firebase Firestore";
+
+      // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
       if (btnLogout) {
         btnLogout.addEventListener('click', logout);
         console.log('Evento de logout vinculado com sucesso.');
-      } else {
-        console.warn('Botão "Sair" não encontrado em iniciarSistema.');
       }
 
       render();
@@ -2499,12 +2624,60 @@
         newData.custoEstoqueMin = `R$ ${(estMin * custoUnitNum).toFixed(2)}`;
         newData.custoEstoqueMax = `R$ ${(estMax * custoUnitNum).toFixed(2)}`;
 
-        if (updateItem(codigo, newData)) {
-          showToast(`Material ${codigo} atualizado com sucesso!`);
-          document.getElementById('editModal').classList.remove('active');
-          render();
-        } else {
-          showToast('Erro ao atualizar material.', true);
+        updateItem(codigo, newData);
+        document.getElementById('editModal').classList.remove('active');
+      });
+
+      // Fornecedor modal
+      document.getElementById('novoFornecedorModalClose').addEventListener('click', () => {
+        document.getElementById('novoFornecedorModal').classList.remove('active');
+      });
+      document.getElementById('novoFornecedorCancel').addEventListener('click', () => {
+        document.getElementById('novoFornecedorModal').classList.remove('active');
+      });
+      document.getElementById('novoFornecedorModal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) document.getElementById('novoFornecedorModal').classList.remove('active');
+      });
+
+      document.getElementById('formNovoFornecedor').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const nome = document.getElementById('novoFornecedorNome').value.trim();
+        if (!nome) { showToast('Informe o nome.', true); return; }
+        const contato = document.getElementById('novoFornecedorContato').value.trim();
+        const telefone = document.getElementById('novoFornecedorTelefone').value.trim();
+        const email = document.getElementById('novoFornecedorEmail').value.trim();
+        const obs = document.getElementById('novoFornecedorObs').value.trim();
+        addFornecedor(nome, contato, telefone, email, obs);
+        document.getElementById('novoFornecedorModal').classList.remove('active');
+        document.querySelectorAll('select[id$="Fornecedor"]').forEach(sel => {
+          const exists = Array.from(sel.options).some(o => o.value === nome);
+          if (!exists) {
+            const opt = document.createElement('option');
+            opt.value = nome;
+            opt.textContent = nome;
+            sel.appendChild(opt);
+          }
+        });
+      });
+
+      // Rejeitar modal
+      document.getElementById('rejeitarModalClose').addEventListener('click', () => {
+        document.getElementById('rejeitarModal').classList.remove('active');
+      });
+      document.getElementById('rejeitarCancel').addEventListener('click', () => {
+        document.getElementById('rejeitarModal').classList.remove('active');
+      });
+      document.getElementById('rejeitarModal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) document.getElementById('rejeitarModal').classList.remove('active');
+      });
+      document.getElementById('formRejeitar').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const justificativa = document.getElementById('rejeitarJustificativa').value.trim();
+        if (!justificativa) { showToast('Informe a justificativa.', true); return; }
+        const numero = document.getElementById('rejeitarModal').dataset.rcNumero;
+        if (numero) {
+          updateRC(numero, { status: 'rejeitado', justificativa });
+          document.getElementById('rejeitarModal').classList.remove('active');
         }
       });
     }
