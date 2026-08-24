@@ -113,17 +113,6 @@
     .header h1 { font-size: 24px; font-weight: 700; }
     .header-meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
     .header-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    .profile-selector {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--bg-card);
-      padding: 4px 12px 4px 16px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-    }
-    .profile-selector label { font-size: 12px; color: var(--text-muted); }
-    .profile-selector select { background: var(--bg); border: none; color: var(--text); font: inherit; font-size: 13px; padding: 6px 4px; outline: none; }
     .btn {
       padding: 10px 20px;
       border-radius: 999px;
@@ -323,15 +312,7 @@
         <p class="header-meta" id="pageMeta">Visão geral do cadastro de materiais</p>
       </div>
       <div class="header-actions">
-        <div class="profile-selector">
-          <label>Perfil:</label>
-          <select id="profileSelector">
-            <option value="usuario">Usuário</option>
-            <option value="encarregado">Encarregado</option>
-            <option value="gerente">Gerente</option>
-            <option value="admin">Administrador</option>
-          </select>
-        </div>
+        <span style="color:var(--text-muted);font-size:13px;" id="userInfo">Usuário: admin</span>
         <button class="btn btn-logout" id="btnLogout">Sair</button>
         <button class="btn btn-ghost" id="btnResetFilters">Limpar filtros</button>
         <button class="btn btn-ghost" id="btnExportCSV">Exportar CSV</button>
@@ -345,9 +326,86 @@
   </div>
 
   <!-- ===== MODAIS ===== -->
-  <div class="modal-overlay" id="editModal">...</div>
-  <div class="modal-overlay" id="novoFornecedorModal">...</div>
-  <div class="modal-overlay" id="rejeitarModal">...</div>
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header"><h2>Editar Material</h2><button class="modal-close" id="editModalClose">&times;</button></div>
+      <form id="formEdit">
+        <div class="form-grid">
+          <div class="field"><label>Código</label><input type="text" id="editCodigo" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
+          <div class="field"><label>Data Cadastro</label><input type="text" id="editData" readonly style="background:#1a1f1a;" /></div>
+          <div class="field"><label>Usuário</label><input type="text" id="editUsuario" /></div>
+          <div class="field"><label>Cadastro Completo</label><select id="editCompleto"><option value="SIM">SIM</option><option value="NAO">NÃO</option></select></div>
+          <div class="field"><label>Descrição Simples *</label><input type="text" id="editDescSimples" required /></div>
+          <div class="field"><label>Descrição Curta</label><input type="text" id="editDescCurta" /></div>
+          <div class="field field-full"><label>Descrição Completa</label><textarea id="editDescCompleta" rows="2"></textarea></div>
+          <div class="field"><label>Categoria *</label><select id="editCategoria" required><option value="">Selecione</option></select></div>
+          <div class="field"><label>Subcategoria *</label><select id="editSubcategoria" required><option value="">Selecione</option></select></div>
+          <div class="field"><label>Unidade *</label><select id="editUnid" required><option value="">Selecione</option></select></div>
+          <div class="field"><label>Unidade Detalhe</label><input type="text" id="editUnidDetalhe" /></div>
+          <div class="field"><label>NCM</label><input type="text" id="editNcm" /></div>
+          <div class="field"><label>Marca</label><input type="text" id="editMarca" /></div>
+          <div class="field"><label>Modelo</label><input type="text" id="editModelo" /></div>
+          <div class="field"><label>Tipo Material</label><input type="text" id="editTipoMat" /></div>
+          <div class="field"><label>Dimensões</label><input type="text" id="editDimensoes" /></div>
+          <div class="field"><label>Cor</label><input type="text" id="editCor" /></div>
+          <div class="field"><label>Peso</label><input type="text" id="editPeso" /></div>
+          <div class="field"><label>Tensão</label><input type="text" id="editTensao" /></div>
+          <div class="field"><label>Pressão</label><input type="text" id="editPressao" /></div>
+          <div class="field"><label>Temperatura</label><input type="text" id="editTemperatura" /></div>
+          <div class="field"><label>Certificações</label><input type="text" id="editCertificacoes" /></div>
+          <div class="field"><label>Local Armazenagem</label><input type="text" id="editLocal" /></div>
+          <div class="field"><label>Estoque Mínimo</label><input type="number" id="editEstMin" step="0.01" min="0" value="0" /></div>
+          <div class="field"><label>Estoque Máximo</label><input type="number" id="editEstMax" step="0.01" min="0" value="0" /></div>
+          <div class="field"><label>Ponto Pedido</label><input type="text" id="editPontoPedido" /></div>
+          <div class="field"><label>Lote Mínimo</label><input type="text" id="editLoteMin" /></div>
+          <div class="field"><label>Lead Time</label><input type="text" id="editLeadTime" /></div>
+          <div class="field"><label>Condições Armazenamento</label><input type="text" id="editCondArm" /></div>
+          <div class="field"><label>Custo Unitário</label><input type="text" id="editCustoUnit" placeholder="Ex: 10,50" /></div>
+          <div class="field field-full">
+            <div class="fornecedor-select-wrapper">
+              <div class="field" style="flex:1"><label>Fornecedor *</label><select id="editFornecedor" required><option value="">Selecione</option></select></div>
+              <button type="button" class="btn btn-accent btn-sm" id="editBtnNovoFornecedor" style="white-space:nowrap;">➕ Novo</button>
+            </div>
+          </div>
+          <div class="field"><label>Fornecedores Alt</label><input type="text" id="editFornecedoresAlt" /></div>
+          <div class="field"><label>Código Fornecedor</label><input type="text" id="editCodFornecedor" /></div>
+          <div class="field"><label>Moeda</label><input type="text" id="editMoeda" /></div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn btn-accent">Salvar Alterações</button><button type="reset" class="btn btn-ghost" id="editCancel">Cancelar</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="novoFornecedorModal">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-header"><h2>Novo Fornecedor</h2><button class="modal-close" id="novoFornecedorModalClose">&times;</button></div>
+      <form id="formNovoFornecedor">
+        <div class="field"><label>Nome *</label><input type="text" id="novoFornecedorNome" required placeholder="Nome do fornecedor" /></div>
+        <div class="field"><label>Contato</label><input type="text" id="novoFornecedorContato" placeholder="Nome do contato" /></div>
+        <div class="field"><label>Telefone</label><input type="text" id="novoFornecedorTelefone" placeholder="(11) 99999-9999" /></div>
+        <div class="field"><label>E-mail</label><input type="email" id="novoFornecedorEmail" placeholder="contato@fornecedor.com" /></div>
+        <div class="field"><label>Observações</label><textarea id="novoFornecedorObs" rows="2" placeholder="Informações adicionais"></textarea></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-accent">Adicionar</button>
+          <button type="button" class="btn btn-ghost" id="novoFornecedorCancel">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="rejeitarModal">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-header"><h2>Rejeitar Requisição</h2><button class="modal-close" id="rejeitarModalClose">&times;</button></div>
+      <form id="formRejeitar">
+        <div class="field"><label>Justificativa *</label><textarea id="rejeitarJustificativa" rows="4" required placeholder="Descreva o motivo da rejeição…"></textarea></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-danger">Rejeitar</button>
+          <button type="button" class="btn btn-ghost" id="rejeitarCancel">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <script src="data.js"></script>
@@ -364,18 +422,17 @@
     ];
 
     /* ============================================================
-       CHAVES DE ARMAZENAMENTO (var para evitar TDZ)
+       CHAVES DE ARMAZENAMENTO
     ============================================================ */
-    var STORAGE_KEY = 'cryotronics_materiais';
-    var RC_STORAGE_KEY = 'cryotronics_rcs';
-    var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
-    var FORNECEDORES_STORAGE_KEY = 'cryotronics_fornecedores';
-    var CARRETAS_STORAGE_KEY = 'cryotronics_carretas';
-    var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
-    var PERFIL_KEY = 'cryotronics_perfil';
+    const STORAGE_KEY = 'cryotronics_materiais';
+    const RC_STORAGE_KEY = 'cryotronics_rcs';
+    const WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
+    const FORNECEDORES_STORAGE_KEY = 'cryotronics_fornecedores';
+    const CARRETAS_STORAGE_KEY = 'cryotronics_carretas';
+    const DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
 
     /* ============================================================
-       VARIÁVEIS GLOBAIS (var para evitar TDZ)
+       VARIÁVEIS GLOBAIS
     ============================================================ */
     var DATA = null;
     var allItems = [];
@@ -383,9 +440,10 @@
     var fornecedores = [];
     var carretas = [];
     var perfilAtual = 'usuario';
+    var usuarioLogado = '';
 
     /* ============================================================
-       ESTADO GLOBAL (movido para o topo para evitar TDZ)
+       ESTADO GLOBAL
     ============================================================ */
     var state = {
       section: "dashboard",
@@ -399,7 +457,7 @@
     };
 
     /* ============================================================
-       UTILITÁRIOS (movidos para o topo)
+       UTILITÁRIOS
     ============================================================ */
     const fmt = {
       money: (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
@@ -408,9 +466,7 @@
       date: (d) => d ? new Date(d).toLocaleDateString("pt-BR") : '—',
       dateInput: (d) => d ? new Date(d).toISOString().slice(0,10) : '',
     };
-    function normalize(s) {
-      return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-    }
+    function normalize(s) { return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, ""); }
     function parseMoney(value) {
       if (!value || !value.trim()) return 0;
       let s = value.replace("R$", "").trim();
@@ -422,13 +478,10 @@
     function clean(str) { return (str || "").trim(); }
 
     /* ============================================================
-       FUNÇÕES DE SESSÃO
+       SESSÃO
     ============================================================ */
     function getSession() {
-      try {
-        const data = localStorage.getItem(SESSION_KEY);
-        return data ? JSON.parse(data) : null;
-      } catch(e) { return null; }
+      try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
     }
     function setSession(usuario, perfil) {
       localStorage.setItem(SESSION_KEY, JSON.stringify({ usuario, perfil, loginTime: Date.now() }));
@@ -447,7 +500,9 @@
       if (sess) {
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
-        document.getElementById('profileSelector').value = sess.perfil;
+        perfilAtual = sess.perfil;
+        usuarioLogado = sess.usuario;
+        document.getElementById('userInfo').textContent = 'Usuário: ' + sess.usuario + ' (' + sess.perfil + ')';
         iniciarSistema();
       } else {
         document.getElementById('loginScreen').classList.remove('hidden');
@@ -476,22 +531,8 @@
     document.getElementById('btnLogout').addEventListener('click', logout);
 
     /* ============================================================
-       FUNÇÕES AUXILIARES
+       FUNÇÕES DE DADOS (fornecedores, carretas, materiais, RCs)
     ============================================================ */
-    function getNextCode() {
-      if (!allItems.length) return "CRY-0001";
-      const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
-      let max = 0;
-      codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
-      return "CRY-" + String(max + 1).padStart(4, "0");
-    }
-    function getNextRCNumber() {
-      const stored = loadRCs();
-      const nums = stored.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
-      const max = Math.max(0, ...nums);
-      return "RC " + String(max + 1).padStart(4, "0");
-    }
-
     function getWhatsAppNumbers() {
       const saved = localStorage.getItem(WHATSAPP_STORAGE_KEY);
       if (saved) { try { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length === 3) return parsed; } catch(e) {} }
@@ -499,19 +540,7 @@
     }
     function setWhatsAppNumbers(numbers) { localStorage.setItem(WHATSAPP_STORAGE_KEY, JSON.stringify(numbers)); }
 
-    function getPerfil() {
-      const sess = getSession();
-      if (sess) return sess.perfil;
-      return 'usuario';
-    }
-    function setPerfil(p) {
-      const sess = getSession();
-      if (sess) { sess.perfil = p; localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); }
-      localStorage.setItem(PERFIL_KEY, p);
-      perfilAtual = p;
-    }
-
-    // ===== FORNECEDORES =====
+    // Fornecedores
     function loadFornecedores() { try { const stored = localStorage.getItem(FORNECEDORES_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
     function saveFornecedores(list) { localStorage.setItem(FORNECEDORES_STORAGE_KEY, JSON.stringify(list)); fornecedores = list; }
     function addFornecedor(nome, contato, telefone, email, obs) {
@@ -554,7 +583,7 @@
       if (changed) saveFornecedores(list);
     }
 
-    // ===== CARRETAS =====
+    // Carretas
     function loadCarretas() { try { const stored = localStorage.getItem(CARRETAS_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
     function saveCarretas(list) { localStorage.setItem(CARRETAS_STORAGE_KEY, JSON.stringify(list)); carretas = list; }
     function addCarreta(nome, placa) {
@@ -573,7 +602,7 @@
     }
     function getCarretaById(id) { return carretas.find(c => c.id === id) || null; }
 
-    // ===== MATERIAIS =====
+    // Materiais
     function loadLocalItems() { try { const stored = localStorage.getItem(STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
     function saveLocalItems(items) { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
     function getCombinedItems() {
@@ -629,7 +658,7 @@
       return false;
     }
 
-    // ===== RCs =====
+    // RCs
     function loadRCs() { try { const stored = localStorage.getItem(RC_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
     function saveRCs(list) { localStorage.setItem(RC_STORAGE_KEY, JSON.stringify(list)); rcs = list; }
     function addRC(rc) { const list = loadRCs(); list.push(rc); saveRCs(list); }
@@ -642,7 +671,9 @@
       return true;
     }
 
-    // ===== TOAST =====
+    /* ============================================================
+       TOAST
+    ============================================================ */
     let toastTimeout;
     function showToast(msg, isError = false) {
       const el = document.getElementById("toast");
@@ -655,17 +686,26 @@
     }
 
     /* ============================================================
-       FILTROS E ORDENAÇÃO
+       FUNÇÕES AUXILIARES
     ============================================================ */
+    function getNextCode() {
+      if (!allItems.length) return "CRY-0001";
+      const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
+      let max = 0;
+      codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
+      return "CRY-" + String(max + 1).padStart(4, "0");
+    }
+    function getNextRCNumber() {
+      const stored = loadRCs();
+      const nums = stored.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
+      const max = Math.max(0, ...nums);
+      return "RC " + String(max + 1).padStart(4, "0");
+    }
+
     function getUniqueValues(key) {
-      if (key === 'fornecedor') {
-        return fornecedores.map(f => f.nome).sort();
-      }
+      if (key === 'fornecedor') return fornecedores.map(f => f.nome).sort();
       const set = new Set();
-      allItems.forEach(i => {
-        const val = i[key];
-        if (val) set.add(val);
-      });
+      allItems.forEach(i => { const val = i[key]; if (val) set.add(val); });
       return [...set].sort();
     }
 
@@ -703,9 +743,6 @@
       });
     }
 
-    /* ============================================================
-       FILTROS PARA RCs
-    ============================================================ */
     function getFilteredRCs() {
       const f = state.rcFilters;
       return rcs.filter(rc => {
@@ -719,14 +756,13 @@
     }
 
     /* ============================================================
-       RENDERIZAÇÃO (Materiais)
+       RENDERIZAÇÃO (MATERIAIS)
     ============================================================ */
     function renderFilters(extraFields = true) {
       const categorias = getUniqueValues('categoria');
       const subcategorias = getUniqueValues('subcategoria');
       const fornecedoresList = getUniqueValues('fornecedor');
       const unidades = getUniqueValues('unid');
-
       return `
         <div class="card filters-card">
           <div class="card-header">
@@ -862,7 +898,7 @@
     }
 
     /* ============================================================
-       SEÇÕES (Dashboard, Materiais, Categorias, Fornecedores, Carretas, Novo)
+       SEÇÕES
     ============================================================ */
     function renderDashboard() {
       const filtered = getFilteredItems();
@@ -921,7 +957,6 @@
       return `${renderFilters(false)}<div class="grid-2">${cards}</div>`;
     }
 
-    // =========== SEÇÃO FORNECEDORES ===========
     function renderFornecedores() {
       const list = loadFornecedores();
       let html = `
@@ -956,7 +991,6 @@
       return html;
     }
 
-    // =========== SEÇÃO CARRETAS ===========
     function renderCarretas() {
       const list = loadCarretas();
       let html = `
@@ -987,7 +1021,6 @@
       return html;
     }
 
-    // =========== NOVO MATERIAL ===========
     function renderNovo() {
       const nextCode = getNextCode();
       const today = new Date().toLocaleDateString("pt-BR");
@@ -1048,7 +1081,7 @@
     }
 
     /* ============================================================
-       SEÇÃO REQUISIÇÕES DE COMPRA
+       RENDERIZAÇÃO DE RCs
     ============================================================ */
     function renderRequisicoes() {
       const filtered = getFilteredRCs();
@@ -1093,9 +1126,6 @@
       return html;
     }
 
-    /* ============================================================
-       TABELA DE RCs
-    ============================================================ */
     function renderRCTable(items) {
       const perfil = perfilAtual;
       const total = items.length;
@@ -1132,11 +1162,13 @@
 
         let acoes = [];
 
+        // Ações comuns (PDF/Whats) para status que não são rascunho/arquivado
         if (rc.status !== 'rascunho' && rc.status !== 'arquivado') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-pdf="${rc.numero}">PDF</button>`);
           acoes.push(`<button class="btn btn-ghost btn-sm" data-whats-rc="${rc.numero}">Whats</button>`);
         }
 
+        // Ações por perfil
         if (perfil === 'usuario' || perfil === 'admin') {
           if (rc.status === 'rascunho' && rc.criadoPor === perfilAtual) {
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
@@ -1205,7 +1237,7 @@
     }
 
     /* ============================================================
-       FORMULÁRIO DE NOVA RC
+       FORMULÁRIOS RC
     ============================================================ */
     function renderFormRC(editData = null) {
       const isEdit = !!editData;
@@ -1269,9 +1301,6 @@
       `;
     }
 
-    /* ============================================================
-       FORMULÁRIO DE PREENCHIMENTO DE DESTINO
-    ============================================================ */
     function renderFormDestino(rcNumero) {
       const rc = rcs.find(r => r.numero === rcNumero);
       if (!rc) return '<p>Requisição não encontrada.</p>';
@@ -1312,7 +1341,7 @@
     }
 
     /* ============================================================
-       FUNÇÕES AUXILIARES: ITENS, CÁLCULOS
+       FUNÇÕES AUXILIARES RC
     ============================================================ */
     function addItemRowRC(container, itemData = null) {
       const row = document.createElement('div');
@@ -1404,7 +1433,7 @@
     }
 
     /* ============================================================
-       HANDLERS DAS RCs
+       HANDLERS RC
     ============================================================ */
     function handleNovaRC() {
       const container = document.getElementById('rcFormContainer');
@@ -1607,36 +1636,40 @@
       }
     }
 
+    /* ============================================================
+       PDF E WHATSAPP
+    ============================================================ */
     function gerarPDF(rcData) {
       const container = document.createElement('div');
       container.style.cssText = 'position:absolute;left:-9999px;top:0;width:800px;background:white;color:black;padding:30px;font-family:Arial,sans-serif;';
       container.innerHTML = `
         <div style="text-align:center;margin-bottom:20px;">
-          <h2>Requisição de Compra</h2>
-          <p><strong>${rcData.numero}</strong></p>
+          <h2>${rcData.empresa || 'Mechatronics'} - Instrumentação e Automação Industrial</h2>
+          <p style="font-weight:bold;">SOLICITAÇÃO DE AUTORIZAÇÃO PARA COMPRA E APROVAÇÃO</p>
+          <p>Formulário de Aprovação nº: ${rcData.numero}</p>
           <p>Data: ${rcData.data}</p>
         </div>
         <div style="border:1px solid #ccc;padding:10px;margin-bottom:15px;">
-          <p><strong>Fornecedor:</strong> ${rcData.fornecedor}</p>
-          <p><strong>Prazo de Entrega:</strong> ${rcData.prazoEntrega}</p>
-          <p><strong>Condição de Pagamento:</strong> ${rcData.condPag}</p>
-          <p><strong>Data Base:</strong> ${rcData.dataBase} | <strong>Vencimento:</strong> ${rcData.vencimento}</p>
-          <p><strong>Solicitante:</strong> ${rcData.solicitante}</p>
-          <p><strong>Destino:</strong> ${rcData.destino || '—'}</p>
-          ${rcData.destino === 'reforma' ? `<p><strong>Orçamento Reforma:</strong> ${fmt.money(rcData.orcamento)}</p>` : ''}
+          <p><strong>DADOS DO SOLICITANTE</strong></p>
+          <p>Nome: ${rcData.solicitante || ''}</p>
+          <p>Matrícula: ${rcData.matricula || ''} &nbsp;|&nbsp; Função: ${rcData.funcao || ''} &nbsp;|&nbsp; Setor: ${rcData.setor || ''}</p>
+          <p>Compra para almoxarifado: ${rcData.paraAlmoxarifado ? 'SIM' : 'NÃO'} &nbsp;|&nbsp; ${rcData.paraAlmoxarifado ? '' : 'Ordem de serviço nº: ' + (rcData.os || '')}</p>
+          <p>Aplicação/Destino: ${rcData.aplicacao || ''}</p>
+          <p>Fornecedor: ${rcData.fornecedor || ''}</p>
+          <p>Condição de Compra: ${rcData.condPag || ''}</p>
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <thead><tr style="background:#eee;"><th style="border:1px solid #ccc;padding:6px;">Item</th><th style="border:1px solid #ccc;padding:6px;">Descrição</th><th style="border:1px solid #ccc;padding:6px;">Qtd</th><th style="border:1px solid #ccc;padding:6px;">Valor Unit.</th><th style="border:1px solid #ccc;padding:6px;">Total</th></tr></thead>
+          <thead><tr style="background:#eee;"><th style="border:1px solid #ccc;padding:6px;">Item</th><th style="border:1px solid #ccc;padding:6px;">Descrição / Código</th><th style="border:1px solid #ccc;padding:6px;">Qtd</th><th style="border:1px solid #ccc;padding:6px;">Valor Unit.</th><th style="border:1px solid #ccc;padding:6px;">Total</th><th style="border:1px solid #ccc;padding:6px;">Obs</th></tr></thead>
           <tbody>
             ${(rcData.itens || []).map((item, idx) => `
-              <tr><td style="border:1px solid #ccc;padding:6px;">${idx+1}</td><td style="border:1px solid #ccc;padding:6px;">${item.descricao}</td><td style="border:1px solid #ccc;padding:6px;">${item.qtd}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.valorUnit)}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.total)}</td></tr>
+              <tr><td style="border:1px solid #ccc;padding:6px;">${idx+1}</td><td style="border:1px solid #ccc;padding:6px;">${item.descricao || ''}</td><td style="border:1px solid #ccc;padding:6px;">${item.qtd}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.valorUnit || 0)}</td><td style="border:1px solid #ccc;padding:6px;">${fmt.money(item.total || 0)}</td><td style="border:1px solid #ccc;padding:6px;">${item.obs || ''}</td></tr>
             `).join('')}
-            <tr><td colspan="4" style="text-align:right;border:1px solid #ccc;padding:6px;"><strong>Total</strong></td><td style="border:1px solid #ccc;padding:6px;"><strong>${fmt.money(rcData.total)}</strong></td></tr>
+            <tr><td colspan="4" style="text-align:right;border:1px solid #ccc;padding:6px;"><strong>Total</strong></td><td style="border:1px solid #ccc;padding:6px;"><strong>${fmt.money(rcData.total || 0)}</strong></td><td style="border:1px solid #ccc;padding:6px;"></td></tr>
           </tbody>
         </table>
         <div style="margin-top:20px;font-size:11px;color:#666;">
           <p>Observações: ${rcData.observacoes || ''}</p>
-          <p>Gerado em ${new Date().toLocaleString()}</p>
+          <p>Documento gerado automaticamente em ${new Date().toLocaleString()}</p>
         </div>
       `;
       document.body.appendChild(container);
@@ -1663,7 +1696,7 @@
 
         pdf.save(`RC_${rcData.numero}.pdf`);
         document.body.removeChild(container);
-        showToast(`PDF da ${rcData.numero} gerado!`);
+        showToast(`PDF da ${rcData.numero} gerado com sucesso!`);
       }).catch(err => {
         console.error(err);
         showToast('Erro ao gerar PDF.', true);
@@ -1674,32 +1707,302 @@
     function enviarWhatsApp(rcData) {
       const numbers = getWhatsAppNumbers().filter(n => n && n.trim() !== '');
       if (numbers.length === 0) {
-        showToast('Configure números do WhatsApp.', true);
+        showToast('Configure pelo menos 1 número do WhatsApp na aba Requisições.', true);
         return;
       }
 
       let mensagem = `*REQUISIÇÃO DE COMPRA ${rcData.numero}*\n`;
+      mensagem += `Empresa: ${rcData.empresa || 'Mechatronics'}\n`;
       mensagem += `Data: ${rcData.data}\n`;
+      mensagem += `Solicitante: ${rcData.solicitante}\n`;
       mensagem += `Fornecedor: ${rcData.fornecedor}\n`;
-      mensagem += `Prazo de Entrega: ${rcData.prazoEntrega}\n`;
-      mensagem += `Condição Pagamento: ${rcData.condPag}\n`;
-      mensagem += `Vencimento: ${rcData.vencimento}\n`;
-      mensagem += `Destino: ${rcData.destino || '—'}\n`;
-      mensagem += `Total: ${fmt.money(rcData.total)}\n\n`;
-      mensagem += `*Itens:*\n`;
+      mensagem += `Destino/Aplicação: ${rcData.aplicacao}\n`;
+      mensagem += `Compra para almoxarifado: ${rcData.paraAlmoxarifado ? 'SIM' : 'NÃO'}`;
+      if (!rcData.paraAlmoxarifado) mensagem += ` (OS: ${rcData.os || '—'})`;
+      mensagem += `\n\n*Itens:*\n`;
       (rcData.itens || []).forEach((item, idx) => {
         mensagem += `${idx+1}. ${item.descricao} – Qtd: ${item.qtd} – Unit: ${fmt.money(item.valorUnit)} – Total: ${fmt.money(item.total)}\n`;
       });
-      mensagem += `\nObservações: ${rcData.observacoes || 'N/A'}`;
+      mensagem += `\n*Total da RC: ${fmt.money(rcData.total)}*\n`;
+      mensagem += `\nPDF anexo. Por favor, verificar.`;
 
       const texto = encodeURIComponent(mensagem);
+
       numbers.forEach((num, index) => {
         setTimeout(() => {
           const url = `https://api.whatsapp.com/send?phone=${num.trim()}&text=${texto}`;
           window.open(url, '_blank');
         }, index * 300);
       });
+
       gerarPDF(rcData);
+    }
+
+    /* ============================================================
+       HANDLERS GERAIS
+    ============================================================ */
+    function handleFormNovo() {
+      const getVal = (id) => document.getElementById(id)?.value || '';
+      const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
+
+      const codigo = getVal('novoCodigo');
+      const dataCadastro = getVal('novoData') || new Date().toLocaleDateString('pt-BR');
+      const usuario = getVal('novoUsuario') || 'Leonardo Santos';
+      const cadastroCompleto = getVal('novoCompleto') || 'SIM';
+      const descricaoSimples = getVal('novoDescSimples').trim();
+      const descricaoCurta = getVal('novoDescCurta').trim();
+      const descricaoCompleta = getVal('novoDescCompleta').trim();
+      const categoria = getVal('novoCategoria');
+      const subcategoria = getVal('novoSubcategoria');
+      const unid = getVal('novoUnid');
+      const unidDetalhe = getVal('novoUnidDetalhe');
+      const ncm = getVal('novoNcm');
+      const marca = getVal('novoMarca');
+      const modelo = getVal('novoModelo');
+      const tipoMaterial = getVal('novoTipoMat');
+      const dimensoes = getVal('novoDimensoes');
+      const cor = getVal('novoCor');
+      const peso = getVal('novoPeso');
+      const tensao = getVal('novoTensao');
+      const pressao = getVal('novoPressao');
+      const temperatura = getVal('novoTemperatura');
+      const certificacoes = getVal('novoCertificacoes');
+      const localArmazenagem = getVal('novoLocal');
+      const estoqueMin = getNum('novoEstMin');
+      const estoqueMax = getNum('novoEstMax');
+      const pontoPedido = getVal('novoPontoPedido');
+      const loteMinimo = getVal('novoLoteMin');
+      const leadTime = getVal('novoLeadTime');
+      const condicoesArmazenamento = getVal('novoCondArm');
+      const custoUnitario = getVal('novoCustoUnit');
+      const fornecedor = getVal('novoFornecedor');
+      const fornecedoresAlt = getVal('novoFornecedoresAlt');
+      const codigoFornecedor = getVal('novoCodFornecedor');
+      const moeda = getVal('novoMoeda') || 'Real';
+
+      if (!descricaoSimples || !categoria || !subcategoria || !unid || !fornecedor) {
+        showToast('Preencha os campos obrigatórios: Descrição, Categoria, Subcategoria, Unidade e Fornecedor.', true);
+        return;
+      }
+
+      const newItem = {
+        item: allItems.length + 1,
+        dataCadastro,
+        usuario,
+        cadastroCompleto,
+        codigo,
+        descricaoSimples,
+        descricaoCurta,
+        descricaoCompleta,
+        categoria,
+        subcategoria,
+        unid,
+        unidDetalhe,
+        ncm,
+        marca,
+        modelo,
+        tipoMaterial,
+        dimensoes,
+        cor,
+        peso,
+        tensao,
+        pressao,
+        temperatura,
+        certificacoes,
+        localArmazenagem,
+        estoqueMin: String(estoqueMin),
+        estoqueMax: String(estoqueMax),
+        pontoPedido,
+        loteMinimo,
+        leadTime,
+        condicoesArmazenamento,
+        custoUnitario: custoUnitario ? `R$ ${custoUnitario}` : "",
+        custoEstoqueMin: `R$ ${(estoqueMin * parseMoney(custoUnitario)).toFixed(2)}`,
+        custoEstoqueMax: `R$ ${(estoqueMax * parseMoney(custoUnitario)).toFixed(2)}`,
+        fornecedor,
+        fornecedoresAlt,
+        codigoFornecedor,
+        moeda,
+        custoUnitarioNum: parseMoney(custoUnitario),
+        custoEstoqueMinNum: estoqueMin * parseMoney(custoUnitario),
+        custoEstoqueMaxNum: estoqueMax * parseMoney(custoUnitario),
+      };
+
+      addNewItem(newItem);
+      showToast(`Material ${codigo} cadastrado com sucesso!`);
+      document.getElementById('formNovo')?.reset();
+      document.getElementById('novoCodigo').value = getNextCode();
+      document.getElementById('novoData').value = new Date().toLocaleDateString('pt-BR');
+    }
+
+    function abrirModalEdicao(codigo) {
+      const item = allItems.find(i => i.codigo === codigo);
+      if (!item) { showToast('Material não encontrado.', true); return; }
+
+      document.getElementById('editCodigo').value = item.codigo;
+      document.getElementById('editData').value = item.dataCadastro || '';
+      document.getElementById('editUsuario').value = item.usuario || '';
+      document.getElementById('editCompleto').value = item.cadastroCompleto || 'SIM';
+      document.getElementById('editDescSimples').value = item.descricaoSimples || '';
+      document.getElementById('editDescCurta').value = item.descricaoCurta || '';
+      document.getElementById('editDescCompleta').value = item.descricaoCompleta || '';
+      document.getElementById('editUnidDetalhe').value = item.unidDetalhe || '';
+      document.getElementById('editNcm').value = item.ncm || '';
+      document.getElementById('editMarca').value = item.marca || '';
+      document.getElementById('editModelo').value = item.modelo || '';
+      document.getElementById('editTipoMat').value = item.tipoMaterial || '';
+      document.getElementById('editDimensoes').value = item.dimensoes || '';
+      document.getElementById('editCor').value = item.cor || '';
+      document.getElementById('editPeso').value = item.peso || '';
+      document.getElementById('editTensao').value = item.tensao || '';
+      document.getElementById('editPressao').value = item.pressao || '';
+      document.getElementById('editTemperatura').value = item.temperatura || '';
+      document.getElementById('editCertificacoes').value = item.certificacoes || '';
+      document.getElementById('editLocal').value = item.localArmazenagem || '';
+      document.getElementById('editEstMin').value = parseFloat(item.estoqueMin) || 0;
+      document.getElementById('editEstMax').value = parseFloat(item.estoqueMax) || 0;
+      document.getElementById('editPontoPedido').value = item.pontoPedido || '';
+      document.getElementById('editLoteMin').value = item.loteMinimo || '';
+      document.getElementById('editLeadTime').value = item.leadTime || '';
+      document.getElementById('editCondArm').value = item.condicoesArmazenamento || '';
+      document.getElementById('editCustoUnit').value = item.custoUnitario ? item.custoUnitario.replace('R$ ', '') : '';
+      document.getElementById('editFornecedoresAlt').value = item.fornecedoresAlt || '';
+      document.getElementById('editCodFornecedor').value = item.codigoFornecedor || '';
+      document.getElementById('editMoeda').value = item.moeda || 'Real';
+
+      const categorias = getUniqueValues('categoria');
+      const subcategorias = getUniqueValues('subcategoria');
+      const unidades = getUniqueValues('unid');
+      const fornecedoresList = getUniqueValues('fornecedor');
+
+      const catSelect = document.getElementById('editCategoria');
+      catSelect.innerHTML = '<option value="">Selecione</option>' + categorias.map(c => `<option value="${c}" ${c===item.categoria?'selected':''}>${c}</option>`).join('');
+      const subSelect = document.getElementById('editSubcategoria');
+      subSelect.innerHTML = '<option value="">Selecione</option>' + subcategorias.map(s => `<option value="${s}" ${s===item.subcategoria?'selected':''}>${s}</option>`).join('');
+      const unidSelect = document.getElementById('editUnid');
+      unidSelect.innerHTML = '<option value="">Selecione</option>' + unidades.map(u => `<option value="${u}" ${u===item.unid?'selected':''}>${u}</option>`).join('');
+      const fornSelect = document.getElementById('editFornecedor');
+      fornSelect.innerHTML = '<option value="">Selecione</option>' + fornecedoresList.map(f => `<option value="${f}" ${f===item.fornecedor?'selected':''}>${f}</option>`).join('');
+
+      document.getElementById('editModal').classList.add('active');
+    }
+
+    function exportCSV() {
+      const items = sortItems(getFilteredItems());
+      const headers = ["Código", "Descrição", "Categoria", "Subcategoria", "UN", "Custo Unit.", "Fornecedor", "Cadastro Completo", "Marca", "Lead Time"];
+      const rows = items.map(i => [
+        i.codigo, i.descricaoSimples, i.categoria, i.subcategoria, i.unid,
+        i.custoUnitario, i.fornecedor, i.cadastroCompleto, i.marca, i.leadTime,
+      ]);
+      const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "materiais_filtrados.csv";
+      a.click();
+    }
+
+    function exportDataJS() {
+      const all = allItems;
+      const categories = getUniqueValues('categoria');
+      const subcategories = getUniqueValues('subcategoria');
+      const fornecedoresList = getUniqueValues('fornecedor');
+      const usuarios = getUniqueValues('usuario');
+      const unidades = getUniqueValues('unid');
+
+      const completos = all.filter(i => i.cadastroCompleto.toUpperCase() === "SIM").length;
+      const custoMin = all.reduce((s, i) => s + (i.custoEstoqueMinNum || 0), 0);
+      const custoMax = all.reduce((s, i) => s + (i.custoEstoqueMaxNum || 0), 0);
+
+      const catCounts = {};
+      all.forEach(i => { if (i.categoria) catCounts[i.categoria] = (catCounts[i.categoria] || 0) + 1; });
+      const topCat = Object.entries(catCounts).sort((a,b) => b[1]-a[1]).slice(0,12).map(([nome, qtd]) => ({ nome, qtd }));
+
+      const fornCounts = {};
+      all.forEach(i => { if (i.fornecedor) fornCounts[i.fornecedor] = (fornCounts[i.fornecedor] || 0) + 1; });
+      const topForn = Object.entries(fornCounts).sort((a,b) => b[1]-a[1]).slice(0,8).map(([nome, qtd]) => ({ nome, qtd }));
+
+      const payload = {
+        meta: {
+          total: all.length,
+          completos,
+          pendentes: all.length - completos,
+          custoEstoqueMin: custoMin,
+          custoEstoqueMax: custoMax,
+          categoriasCount: categories.length,
+          fonte: DATA ? DATA.meta.fonte : "Cadastro de Materiais_rev6_resumo.csv",
+        },
+        filtros: {
+          categorias: categories,
+          subcategorias: subcategories,
+          fornecedores: fornecedoresList,
+          usuarios: usuarios,
+          unidades: unidades,
+        },
+        charts: {
+          categorias: topCat,
+          fornecedores: topForn,
+        },
+        items: all,
+      };
+
+      const json = JSON.stringify(payload, null, 2);
+      const content = "window.MATERIAIS_DATA = " + json + ";\n";
+      const blob = new Blob([content], { type: "application/javascript;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "data.js";
+      a.click();
+      showToast("data.js exportado com sucesso! Substitua o arquivo original.");
+    }
+
+    function resetFilters() {
+      state.filters = { busca: "", categoria: "", subcategoria: "", fornecedor: "", cadastroCompleto: "", unidade: "", usuario: "" };
+      state.page = 1;
+      render();
+    }
+
+    /* ============================================================
+       RENDER PRINCIPAL
+    ============================================================ */
+    function render() {
+      try {
+        const sec = state.section;
+        const titleMap = {
+          dashboard: { title: 'Dashboard', meta: 'Visão geral do cadastro de materiais' },
+          materiais: { title: 'Materiais', meta: 'Lista completa com ações de edição e exclusão' },
+          categorias: { title: 'Categorias', meta: 'Distribuição por categoria e subcategoria' },
+          fornecedores: { title: 'Fornecedores', meta: 'Gerenciamento de fornecedores' },
+          carretas: { title: 'Carretas', meta: 'Cadastro de carretas para reforma' },
+          novo: { title: 'Novo Cadastro', meta: 'Adicione um novo material à base' },
+          requisicoes: { title: 'Requisições de Compra', meta: 'Gestão de compras com WhatsApp' },
+        };
+        const info = titleMap[sec] || titleMap.dashboard;
+        document.getElementById('pageTitle').textContent = info.title;
+        document.getElementById('pageMeta').textContent = info.meta;
+
+        let html = '';
+        if (sec === 'dashboard') html = renderDashboard();
+        else if (sec === 'materiais') html = renderMateriais();
+        else if (sec === 'categorias') html = renderCategorias();
+        else if (sec === 'fornecedores') html = renderFornecedores();
+        else if (sec === 'carretas') html = renderCarretas();
+        else if (sec === 'novo') html = renderNovo();
+        else if (sec === 'requisicoes') html = renderRequisicoes();
+        else html = '<div class="loading"><span>Carregando…</span></div>';
+
+        document.getElementById('appContent').innerHTML = html;
+        bindEvents();
+      } catch (err) {
+        console.error('Erro ao renderizar:', err);
+        document.getElementById('appContent').innerHTML = `
+          <div class="card" style="border-color:var(--danger);">
+            <p style="color:var(--danger);">Erro ao carregar a página:</p>
+            <pre style="color:var(--text-muted);font-size:13px;margin-top:10px;">${err.message}</pre>
+            <button class="btn btn-accent" style="margin-top:15px;" onclick="location.reload()">Recarregar</button>
+          </div>
+        `;
+      }
     }
 
     /* ============================================================
@@ -2063,284 +2366,9 @@
     }
 
     /* ============================================================
-       FORM NOVO MATERIAL
-    ============================================================ */
-    function handleFormNovo() {
-      const getVal = (id) => document.getElementById(id)?.value || '';
-      const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
-
-      const codigo = getVal('novoCodigo');
-      const dataCadastro = getVal('novoData') || new Date().toLocaleDateString('pt-BR');
-      const usuario = getVal('novoUsuario') || 'Leonardo Santos';
-      const cadastroCompleto = getVal('novoCompleto') || 'SIM';
-      const descricaoSimples = getVal('novoDescSimples').trim();
-      const descricaoCurta = getVal('novoDescCurta').trim();
-      const descricaoCompleta = getVal('novoDescCompleta').trim();
-      const categoria = getVal('novoCategoria');
-      const subcategoria = getVal('novoSubcategoria');
-      const unid = getVal('novoUnid');
-      const unidDetalhe = getVal('novoUnidDetalhe');
-      const ncm = getVal('novoNcm');
-      const marca = getVal('novoMarca');
-      const modelo = getVal('novoModelo');
-      const tipoMaterial = getVal('novoTipoMat');
-      const dimensoes = getVal('novoDimensoes');
-      const cor = getVal('novoCor');
-      const peso = getVal('novoPeso');
-      const tensao = getVal('novoTensao');
-      const pressao = getVal('novoPressao');
-      const temperatura = getVal('novoTemperatura');
-      const certificacoes = getVal('novoCertificacoes');
-      const localArmazenagem = getVal('novoLocal');
-      const estoqueMin = getNum('novoEstMin');
-      const estoqueMax = getNum('novoEstMax');
-      const pontoPedido = getVal('novoPontoPedido');
-      const loteMinimo = getVal('novoLoteMin');
-      const leadTime = getVal('novoLeadTime');
-      const condicoesArmazenamento = getVal('novoCondArm');
-      const custoUnitario = getVal('novoCustoUnit');
-      const fornecedor = getVal('novoFornecedor');
-      const fornecedoresAlt = getVal('novoFornecedoresAlt');
-      const codigoFornecedor = getVal('novoCodFornecedor');
-      const moeda = getVal('novoMoeda') || 'Real';
-
-      if (!descricaoSimples || !categoria || !subcategoria || !unid || !fornecedor) {
-        showToast('Preencha os campos obrigatórios.', true);
-        return;
-      }
-
-      const newItem = {
-        item: allItems.length + 1,
-        dataCadastro,
-        usuario,
-        cadastroCompleto,
-        codigo,
-        descricaoSimples,
-        descricaoCurta,
-        descricaoCompleta,
-        categoria,
-        subcategoria,
-        unid,
-        unidDetalhe,
-        ncm,
-        marca,
-        modelo,
-        tipoMaterial,
-        dimensoes,
-        cor,
-        peso,
-        tensao,
-        pressao,
-        temperatura,
-        certificacoes,
-        localArmazenagem,
-        estoqueMin: String(estoqueMin),
-        estoqueMax: String(estoqueMax),
-        pontoPedido,
-        loteMinimo,
-        leadTime,
-        condicoesArmazenamento,
-        custoUnitario: custoUnitario ? `R$ ${custoUnitario}` : "",
-        custoEstoqueMin: `R$ ${(estoqueMin * parseMoney(custoUnitario)).toFixed(2)}`,
-        custoEstoqueMax: `R$ ${(estoqueMax * parseMoney(custoUnitario)).toFixed(2)}`,
-        fornecedor,
-        fornecedoresAlt,
-        codigoFornecedor,
-        moeda,
-        custoUnitarioNum: parseMoney(custoUnitario),
-        custoEstoqueMinNum: estoqueMin * parseMoney(custoUnitario),
-        custoEstoqueMaxNum: estoqueMax * parseMoney(custoUnitario),
-      };
-
-      addNewItem(newItem);
-      showToast(`Material ${codigo} cadastrado com sucesso!`);
-      document.getElementById('formNovo')?.reset();
-      document.getElementById('novoCodigo').value = getNextCode();
-      document.getElementById('novoData').value = new Date().toLocaleDateString('pt-BR');
-    }
-
-    /* ============================================================
-       EDIÇÃO DE MATERIAL (MODAL)
-    ============================================================ */
-    function abrirModalEdicao(codigo) {
-      const item = allItems.find(i => i.codigo === codigo);
-      if (!item) { showToast('Material não encontrado.', true); return; }
-
-      document.getElementById('editCodigo').value = item.codigo;
-      document.getElementById('editData').value = item.dataCadastro || '';
-      document.getElementById('editUsuario').value = item.usuario || '';
-      document.getElementById('editCompleto').value = item.cadastroCompleto || 'SIM';
-      document.getElementById('editDescSimples').value = item.descricaoSimples || '';
-      document.getElementById('editDescCurta').value = item.descricaoCurta || '';
-      document.getElementById('editDescCompleta').value = item.descricaoCompleta || '';
-      document.getElementById('editUnidDetalhe').value = item.unidDetalhe || '';
-      document.getElementById('editNcm').value = item.ncm || '';
-      document.getElementById('editMarca').value = item.marca || '';
-      document.getElementById('editModelo').value = item.modelo || '';
-      document.getElementById('editTipoMat').value = item.tipoMaterial || '';
-      document.getElementById('editDimensoes').value = item.dimensoes || '';
-      document.getElementById('editCor').value = item.cor || '';
-      document.getElementById('editPeso').value = item.peso || '';
-      document.getElementById('editTensao').value = item.tensao || '';
-      document.getElementById('editPressao').value = item.pressao || '';
-      document.getElementById('editTemperatura').value = item.temperatura || '';
-      document.getElementById('editCertificacoes').value = item.certificacoes || '';
-      document.getElementById('editLocal').value = item.localArmazenagem || '';
-      document.getElementById('editEstMin').value = parseFloat(item.estoqueMin) || 0;
-      document.getElementById('editEstMax').value = parseFloat(item.estoqueMax) || 0;
-      document.getElementById('editPontoPedido').value = item.pontoPedido || '';
-      document.getElementById('editLoteMin').value = item.loteMinimo || '';
-      document.getElementById('editLeadTime').value = item.leadTime || '';
-      document.getElementById('editCondArm').value = item.condicoesArmazenamento || '';
-      document.getElementById('editCustoUnit').value = item.custoUnitario ? item.custoUnitario.replace('R$ ', '') : '';
-      document.getElementById('editFornecedoresAlt').value = item.fornecedoresAlt || '';
-      document.getElementById('editCodFornecedor').value = item.codigoFornecedor || '';
-      document.getElementById('editMoeda').value = item.moeda || 'Real';
-
-      const categorias = getUniqueValues('categoria');
-      const subcategorias = getUniqueValues('subcategoria');
-      const unidades = getUniqueValues('unid');
-      const fornecedoresList = getUniqueValues('fornecedor');
-
-      const catSelect = document.getElementById('editCategoria');
-      catSelect.innerHTML = '<option value="">Selecione</option>' + categorias.map(c => `<option value="${c}" ${c===item.categoria?'selected':''}>${c}</option>`).join('');
-      const subSelect = document.getElementById('editSubcategoria');
-      subSelect.innerHTML = '<option value="">Selecione</option>' + subcategorias.map(s => `<option value="${s}" ${s===item.subcategoria?'selected':''}>${s}</option>`).join('');
-      const unidSelect = document.getElementById('editUnid');
-      unidSelect.innerHTML = '<option value="">Selecione</option>' + unidades.map(u => `<option value="${u}" ${u===item.unid?'selected':''}>${u}</option>`).join('');
-      const fornSelect = document.getElementById('editFornecedor');
-      fornSelect.innerHTML = '<option value="">Selecione</option>' + fornecedoresList.map(f => `<option value="${f}" ${f===item.fornecedor?'selected':''}>${f}</option>`).join('');
-
-      document.getElementById('editModal').classList.add('active');
-    }
-
-    /* ============================================================
-       EXPORTAÇÕES
-    ============================================================ */
-    function exportCSV() {
-      const items = sortItems(getFilteredItems());
-      const headers = ["Código", "Descrição", "Categoria", "Subcategoria", "UN", "Custo Unit.", "Fornecedor", "Cadastro Completo", "Marca", "Lead Time"];
-      const rows = items.map(i => [
-        i.codigo, i.descricaoSimples, i.categoria, i.subcategoria, i.unid,
-        i.custoUnitario, i.fornecedor, i.cadastroCompleto, i.marca, i.leadTime,
-      ]);
-      const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
-      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "materiais_filtrados.csv";
-      a.click();
-    }
-
-    function exportDataJS() {
-      const all = allItems;
-      const categories = getUniqueValues('categoria');
-      const subcategories = getUniqueValues('subcategoria');
-      const fornecedoresList = getUniqueValues('fornecedor');
-      const usuarios = getUniqueValues('usuario');
-      const unidades = getUniqueValues('unid');
-
-      const completos = all.filter(i => i.cadastroCompleto.toUpperCase() === "SIM").length;
-      const custoMin = all.reduce((s, i) => s + (i.custoEstoqueMinNum || 0), 0);
-      const custoMax = all.reduce((s, i) => s + (i.custoEstoqueMaxNum || 0), 0);
-
-      const catCounts = {};
-      all.forEach(i => { if (i.categoria) catCounts[i.categoria] = (catCounts[i.categoria] || 0) + 1; });
-      const topCat = Object.entries(catCounts).sort((a,b) => b[1]-a[1]).slice(0,12).map(([nome, qtd]) => ({ nome, qtd }));
-
-      const fornCounts = {};
-      all.forEach(i => { if (i.fornecedor) fornCounts[i.fornecedor] = (fornCounts[i.fornecedor] || 0) + 1; });
-      const topForn = Object.entries(fornCounts).sort((a,b) => b[1]-a[1]).slice(0,8).map(([nome, qtd]) => ({ nome, qtd }));
-
-      const payload = {
-        meta: {
-          total: all.length,
-          completos,
-          pendentes: all.length - completos,
-          custoEstoqueMin: custoMin,
-          custoEstoqueMax: custoMax,
-          categoriasCount: categories.length,
-          fonte: DATA ? DATA.meta.fonte : "Cadastro de Materiais_rev6_resumo.csv",
-        },
-        filtros: {
-          categorias: categories,
-          subcategorias: subcategories,
-          fornecedores: fornecedoresList,
-          usuarios: usuarios,
-          unidades: unidades,
-        },
-        charts: {
-          categorias: topCat,
-          fornecedores: topForn,
-        },
-        items: all,
-      };
-
-      const json = JSON.stringify(payload, null, 2);
-      const content = "window.MATERIAIS_DATA = " + json + ";\n";
-      const blob = new Blob([content], { type: "application/javascript;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "data.js";
-      a.click();
-      showToast("data.js exportado com sucesso!");
-    }
-
-    function resetFilters() {
-      state.filters = { busca: "", categoria: "", subcategoria: "", fornecedor: "", cadastroCompleto: "", unidade: "", usuario: "" };
-      state.page = 1;
-      render();
-    }
-
-    /* ============================================================
-       RENDER PRINCIPAL
-    ============================================================ */
-    function render() {
-      console.log('render() iniciado - seção:', state.section);
-      try {
-        const sec = state.section;
-        const titleMap = {
-          dashboard: { title: 'Dashboard', meta: 'Visão geral do cadastro de materiais' },
-          materiais: { title: 'Materiais', meta: 'Lista completa com ações de edição e exclusão' },
-          categorias: { title: 'Categorias', meta: 'Distribuição por categoria e subcategoria' },
-          fornecedores: { title: 'Fornecedores', meta: 'Gerenciamento de fornecedores' },
-          carretas: { title: 'Carretas', meta: 'Cadastro de carretas para reforma' },
-          novo: { title: 'Novo Cadastro', meta: 'Adicione um novo material à base' },
-          requisicoes: { title: 'Requisições de Compra', meta: 'Fluxo completo de aprovação' },
-        };
-        const info = titleMap[sec] || titleMap.dashboard;
-        document.getElementById('pageTitle').textContent = info.title;
-        document.getElementById('pageMeta').textContent = info.meta;
-
-        let html = '';
-        if (sec === 'dashboard') html = renderDashboard();
-        else if (sec === 'materiais') html = renderMateriais();
-        else if (sec === 'categorias') html = renderCategorias();
-        else if (sec === 'fornecedores') html = renderFornecedores();
-        else if (sec === 'carretas') html = renderCarretas();
-        else if (sec === 'novo') html = renderNovo();
-        else if (sec === 'requisicoes') html = renderRequisicoes();
-        else html = '<div class="loading"><span>Carregando…</span></div>';
-
-        document.getElementById('appContent').innerHTML = html;
-        bindEvents();
-      } catch (err) {
-        console.error('Erro ao renderizar:', err);
-        document.getElementById('appContent').innerHTML = `
-          <div class="card" style="border-color:var(--danger);">
-            <p style="color:var(--danger);">Erro ao carregar a página:</p>
-            <pre style="color:var(--text-muted);font-size:13px;margin-top:10px;">${err.message}</pre>
-            <button class="btn btn-accent" style="margin-top:15px;" onclick="location.reload()">Recarregar</button>
-          </div>
-        `;
-      }
-    }
-
-    /* ============================================================
-       NAVEGAÇÃO E INICIALIZAÇÃO
+       INICIALIZAÇÃO
     ============================================================ */
     function iniciarSistema() {
-      console.log('iniciarSistema() executado');
       if (typeof window.MATERIAIS_DATA === "undefined") {
         document.getElementById("appContent").innerHTML =
           `<div class="loading"><span style="color:var(--danger)">Erro: data.js não encontrado.<br>Execute <code>python build.py</code> na pasta do projeto.</span></div>`;
@@ -2351,15 +2379,8 @@
       rcs = loadRCs();
       fornecedores = loadFornecedores();
       carretas = loadCarretas();
-      perfilAtual = getPerfil();
-      document.getElementById('profileSelector').value = perfilAtual;
       document.getElementById("sidebarSource").textContent = "Fonte: " + DATA.meta.fonte + " + " + (loadLocalItems().length) + " locais";
       render();
-
-      document.getElementById('profileSelector').addEventListener('change', function() {
-        setPerfil(this.value);
-        render();
-      });
 
       document.querySelectorAll(".nav-btn").forEach(btn => {
         btn.addEventListener("click", () => {
