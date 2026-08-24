@@ -113,17 +113,21 @@
     .header h1 { font-size: 24px; font-weight: 700; }
     .header-meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
     .header-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    .profile-selector {
+    .profile-display {
       display: flex;
       align-items: center;
       gap: 8px;
       background: var(--bg-card);
-      padding: 4px 12px 4px 16px;
+      padding: 4px 16px 4px 16px;
       border-radius: 999px;
       border: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-muted);
     }
-    .profile-selector label { font-size: 12px; color: var(--text-muted); }
-    .profile-selector select { background: var(--bg); border: none; color: var(--text); font: inherit; font-size: 13px; padding: 6px 4px; outline: none; }
+    .profile-display strong {
+      color: var(--accent);
+      font-weight: 600;
+    }
     .btn {
       padding: 10px 20px;
       border-radius: 999px;
@@ -324,14 +328,9 @@
         <p class="header-meta" id="pageMeta">Visão geral do cadastro de materiais</p>
       </div>
       <div class="header-actions">
-        <div class="profile-selector">
-          <label>Perfil:</label>
-          <select id="profileSelector">
-            <option value="usuario">Usuário</option>
-            <option value="encarregado">Encarregado</option>
-            <option value="gerente">Gerente</option>
-            <option value="admin">Administrador</option>
-          </select>
+        <!-- Exibição fixa do perfil (sem interação) -->
+        <div class="profile-display">
+          <span>👤 Perfil: <strong id="profileLabel">Carregando...</strong></span>
         </div>
         <button class="btn btn-logout" id="btnLogout">Sair</button>
         <button class="btn btn-ghost" id="btnResetFilters">Limpar filtros</button>
@@ -438,14 +437,23 @@
       setSession(found.usuario, found.perfil);
       return true;
     }
-    function logout() { clearSession(); location.reload(); }
+    function logout() {
+      console.log('Logout executado');
+      clearSession();
+      location.reload();
+    }
 
     (function checkSession() {
       const sess = getSession();
       if (sess) {
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
-        document.getElementById('profileSelector').value = sess.perfil;
+        // Atualizar label do perfil
+        const label = document.getElementById('profileLabel');
+        if (label) {
+          const nomes = { admin: 'Administrador', gerente: 'Gerente', encarregado: 'Encarregado', usuario: 'Usuário' };
+          label.textContent = nomes[sess.perfil] || sess.perfil;
+        }
         iniciarSistema();
       } else {
         document.getElementById('loginScreen').classList.remove('hidden');
@@ -501,12 +509,6 @@
       const sess = getSession();
       if (sess) return sess.perfil;
       return 'usuario';
-    }
-    function setPerfil(p) {
-      const sess = getSession();
-      if (sess) { sess.perfil = p; localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); }
-      localStorage.setItem(PERFIL_KEY, p);
-      perfilAtual = p;
     }
 
     function getLimitePercentual() {
@@ -978,7 +980,7 @@
       return html;
     }
 
-    // =========== SEÇÃO FROTAS (CORRIGIDA) ===========
+    // =========== SEÇÃO FROTAS ===========
     function renderFrotas() {
       const list = loadFrotas();
       const perfil = perfilAtual;
@@ -1006,7 +1008,6 @@
                 ${list.length === 0 ? `<tr><td colspan="${isUsuario ? 3 : 4}" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma frota cadastrada.</td></tr>` : ''}
                 ${list.map(f => {
                   const limite = f.valorOrcamento * (limitePercentual / 100);
-                  // Ações: só admin/gerente podem excluir/editar %
                   const acoes = isAdminGerente ? `
                     <button class="btn btn-ghost btn-sm" data-editar-limite="${f.id}">Editar %</button>
                     <button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>
@@ -1240,7 +1241,7 @@
     }
 
     /* ============================================================
-       FORMULÁRIO DE NOVA RC (com destino = frota)
+       FORMULÁRIO DE NOVA RC
     ============================================================ */
     function renderFormRC(editData = null) {
       const isEdit = !!editData;
@@ -1454,7 +1455,6 @@
         const vencInput = document.getElementById('rcVencimento');
         if (vencInput) vencInput.value = venc;
       });
-      // Atualizar limite ao mudar destino
       document.getElementById('rcDestino')?.addEventListener('change', function() {
         const selected = this.options[this.selectedIndex];
         const limite = selected ? parseMoney(selected.dataset.limite) : 0;
@@ -1563,7 +1563,6 @@
         showToast(`Requisição ${numero} criada como ${status}.`);
       }
 
-      // Se enviar, disparar WhatsApp
       if (enviar) {
         enviarWhatsApp(rcData);
       }
@@ -1993,7 +1992,6 @@
       });
 
       // ===== FROTAS =====
-      // Abrir modal de nova frota (apenas encarregado/admin)
       document.getElementById('btnAbrirModalFrota')?.addEventListener('click', () => {
         const nome = prompt('Nome da frota:');
         if (!nome) return;
@@ -2006,7 +2004,6 @@
         if (state.section === 'frotas') render();
       });
 
-      // Excluir frota (apenas admin/gerente)
       document.querySelectorAll('[data-excluir-frota]').forEach(btn => {
         btn.addEventListener('click', () => {
           const perfil = perfilAtual;
@@ -2025,7 +2022,6 @@
         });
       });
 
-      // Editar limite percentual (apenas admin/gerente)
       document.querySelectorAll('[data-editar-limite]').forEach(btn => {
         btn.addEventListener('click', () => {
           const perfil = perfilAtual;
@@ -2046,7 +2042,6 @@
         });
       });
 
-      // Salvar limite percentual global
       document.getElementById('btnSalvarLimitePercentual')?.addEventListener('click', () => {
         const input = document.getElementById('inputLimitePercentual');
         if (!input) return;
@@ -2114,7 +2109,6 @@
                 document.getElementById('rcFormContainer').innerHTML = '';
                 render();
               });
-              // Inicializar limite
               const destinoSelect = document.getElementById('rcDestino');
               if (destinoSelect) {
                 const selected = destinoSelect.options[destinoSelect.selectedIndex];
@@ -2147,7 +2141,6 @@
           if (confirm(`Enviar requisição ${numero} para aprovação?`)) {
             const rc = rcs.find(r => r.numero === numero);
             if (!rc) { showToast('RC não encontrada.', true); return; }
-            // Verificar limite novamente
             const frota = getFrotaByNome(rc.aplicacao);
             if (frota) {
               const limite = frota.valorOrcamento * (limitePercentual / 100);
@@ -2419,14 +2412,8 @@
       frotas = loadFrotas();
       limitePercentual = getLimitePercentual();
       perfilAtual = getPerfil();
-      document.getElementById('profileSelector').value = perfilAtual;
       document.getElementById("sidebarSource").textContent = "Fonte: " + DATA.meta.fonte + " + " + (loadLocalItems().length) + " locais";
       render();
-
-      document.getElementById('profileSelector').addEventListener('change', function() {
-        setPerfil(this.value);
-        render();
-      });
 
       document.querySelectorAll(".nav-btn").forEach(btn => {
         btn.addEventListener("click", () => {
