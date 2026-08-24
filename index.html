@@ -49,9 +49,7 @@
       gap: 20px;
       padding: 20px;
     }
-    #loginScreen.hidden {
-      display: none;
-    }
+    #loginScreen.hidden { display: none; }
     .login-box {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -60,54 +58,14 @@
       max-width: 400px;
       width: 100%;
     }
-    .login-box h2 {
-      font-size: 22px;
-      font-weight: 700;
-      margin-bottom: 8px;
-      color: var(--accent);
-    }
-    .login-box .sub {
-      color: var(--text-muted);
-      font-size: 13px;
-      margin-bottom: 24px;
-    }
-    .login-box .field {
-      margin-bottom: 16px;
-    }
-    .login-box .field label {
-      display: block;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-    }
-    .login-box .field input {
-      width: 100%;
-      padding: 12px 14px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font: inherit;
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    .login-box .field input:focus {
-      border-color: var(--accent);
-    }
-    .login-box .btn {
-      width: 100%;
-      padding: 12px;
-      font-size: 15px;
-    }
-    .login-box .error {
-      color: var(--danger);
-      font-size: 13px;
-      margin-top: 8px;
-      text-align: center;
-    }
+    .login-box h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: var(--accent); }
+    .login-box .sub { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+    .login-box .field { margin-bottom: 16px; }
+    .login-box .field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 6px; }
+    .login-box .field input { width: 100%; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 14px; outline: none; transition: border-color 0.15s; }
+    .login-box .field input:focus { border-color: var(--accent); }
+    .login-box .btn { width: 100%; padding: 12px; font-size: 15px; }
+    .login-box .error { color: var(--danger); font-size: 13px; margin-top: 8px; text-align: center; }
     /* ===== SIDEBAR E RESTANTE ===== */
     .sidebar {
       width: var(--sidebar-w);
@@ -149,24 +107,9 @@
     .nav-btn svg { flex-shrink: 0; opacity: 0.8; }
     .nav-btn.active svg { opacity: 1; }
     .sidebar-footer { padding: 16px 8px 0; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
-    .main {
-      margin-left: var(--sidebar-w);
-      flex: 1;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    .main.hidden {
-      display: none;
-    }
-    .header {
-      padding: 16px 32px 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
+    .main { margin-left: var(--sidebar-w); flex: 1; min-height: 100vh; display: flex; flex-direction: column; }
+    .main.hidden { display: none; }
+    .header { padding: 16px 32px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
     .header h1 { font-size: 24px; font-weight: 700; }
     .header-meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
     .header-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -180,15 +123,7 @@
       border: 1px solid var(--border);
     }
     .profile-selector label { font-size: 12px; color: var(--text-muted); }
-    .profile-selector select {
-      background: var(--bg);
-      border: none;
-      color: var(--text);
-      font: inherit;
-      font-size: 13px;
-      padding: 6px 4px;
-      outline: none;
-    }
+    .profile-selector select { background: var(--bg); border: none; color: var(--text); font: inherit; font-size: 13px; padding: 6px 4px; outline: none; }
     .btn {
       padding: 10px 20px;
       border-radius: 999px;
@@ -388,7 +323,6 @@
         <p class="header-meta" id="pageMeta">Visão geral do cadastro de materiais</p>
       </div>
       <div class="header-actions">
-        <!-- Seletor de perfil (somente para simulação, mas mantido) -->
         <div class="profile-selector">
           <label>Perfil:</label>
           <select id="profileSelector">
@@ -410,93 +344,12 @@
     </div>
   </div>
 
-  <!-- ===== MODAL DE EDIÇÃO DE MATERIAL ===== -->
-  <div class="modal-overlay" id="editModal">
-    <div class="modal">
-      <div class="modal-header"><h2>Editar Material</h2><button class="modal-close" id="editModalClose">&times;</button></div>
-      <form id="formEdit">
-        <div class="form-grid">
-          <div class="field"><label>Código</label><input type="text" id="editCodigo" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
-          <div class="field"><label>Data Cadastro</label><input type="text" id="editData" readonly style="background:#1a1f1a;" /></div>
-          <div class="field"><label>Usuário</label><input type="text" id="editUsuario" /></div>
-          <div class="field"><label>Cadastro Completo</label><select id="editCompleto"><option value="SIM">SIM</option><option value="NAO">NÃO</option></select></div>
-          <div class="field"><label>Descrição Simples *</label><input type="text" id="editDescSimples" required /></div>
-          <div class="field"><label>Descrição Curta</label><input type="text" id="editDescCurta" /></div>
-          <div class="field field-full"><label>Descrição Completa</label><textarea id="editDescCompleta" rows="2"></textarea></div>
-          <div class="field"><label>Categoria *</label><select id="editCategoria" required><option value="">Selecione</option></select></div>
-          <div class="field"><label>Subcategoria *</label><select id="editSubcategoria" required><option value="">Selecione</option></select></div>
-          <div class="field"><label>Unidade *</label><select id="editUnid" required><option value="">Selecione</option></select></div>
-          <div class="field"><label>Unidade Detalhe</label><input type="text" id="editUnidDetalhe" /></div>
-          <div class="field"><label>NCM</label><input type="text" id="editNcm" /></div>
-          <div class="field"><label>Marca</label><input type="text" id="editMarca" /></div>
-          <div class="field"><label>Modelo</label><input type="text" id="editModelo" /></div>
-          <div class="field"><label>Tipo Material</label><input type="text" id="editTipoMat" /></div>
-          <div class="field"><label>Dimensões</label><input type="text" id="editDimensoes" /></div>
-          <div class="field"><label>Cor</label><input type="text" id="editCor" /></div>
-          <div class="field"><label>Peso</label><input type="text" id="editPeso" /></div>
-          <div class="field"><label>Tensão</label><input type="text" id="editTensao" /></div>
-          <div class="field"><label>Pressão</label><input type="text" id="editPressao" /></div>
-          <div class="field"><label>Temperatura</label><input type="text" id="editTemperatura" /></div>
-          <div class="field"><label>Certificações</label><input type="text" id="editCertificacoes" /></div>
-          <div class="field"><label>Local Armazenagem</label><input type="text" id="editLocal" /></div>
-          <div class="field"><label>Estoque Mínimo</label><input type="number" id="editEstMin" step="0.01" min="0" value="0" /></div>
-          <div class="field"><label>Estoque Máximo</label><input type="number" id="editEstMax" step="0.01" min="0" value="0" /></div>
-          <div class="field"><label>Ponto Pedido</label><input type="text" id="editPontoPedido" /></div>
-          <div class="field"><label>Lote Mínimo</label><input type="text" id="editLoteMin" /></div>
-          <div class="field"><label>Lead Time</label><input type="text" id="editLeadTime" /></div>
-          <div class="field"><label>Condições Armazenamento</label><input type="text" id="editCondArm" /></div>
-          <div class="field"><label>Custo Unitário</label><input type="text" id="editCustoUnit" placeholder="Ex: 10,50" /></div>
-          <div class="field field-full">
-            <div class="fornecedor-select-wrapper">
-              <div class="field" style="flex:1"><label>Fornecedor *</label><select id="editFornecedor" required><option value="">Selecione</option></select></div>
-              <button type="button" class="btn btn-accent btn-sm" id="editBtnNovoFornecedor" style="white-space:nowrap;">➕ Novo</button>
-            </div>
-          </div>
-          <div class="field"><label>Fornecedores Alt</label><input type="text" id="editFornecedoresAlt" /></div>
-          <div class="field"><label>Código Fornecedor</label><input type="text" id="editCodFornecedor" /></div>
-          <div class="field"><label>Moeda</label><input type="text" id="editMoeda" /></div>
-        </div>
-        <div class="form-actions"><button type="submit" class="btn btn-accent">Salvar Alterações</button><button type="reset" class="btn btn-ghost" id="editCancel">Cancelar</button></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ===== MODAL DE NOVO FORNECEDOR ===== -->
-  <div class="modal-overlay" id="novoFornecedorModal">
-    <div class="modal" style="max-width:500px;">
-      <div class="modal-header"><h2>Novo Fornecedor</h2><button class="modal-close" id="novoFornecedorModalClose">&times;</button></div>
-      <form id="formNovoFornecedor">
-        <div class="field"><label>Nome *</label><input type="text" id="novoFornecedorNome" required placeholder="Nome do fornecedor" /></div>
-        <div class="field"><label>Contato</label><input type="text" id="novoFornecedorContato" placeholder="Nome do contato" /></div>
-        <div class="field"><label>Telefone</label><input type="text" id="novoFornecedorTelefone" placeholder="(11) 99999-9999" /></div>
-        <div class="field"><label>E-mail</label><input type="email" id="novoFornecedorEmail" placeholder="contato@fornecedor.com" /></div>
-        <div class="field"><label>Observações</label><textarea id="novoFornecedorObs" rows="2" placeholder="Informações adicionais"></textarea></div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-accent">Adicionar</button>
-          <button type="button" class="btn btn-ghost" id="novoFornecedorCancel">Cancelar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ===== MODAL DE REJEIÇÃO ===== -->
-  <div class="modal-overlay" id="rejeitarModal">
-    <div class="modal" style="max-width:500px;">
-      <div class="modal-header"><h2>Rejeitar Requisição</h2><button class="modal-close" id="rejeitarModalClose">&times;</button></div>
-      <form id="formRejeitar">
-        <div class="field"><label>Justificativa *</label><textarea id="rejeitarJustificativa" rows="4" required placeholder="Descreva o motivo da rejeição…"></textarea></div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-danger">Rejeitar</button>
-          <button type="button" class="btn btn-ghost" id="rejeitarCancel">Cancelar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ===== TOAST ===== -->
+  <!-- ===== MODAIS ===== -->
+  <div class="modal-overlay" id="editModal">...</div>
+  <div class="modal-overlay" id="novoFornecedorModal">...</div>
+  <div class="modal-overlay" id="rejeitarModal">...</div>
   <div id="toast" class="toast"></div>
 
-  <!-- ===== SCRIPTS ===== -->
   <script src="data.js"></script>
   <script>
     /* ============================================================
@@ -511,9 +364,8 @@
     ];
 
     /* ============================================================
-       CHAVES DE ARMAZENAMENTO (movidas para o topo)
+       CHAVES DE ARMAZENAMENTO (var para evitar TDZ)
     ============================================================ */
-    // Usamos 'var' para evitar problemas de Temporal Dead Zone
     var STORAGE_KEY = 'cryotronics_materiais';
     var RC_STORAGE_KEY = 'cryotronics_rcs';
     var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
@@ -523,7 +375,7 @@
     var PERFIL_KEY = 'cryotronics_perfil';
 
     /* ============================================================
-       VARIÁVEIS GLOBAIS (também com 'var')
+       VARIÁVEIS GLOBAIS (var para evitar TDZ)
     ============================================================ */
     var DATA = null;
     var allItems = [];
@@ -531,6 +383,20 @@
     var fornecedores = [];
     var carretas = [];
     var perfilAtual = 'usuario';
+
+    /* ============================================================
+       ESTADO GLOBAL (movido para o topo para evitar TDZ)
+    ============================================================ */
+    var state = {
+      section: "dashboard",
+      filters: { busca: "", categoria: "", subcategoria: "", fornecedor: "", cadastroCompleto: "", unidade: "", usuario: "" },
+      sort: { col: "codigo", dir: "asc" },
+      page: 1,
+      perPage: 25,
+      rcFilters: { status: "", dataIni: "", dataFim: "", fornecedor: "", destino: "" },
+      rcPage: 1,
+      rcPerPage: 20,
+    };
 
     /* ============================================================
        FUNÇÕES DE SESSÃO
@@ -541,28 +407,18 @@
         return data ? JSON.parse(data) : null;
       } catch(e) { return null; }
     }
-
     function setSession(usuario, perfil) {
       localStorage.setItem(SESSION_KEY, JSON.stringify({ usuario, perfil, loginTime: Date.now() }));
     }
-
-    function clearSession() {
-      localStorage.removeItem(SESSION_KEY);
-    }
-
+    function clearSession() { localStorage.removeItem(SESSION_KEY); }
     function fazerLogin(usuario, senha) {
       const found = USUARIOS.find(u => u.usuario === usuario && u.senha === senha);
       if (!found) return false;
       setSession(found.usuario, found.perfil);
       return true;
     }
+    function logout() { clearSession(); location.reload(); }
 
-    function logout() {
-      clearSession();
-      location.reload();
-    }
-
-    // Verificar sessão ao carregar
     (function checkSession() {
       const sess = getSession();
       if (sess) {
@@ -576,18 +432,12 @@
       }
     })();
 
-    // Evento de login
     document.getElementById('loginForm').addEventListener('submit', function(e) {
       e.preventDefault();
       const usuario = document.getElementById('loginUsuario').value.trim();
       const senha = document.getElementById('loginSenha').value;
       const errorEl = document.getElementById('loginError');
-
-      if (!usuario || !senha) {
-        errorEl.textContent = 'Preencha usuário e senha.';
-        return;
-      }
-
+      if (!usuario || !senha) { errorEl.textContent = 'Preencha usuário e senha.'; return; }
       if (fazerLogin(usuario, senha)) {
         errorEl.textContent = '';
         location.reload();
@@ -597,11 +447,9 @@
         document.getElementById('loginSenha').focus();
       }
     });
-
     document.getElementById('loginSenha').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
     });
-
     document.getElementById('btnLogout').addEventListener('click', logout);
 
     /* ============================================================
@@ -614,11 +462,7 @@
       date: (d) => d ? new Date(d).toLocaleDateString("pt-BR") : '—',
       dateInput: (d) => d ? new Date(d).toISOString().slice(0,10) : '',
     };
-
-    function normalize(s) {
-      return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-    }
-
+    function normalize(s) { return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, ""); }
     function parseMoney(value) {
       if (!value || !value.trim()) return 0;
       let s = value.replace("R$", "").trim();
@@ -627,46 +471,28 @@
       s = s.replace(".", "").replace(",", ".");
       return parseFloat(s) || 0;
     }
-
     function clean(str) { return (str || "").trim(); }
-
     function getNextCode() {
       if (!allItems.length) return "CRY-0001";
       const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
       let max = 0;
-      codes.forEach(c => {
-        const num = parseInt(c.replace("CRY-", ""), 10);
-        if (!isNaN(num) && num > max) max = num;
-      });
+      codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
       return "CRY-" + String(max + 1).padStart(4, "0");
     }
-
     function getNextRCNumber() {
       const stored = loadRCs();
-      const nums = stored.map(r => {
-        const n = parseInt(r.numero.replace("RC ", ""), 10);
-        return isNaN(n) ? 0 : n;
-      });
+      const nums = stored.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
       const max = Math.max(0, ...nums);
       return "RC " + String(max + 1).padStart(4, "0");
     }
 
-    /* ----- WhatsApp ----- */
     function getWhatsAppNumbers() {
       const saved = localStorage.getItem(WHATSAPP_STORAGE_KEY);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length === 3) return parsed;
-        } catch(e) {}
-      }
+      if (saved) { try { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length === 3) return parsed; } catch(e) {} }
       return [...DEFAULT_WHATSAPP];
     }
-    function setWhatsAppNumbers(numbers) {
-      localStorage.setItem(WHATSAPP_STORAGE_KEY, JSON.stringify(numbers));
-    }
+    function setWhatsAppNumbers(numbers) { localStorage.setItem(WHATSAPP_STORAGE_KEY, JSON.stringify(numbers)); }
 
-    /* ----- Perfil (sincronizado com sessão) ----- */
     function getPerfil() {
       const sess = getSession();
       if (sess) return sess.perfil;
@@ -674,27 +500,14 @@
     }
     function setPerfil(p) {
       const sess = getSession();
-      if (sess) {
-        sess.perfil = p;
-        localStorage.setItem(SESSION_KEY, JSON.stringify(sess));
-      }
+      if (sess) { sess.perfil = p; localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); }
       localStorage.setItem(PERFIL_KEY, p);
       perfilAtual = p;
     }
 
-    /* ============================================================
-       GERENCIAMENTO DE FORNECEDORES
-    ============================================================ */
-    function loadFornecedores() {
-      try {
-        const stored = localStorage.getItem(FORNECEDORES_STORAGE_KEY);
-        return stored ? JSON.parse(stored) : [];
-      } catch(e) { return []; }
-    }
-    function saveFornecedores(list) {
-      localStorage.setItem(FORNECEDORES_STORAGE_KEY, JSON.stringify(list));
-      fornecedores = list;
-    }
+    // ===== FORNECEDORES =====
+    function loadFornecedores() { try { const stored = localStorage.getItem(FORNECEDORES_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
+    function saveFornecedores(list) { localStorage.setItem(FORNECEDORES_STORAGE_KEY, JSON.stringify(list)); fornecedores = list; }
     function addFornecedor(nome, contato, telefone, email, obs) {
       const list = loadFornecedores();
       const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
@@ -717,9 +530,7 @@
       saveFornecedores(list);
       return true;
     }
-    function getFornecedorById(id) {
-      return fornecedores.find(f => f.id === id) || null;
-    }
+    function getFornecedorById(id) { return fornecedores.find(f => f.id === id) || null; }
     function syncFornecedoresFromMateriais() {
       const list = loadFornecedores();
       const nomes = new Set(list.map(f => f.nome.toLowerCase()));
@@ -737,19 +548,9 @@
       if (changed) saveFornecedores(list);
     }
 
-    /* ============================================================
-       GERENCIAMENTO DE CARRETAS
-    ============================================================ */
-    function loadCarretas() {
-      try {
-        const stored = localStorage.getItem(CARRETAS_STORAGE_KEY);
-        return stored ? JSON.parse(stored) : [];
-      } catch(e) { return []; }
-    }
-    function saveCarretas(list) {
-      localStorage.setItem(CARRETAS_STORAGE_KEY, JSON.stringify(list));
-      carretas = list;
-    }
+    // ===== CARRETAS =====
+    function loadCarretas() { try { const stored = localStorage.getItem(CARRETAS_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
+    function saveCarretas(list) { localStorage.setItem(CARRETAS_STORAGE_KEY, JSON.stringify(list)); carretas = list; }
     function addCarreta(nome, placa) {
       const list = loadCarretas();
       const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
@@ -764,22 +565,11 @@
       saveCarretas(list);
       return true;
     }
-    function getCarretaById(id) {
-      return carretas.find(c => c.id === id) || null;
-    }
+    function getCarretaById(id) { return carretas.find(c => c.id === id) || null; }
 
-    /* ============================================================
-       LOCALSTORAGE: MATERIAIS
-    ============================================================ */
-    function loadLocalItems() {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        return stored ? JSON.parse(stored) : [];
-      } catch(e) { return []; }
-    }
-    function saveLocalItems(items) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    }
+    // ===== MATERIAIS =====
+    function loadLocalItems() { try { const stored = localStorage.getItem(STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
+    function saveLocalItems(items) { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
     function getCombinedItems() {
       if (!DATA) return [];
       const base = DATA.items || [];
@@ -833,24 +623,10 @@
       return false;
     }
 
-    /* ============================================================
-       LOCALSTORAGE: RCs
-    ============================================================ */
-    function loadRCs() {
-      try {
-        const stored = localStorage.getItem(RC_STORAGE_KEY);
-        return stored ? JSON.parse(stored) : [];
-      } catch(e) { return []; }
-    }
-    function saveRCs(list) {
-      localStorage.setItem(RC_STORAGE_KEY, JSON.stringify(list));
-      rcs = list;
-    }
-    function addRC(rc) {
-      const list = loadRCs();
-      list.push(rc);
-      saveRCs(list);
-    }
+    // ===== RCs =====
+    function loadRCs() { try { const stored = localStorage.getItem(RC_STORAGE_KEY); return stored ? JSON.parse(stored) : []; } catch(e) { return []; } }
+    function saveRCs(list) { localStorage.setItem(RC_STORAGE_KEY, JSON.stringify(list)); rcs = list; }
+    function addRC(rc) { const list = loadRCs(); list.push(rc); saveRCs(list); }
     function updateRC(numero, newData) {
       const list = loadRCs();
       const idx = list.findIndex(r => r.numero === numero);
@@ -860,9 +636,7 @@
       return true;
     }
 
-    /* ============================================================
-       TOAST
-    ============================================================ */
+    // ===== TOAST =====
     let toastTimeout;
     function showToast(msg, isError = false) {
       const el = document.getElementById("toast");
@@ -875,19 +649,8 @@
     }
 
     /* ============================================================
-       FILTROS E ORDENAÇÃO (Materiais)
+       FILTROS E ORDENAÇÃO
     ============================================================ */
-    const state = {
-      section: "dashboard",
-      filters: { busca: "", categoria: "", subcategoria: "", fornecedor: "", cadastroCompleto: "", unidade: "", usuario: "" },
-      sort: { col: "codigo", dir: "asc" },
-      page: 1,
-      perPage: 25,
-      rcFilters: { status: "", dataIni: "", dataFim: "", fornecedor: "", destino: "" },
-      rcPage: 1,
-      rcPerPage: 20,
-    };
-
     function getUniqueValues(key) {
       if (key === 'fornecedor') {
         return fornecedores.map(f => f.nome).sort();
@@ -950,7 +713,7 @@
     }
 
     /* ============================================================
-       RENDERIZAÇÃO (Materiais - mantido)
+       RENDERIZAÇÃO (Materiais)
     ============================================================ */
     function renderFilters(extraFields = true) {
       const categorias = getUniqueValues('categoria');
@@ -2527,6 +2290,7 @@
        RENDER PRINCIPAL
     ============================================================ */
     function render() {
+      console.log('render() iniciado - seção:', state.section);
       try {
         const sec = state.section;
         const titleMap = {
@@ -2571,7 +2335,6 @@
     ============================================================ */
     function iniciarSistema() {
       console.log('iniciarSistema() executado');
-      // Já foi chamado após login
       if (typeof window.MATERIAIS_DATA === "undefined") {
         document.getElementById("appContent").innerHTML =
           `<div class="loading"><span style="color:var(--danger)">Erro: data.js não encontrado.<br>Execute <code>python build.py</code> na pasta do projeto.</span></div>`;
@@ -2587,7 +2350,6 @@
       document.getElementById("sidebarSource").textContent = "Fonte: " + DATA.meta.fonte + " + " + (loadLocalItems().length) + " locais";
       render();
 
-      // Evento de troca de perfil (apenas visual, mas atualiza sessão)
       document.getElementById('profileSelector').addEventListener('change', function() {
         setPerfil(this.value);
         render();
@@ -2608,7 +2370,6 @@
       document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
       document.getElementById("btnExportDataJS").addEventListener("click", exportDataJS);
 
-      // Modal de edição de material
       document.getElementById('editModalClose').addEventListener('click', () => {
         document.getElementById('editModal').classList.remove('active');
       });
@@ -2679,10 +2440,6 @@
         }
       });
     }
-
-    // A inicialização é feita após o login (checkSession já chama iniciarSistema)
-    // Caso a sessão já exista, o iniciarSistema será chamado no checkSession.
-    // Se não, fica aguardando o login.
   </script>
 </body>
 </html>
