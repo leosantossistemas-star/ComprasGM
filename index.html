@@ -12,20 +12,17 @@
 
   <!-- ===== FIREBASE SDK ===== -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <!-- ===== DATA.JS (carregado automaticamente) ===== -->
-  <script src="data.js"></script>
 
   <script>
-    // 🔑 CONFIGURAÇÃO DO PROJETO cryotronics (copiada do Firebase Console)
+    // 🔑 SUBSTITUA PELAS SUAS CREDENCIAIS DO FIREBASE
     const firebaseConfig = {
-      apiKey: "AIzaSyB4My1EKsnQod-ghIBSKMO0kF_xEwdJk8o",
+      apiKey: "AIzaSyAJ6scC0N3QxLzIAgZhrshm3VRhP2kuJ4g",
       authDomain: "cryotronics.firebaseapp.com",
       projectId: "cryotronics",
       storageBucket: "cryotronics.firebasestorage.app",
-      messagingSenderId: "100285292804",
-      appId: "1:100285292804:web:31f7a9030e1e48b24955b1"
+      messagingSenderId: "1002852929804",
+      appId: "1:1002852929804:web:31f7a903b1e48b24955b1"
     };
 
     firebase.initializeApp(firebaseConfig);
@@ -93,9 +90,6 @@
     .login-box .field input:focus { border-color: var(--accent); }
     .login-box .btn { width: 100%; padding: 12px; font-size: 15px; }
     .login-box .error { color: var(--danger); font-size: 13px; margin-top: 8px; text-align: center; }
-    .login-box .forgot-link { display: block; text-align: right; margin-top: 8px; }
-    .login-box .forgot-link a { color: var(--text-muted); font-size: 12px; text-decoration: none; }
-    .login-box .forgot-link a:hover { color: var(--accent); }
     /* ===== SIDEBAR E RESTANTE ===== */
     .sidebar {
       width: var(--sidebar-w);
@@ -362,17 +356,14 @@
       <p class="sub">Cadastro de Materiais — Cryotronics</p>
       <form id="loginForm">
         <div class="field">
-          <label>E-mail</label>
-          <input type="email" id="loginUsuario" placeholder="Digite seu e-mail" required autofocus />
+          <label>Usuário</label>
+          <input type="text" id="loginUsuario" placeholder="Digite seu usuário" required autofocus />
         </div>
         <div class="field">
           <label>Senha</label>
           <input type="password" id="loginSenha" placeholder="Digite sua senha" required />
         </div>
-        <div class="forgot-link">
-          <a href="#" id="btnEsqueciSenha">Esqueci minha senha</a>
-        </div>
-        <button type="submit" class="btn btn-accent" style="margin-top:12px;">Entrar</button>
+        <button type="submit" class="btn btn-accent">Entrar</button>
         <div id="loginError" class="error"></div>
       </form>
     </div>
@@ -524,136 +515,15 @@
 
   <script>
     /* ============================================================
-       SISTEMA DE LOGIN (com Firebase Authentication)
+       SISTEMA DE LOGIN
     ============================================================ */
     const SESSION_KEY = 'cryotronics_session';
-
-    // 🔑 MAPEAMENTO DE E-MAIL PARA PERFIL
-    const PERFIS = {
-      'admin@cryotronics.com': 'admin',
-      'gerente@cryotronics.com': 'gerente',
-      'encarregado@cryotronics.com': 'encarregado',
-      'usuario@cryotronics.com': 'usuario'
-    };
-
-    function getPerfilPorEmail(email) {
-      return PERFIS[email] || 'usuario';
-    }
-
-    function fazerLogin(email, senha) {
-      return firebase.auth().signInWithEmailAndPassword(email, senha)
-        .then((userCredential) => {
-          const user = userCredential.user;
-          const perfil = getPerfilPorEmail(user.email);
-          localStorage.setItem(SESSION_KEY, JSON.stringify({
-            usuario: user.email,
-            perfil: perfil,
-            uid: user.uid,
-            loginTime: Date.now()
-          }));
-          return { success: true, perfil };
-        })
-        .catch((error) => {
-          return { success: false, error: error.message };
-        });
-    }
-
-    function logout() {
-      return firebase.auth().signOut()
-        .then(() => {
-          localStorage.removeItem(SESSION_KEY);
-          location.reload();
-        });
-    }
-
-    // Verificação de sessão ao carregar
-    (function checkSession() {
-      const sess = getSession();
-      if (sess) {
-        firebase.auth().onAuthStateChanged((user) => {
-          if (user) {
-            document.getElementById('loginScreen').classList.add('hidden');
-            document.getElementById('mainContent').classList.remove('hidden');
-            const label = document.getElementById('profileLabel');
-            if (label) {
-              const nomes = { admin: 'Administrador', gerente: 'Gerente', encarregado: 'Encarregado', usuario: 'Usuário' };
-              label.textContent = nomes[sess.perfil] || sess.perfil;
-            }
-            iniciarSistema();
-          } else {
-            localStorage.removeItem(SESSION_KEY);
-            document.getElementById('loginScreen').classList.remove('hidden');
-            document.getElementById('mainContent').classList.add('hidden');
-          }
-        });
-      } else {
-        document.getElementById('loginScreen').classList.remove('hidden');
-        document.getElementById('mainContent').classList.add('hidden');
-      }
-    })();
-
-    // Evento do formulário de login
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const email = document.getElementById('loginUsuario').value.trim();
-      const senha = document.getElementById('loginSenha').value;
-      const errorEl = document.getElementById('loginError');
-      if (!email || !senha) { errorEl.textContent = 'Preencha e-mail e senha.'; return; }
-
-      fazerLogin(email, senha).then(result => {
-        if (result.success) {
-          errorEl.textContent = '';
-          location.reload();
-        } else {
-          errorEl.textContent = 'Falha no login: ' + result.error;
-          document.getElementById('loginSenha').value = '';
-          document.getElementById('loginSenha').focus();
-        }
-      });
-    });
-
-    document.getElementById('loginSenha').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
-    });
-
-    // "Esqueci minha senha"
-    document.getElementById('btnEsqueciSenha').addEventListener('click', function(e) {
-      e.preventDefault();
-      const email = document.getElementById('loginUsuario').value.trim();
-      if (!email) {
-        showToast('Digite seu e-mail primeiro.', true);
-        return;
-      }
-      firebase.auth().sendPasswordResetEmail(email)
-        .then(() => {
-          showToast('✅ E-mail de redefinição enviado! Verifique sua caixa de entrada.');
-        })
-        .catch((error) => {
-          let msg = 'Erro ao enviar e-mail.';
-          if (error.code === 'auth/user-not-found') {
-            msg = '❌ Nenhum usuário encontrado com este e-mail.';
-          } else if (error.code === 'auth/invalid-email') {
-            msg = '❌ E-mail inválido.';
-          }
-          showToast(msg, true);
-        });
-    });
-
-    /* ============================================================
-       FUNÇÕES DE SESSÃO (existentes)
-    ============================================================ */
-    function getSession() {
-      try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
-    }
-    function setSession(usuario, perfil) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ usuario, perfil, loginTime: Date.now() }));
-    }
-    function clearSession() { localStorage.removeItem(SESSION_KEY); }
-    function getPerfil() {
-      const sess = getSession();
-      if (sess) return sess.perfil;
-      return 'usuario';
-    }
+    const USUARIOS = [
+      { usuario: 'admin', senha: 'Mechatronics@2026', perfil: 'admin' },
+      { usuario: 'gerente', senha: 'gerente123', perfil: 'gerente' },
+      { usuario: 'encarregado', senha: 'encarregado123', perfil: 'encarregado' },
+      { usuario: 'usuario', senha: 'usuario123', perfil: 'usuario' },
+    ];
 
     /* ============================================================
        VARIÁVEIS GLOBAIS (mantidas)
@@ -698,6 +568,108 @@
       return parseFloat(s) || 0;
     }
     function clean(str) { return (str || "").trim(); }
+
+    /* ============================================================
+       FUNÇÕES DE SESSÃO (mantidas)
+    ============================================================ */
+    function getSession() {
+      try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
+    }
+    function setSession(usuario, perfil) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ usuario, perfil, loginTime: Date.now() }));
+    }
+    function clearSession() { localStorage.removeItem(SESSION_KEY); }
+    function fazerLogin(usuario, senha) {
+      const found = USUARIOS.find(u => u.usuario === usuario && u.senha === senha);
+      if (!found) return false;
+      setSession(found.usuario, found.perfil);
+      return true;
+    }
+    function logout() {
+      console.log('Logout executado');
+      clearSession();
+      location.reload();
+    }
+
+    (function checkSession() {
+      const sess = getSession();
+      if (sess) {
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('mainContent').classList.remove('hidden');
+        const label = document.getElementById('profileLabel');
+        if (label) {
+          const nomes = { admin: 'Administrador', gerente: 'Gerente', encarregado: 'Encarregado', usuario: 'Usuário' };
+          label.textContent = nomes[sess.perfil] || sess.perfil;
+        }
+        iniciarSistema();
+      } else {
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('mainContent').classList.add('hidden');
+      }
+    })();
+
+    document.getElementById('loginForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const usuario = document.getElementById('loginUsuario').value.trim();
+      const senha = document.getElementById('loginSenha').value;
+      const errorEl = document.getElementById('loginError');
+      if (!usuario || !senha) { errorEl.textContent = 'Preencha usuário e senha.'; return; }
+      if (fazerLogin(usuario, senha)) {
+        errorEl.textContent = '';
+        location.reload();
+      } else {
+        errorEl.textContent = 'Usuário ou senha inválidos.';
+        document.getElementById('loginSenha').value = '';
+        document.getElementById('loginSenha').focus();
+      }
+    });
+    document.getElementById('loginSenha').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+    });
+
+    /* ============================================================
+       FUNÇÕES AUXILIARES (algumas adaptadas para Firestore)
+    ============================================================ */
+    function getNextCode() {
+      if (!allItems.length) return "CRY-0001";
+      const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
+      let max = 0;
+      codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
+      return "CRY-" + String(max + 1).padStart(4, "0");
+    }
+
+    // Adaptado para usar a variável global rcs (atualizada pelo listener)
+    function getNextRCNumber() {
+      const nums = rcs.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
+      const max = Math.max(0, ...nums);
+      return "RC " + String(max + 1).padStart(4, "0");
+    }
+
+    // WhatsApp (mantido)
+    var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
+    var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
+    function getWhatsAppNumbers() {
+      const saved = localStorage.getItem(WHATSAPP_STORAGE_KEY);
+      if (saved) { try { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length === 3) return parsed; } catch(e) {} }
+      return [...DEFAULT_WHATSAPP];
+    }
+    function setWhatsAppNumbers(numbers) { localStorage.setItem(WHATSAPP_STORAGE_KEY, JSON.stringify(numbers)); }
+
+    function getPerfil() {
+      const sess = getSession();
+      if (sess) return sess.perfil;
+      return 'usuario';
+    }
+
+    function getLimitePercentual() {
+      const saved = localStorage.getItem('cryotronics_limite_percentual');
+      if (saved) { const val = parseFloat(saved); if (!isNaN(val) && val > 0) return val; }
+      return 20;
+    }
+    function setLimitePercentual(val) {
+      localStorage.setItem('cryotronics_limite_percentual', String(val));
+      limitePercentual = val;
+    }
 
     /* ============================================================
        FUNÇÕES FIRESTORE – MATERIAIS
@@ -2613,16 +2585,16 @@
         rcs = list;
       }, error => console.error('Erro no listener de RCs:', error));
 
+      limitePercentual = getLimitePercentual();
       perfilAtual = getPerfil();
 
       document.getElementById("sidebarSource").textContent = "Dados em tempo real - Firebase Firestore";
 
-      // Vincular botão Sair (agora com Firebase Auth)
+      // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
       if (btnLogout) {
-        btnLogout.addEventListener('click', function() {
-          logout(); // chama a função com Firebase Auth
-        });
+        btnLogout.addEventListener('click', logout);
+        console.log('Evento de logout vinculado com sucesso.');
       }
 
       render();
