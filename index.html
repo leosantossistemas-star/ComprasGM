@@ -2075,10 +2075,12 @@
         if (state.section === 'fornecedores') render();
       });
 
+      // CORREÇÃO AQUI: uso da variável global fornecedores
       document.querySelectorAll('[data-editar-fornecedor]').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.dataset.editarFornecedor;
-          const f = getFornecedorById(id);
+          // Substituímos a chamada assíncrona por busca direta na variável global
+          const f = fornecedores.find(f => f.id === id);
           if (!f) return;
           document.getElementById('novoFornecedorNome').value = f.nome;
           document.getElementById('novoFornecedorContato').value = f.contato || '';
@@ -2121,7 +2123,7 @@
       document.querySelectorAll('[data-excluir-fornecedor]').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.dataset.excluirFornecedor;
-          const f = getFornecedorById(id);
+          const f = fornecedores.find(f => f.id === id);
           if (!f) return;
           if (confirm(`Excluir fornecedor "${f.nome}"?`)) {
             deleteFornecedor(id);
@@ -2156,7 +2158,7 @@
             return;
           }
           const id = btn.dataset.excluirFrota;
-          const f = getFrotaById(id);
+          const f = frotas.find(f => f.id === id);
           if (!f) return;
           if (confirm(`Excluir frota "${f.nome}"?`)) {
             deleteFrota(id);
@@ -2174,7 +2176,7 @@
             return;
           }
           const id = btn.dataset.editarLimite;
-          const f = getFrotaById(id);
+          const f = frotas.find(f => f.id === id);
           if (!f) return;
           const novoPercentual = prompt(`Alterar % do limite para a frota "${f.nome}" (atual: ${limitePercentual}%):`, limitePercentual);
           if (novoPercentual === null) return;
