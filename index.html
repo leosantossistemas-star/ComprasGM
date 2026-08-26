@@ -15,7 +15,6 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
   <script>
-    // 🔑 SUBSTITUA PELAS SUAS CREDENCIAIS DO FIREBASE
     const firebaseConfig = {
       apiKey: "AIzaSyAJ6scC0N3QxLzIAgZhrshm3VRhP2kuJ4g",
       authDomain: "cryotronics.firebaseapp.com",
@@ -308,7 +307,6 @@
       .form-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 768px) {
-      /* Sidebar oculta e deslizante */
       .sidebar {
         transform: translateX(-100%);
         width: 80%;
@@ -320,7 +318,6 @@
       .sidebar.mobile-open {
         transform: translateX(0);
       }
-      /* Overlay para fechar ao clicar fora */
       .sidebar-backdrop {
         display: none;
         position: fixed;
@@ -526,15 +523,13 @@
     ];
 
     /* ============================================================
-       VARIÁVEIS GLOBAIS (mantidas)
+       VARIÁVEIS GLOBAIS
     ============================================================ */
-    var DATA = null; // não usado mais, mas mantido para compatibilidade
     var allItems = [];
     var rcs = [];
     var fornecedores = [];
     var frotas = [];
     var perfilAtual = 'usuario';
-    var limitePercentual = 20;
     var toastTimeout = null;
 
     var state = {
@@ -549,7 +544,7 @@
     };
 
     /* ============================================================
-       UTILITÁRIOS (mantidos)
+       UTILITÁRIOS
     ============================================================ */
     const fmt = {
       money: (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
@@ -570,7 +565,7 @@
     function clean(str) { return (str || "").trim(); }
 
     /* ============================================================
-       FUNÇÕES DE SESSÃO (mantidas)
+       SESSÃO
     ============================================================ */
     function getSession() {
       try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
@@ -586,7 +581,6 @@
       return true;
     }
     function logout() {
-      console.log('Logout executado');
       clearSession();
       location.reload();
     }
@@ -623,12 +617,9 @@
         document.getElementById('loginSenha').focus();
       }
     });
-    document.getElementById('loginSenha').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
-    });
 
     /* ============================================================
-       FUNÇÕES AUXILIARES (algumas adaptadas para Firestore)
+       AUXILIARES
     ============================================================ */
     function getNextCode() {
       if (!allItems.length) return "CRY-0001";
@@ -638,14 +629,13 @@
       return "CRY-" + String(max + 1).padStart(4, "0");
     }
 
-    // Adaptado para usar a variável global rcs (atualizada pelo listener)
     function getNextRCNumber() {
       const nums = rcs.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
       const max = Math.max(0, ...nums);
       return "RC " + String(max + 1).padStart(4, "0");
     }
 
-    // WhatsApp (mantido)
+    // WhatsApp
     var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
     var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
     function getWhatsAppNumbers() {
@@ -661,18 +651,8 @@
       return 'usuario';
     }
 
-    function getLimitePercentual() {
-      const saved = localStorage.getItem('cryotronics_limite_percentual');
-      if (saved) { const val = parseFloat(saved); if (!isNaN(val) && val > 0) return val; }
-      return 20;
-    }
-    function setLimitePercentual(val) {
-      localStorage.setItem('cryotronics_limite_percentual', String(val));
-      limitePercentual = val;
-    }
-
     /* ============================================================
-       FUNÇÕES FIRESTORE – MATERIAIS
+       FIRESTORE – CRUD
     ============================================================ */
     async function salvarMaterial(material) {
       if (material.id) {
@@ -683,11 +663,9 @@
       }
       return material;
     }
-
     async function excluirMaterial(id) {
       await db.collection('materiais').doc(id).delete();
     }
-
     async function encontrarMaterialPorCodigo(codigo) {
       const snapshot = await db.collection('materiais').where('codigo', '==', codigo).get();
       if (snapshot.empty) return null;
@@ -695,9 +673,6 @@
       return { id: doc.id, ...doc.data() };
     }
 
-    /* ============================================================
-       FUNÇÕES FIRESTORE – FORNECEDORES
-    ============================================================ */
     async function salvarFornecedor(fornecedor) {
       if (fornecedor.id) {
         await db.collection('fornecedores').doc(fornecedor.id).set(fornecedor);
@@ -707,20 +682,10 @@
       }
       return fornecedor;
     }
-
     async function excluirFornecedor(id) {
       await db.collection('fornecedores').doc(id).delete();
     }
 
-    async function getFornecedorById(id) {
-      const doc = await db.collection('fornecedores').doc(id).get();
-      if (!doc.exists) return null;
-      return { id: doc.id, ...doc.data() };
-    }
-
-    /* ============================================================
-       FUNÇÕES FIRESTORE – FROTAS
-    ============================================================ */
     async function salvarFrota(frota) {
       if (frota.id) {
         await db.collection('frotas').doc(frota.id).set(frota);
@@ -730,30 +695,13 @@
       }
       return frota;
     }
-
     async function excluirFrota(id) {
       await db.collection('frotas').doc(id).delete();
     }
-
-    async function getFrotaById(id) {
-      const doc = await db.collection('frotas').doc(id).get();
-      if (!doc.exists) return null;
-      return { id: doc.id, ...doc.data() };
-    }
-
     function getFrotaByNome(nome) {
       return frotas.find(f => f.nome === nome) || null;
     }
 
-    function getLimiteFrota(frotaNome) {
-      const frota = getFrotaByNome(frotaNome);
-      if (!frota) return 0;
-      return frota.valorOrcamento * (limitePercentual / 100);
-    }
-
-    /* ============================================================
-       FUNÇÕES FIRESTORE – RCs
-    ============================================================ */
     async function salvarRC(rc) {
       if (rc.id) {
         await db.collection('requisicoes').doc(rc.id).set(rc);
@@ -763,7 +711,6 @@
       }
       return rc;
     }
-
     async function excluirRC(id) {
       await db.collection('requisicoes').doc(id).delete();
     }
@@ -783,7 +730,7 @@
     }
 
     /* ============================================================
-       FILTROS E ORDENAÇÃO (mantidos)
+       FILTROS E ORDENAÇÃO
     ============================================================ */
     function getUniqueValues(key) {
       if (key === 'fornecedor') {
@@ -832,7 +779,7 @@
     }
 
     /* ============================================================
-       FILTROS PARA RCs (mantido)
+       FILTROS RCs
     ============================================================ */
     function getFilteredRCs() {
       const f = state.rcFilters;
@@ -847,7 +794,7 @@
     }
 
     /* ============================================================
-       FUNÇÕES DE CRUD ADAPTADAS (substituem as antigas)
+       CRUD (adaptado)
     ============================================================ */
     function addNewItem(item) {
       salvarMaterial(item)
@@ -875,7 +822,7 @@
         .catch(err => showToast('Erro ao excluir: ' + err.message, true));
     }
 
-    // Fornecedores adaptados
+    // Fornecedores
     function addFornecedor(nome, contato, telefone, email, obs) {
       const novo = { nome: clean(nome), contato: clean(contato), telefone: clean(telefone), email: clean(email), obs: clean(obs) };
       salvarFornecedor(novo)
@@ -895,9 +842,13 @@
         .catch(err => showToast('Erro ao excluir: ' + err.message, true));
     }
 
-    // Frotas adaptadas
-    function addFrota(nome, valorOrcamento) {
-      const nova = { nome: clean(nome), valorOrcamento: parseFloat(valorOrcamento) || 0 };
+    // Frotas (com percentual)
+    function addFrota(nome, valorOrcamento, percentualLimite = 20) {
+      const nova = {
+        nome: clean(nome),
+        valorOrcamento: parseFloat(valorOrcamento) || 0,
+        percentualLimite: parseFloat(percentualLimite) || 20
+      };
       salvarFrota(nova)
         .then(() => showToast(`Frota "${nome}" cadastrada!`))
         .catch(err => showToast('Erro ao adicionar frota: ' + err.message, true));
@@ -915,7 +866,7 @@
         .catch(err => showToast('Erro ao excluir: ' + err.message, true));
     }
 
-    // RCs adaptados
+    // RCs
     function addRC(rc) {
       salvarRC(rc)
         .then(() => showToast(`Requisição ${rc.numero} criada!`))
@@ -931,10 +882,13 @@
     }
 
     /* ============================================================
-       HANDLERS DAS RCs (adaptados)
+       HANDLERS DAS RCs
     ============================================================ */
     function handleAprovarRC(numero) {
       if (!confirm(`Aprovar requisição ${numero}?`)) return;
+      const rc = rcs.find(r => r.numero === numero);
+      if (!rc) return;
+      // Feedback imediato (desabilitar botão será feito via re-render)
       updateRC(numero, { status: 'aprovado' });
     }
 
@@ -953,9 +907,40 @@
       updateRC(numero, { status: 'rascunho' });
     }
 
+    function handleExcluirRC(numero) {
+      if (!confirm(`Excluir requisição ${numero} permanentemente?`)) return;
+      const rc = rcs.find(r => r.numero === numero);
+      if (!rc) { showToast('RC não encontrada.', true); return; }
+      excluirRC(rc.id)
+        .then(() => showToast(`RC ${numero} excluída.`))
+        .catch(err => showToast('Erro ao excluir: ' + err.message, true));
+    }
+
     /* ============================================================
-       RENDERIZAÇÃO (TODAS AS FUNÇÕES ORIGINAIS, COM LEVES AJUSTES)
-       ============================================================ */
+       LIMITE RESIDUAL POR FROTA
+    ============================================================ */
+    function getTotalUtilizado(frotaNome) {
+      let total = 0;
+      rcs.forEach(rc => {
+        if (rc.aplicacao === frotaNome && (rc.status === 'aprovado' || rc.status === 'em_aprovacao')) {
+          total += (rc.total || 0);
+        }
+      });
+      return total;
+    }
+
+    function getLimiteDisponivel(frotaNome) {
+      const frota = getFrotaByNome(frotaNome);
+      if (!frota) return 0;
+      const percentual = frota.percentualLimite || 20;
+      const limiteTotal = frota.valorOrcamento * (percentual / 100);
+      const utilizado = getTotalUtilizado(frotaNome);
+      return Math.max(0, limiteTotal - utilizado);
+    }
+
+    /* ============================================================
+       RENDERIZAÇÃO
+    ============================================================ */
 
     function renderFilters(extraFields = true) {
       const categorias = getUniqueValues('categoria');
@@ -1157,9 +1142,8 @@
       return `${renderFilters(false)}<div class="grid-2">${cards}</div>`;
     }
 
-    // =========== SEÇÃO FORNECEDORES (ajustada para usar variável global) ===========
     function renderFornecedores() {
-      const list = fornecedores; // agora usa a variável global atualizada pelo listener
+      const list = fornecedores;
       let html = `
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
@@ -1192,13 +1176,11 @@
       return html;
     }
 
-    // =========== SEÇÃO FROTAS (ajustada para usar variável global) ===========
     function renderFrotas() {
-      const list = frotas; // agora usa a variável global atualizada pelo listener
+      const list = frotas;
       const perfil = perfilAtual;
       const isAdminGerente = perfil === 'admin' || perfil === 'gerente';
       const isEncarregado = perfil === 'encarregado' || perfil === 'admin';
-      const isUsuario = perfil === 'usuario';
 
       let html = `
         <div class="card" style="margin-bottom:20px;">
@@ -1211,42 +1193,44 @@
               <thead>
                 <tr>
                   <th>Nome da Frota</th>
-                  ${!isUsuario ? `<th>Valor do Orçamento</th>` : ''}
-                  <th>Limite (${limitePercentual}%)</th>
+                  <th>Valor do Orçamento</th>
+                  <th>% Limite</th>
+                  <th>Limite Total</th>
+                  <th>Utilizado</th>
+                  <th>Disponível</th>
                   <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                ${list.length === 0 ? `<tr><td colspan="${isUsuario ? 3 : 4}" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma frota cadastrada.</td></tr>` : ''}
+                ${list.length === 0 ? `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma frota cadastrada.</td></tr>` : ''}
                 ${list.map(f => {
-                  const limite = f.valorOrcamento * (limitePercentual / 100);
+                  const percentual = f.percentualLimite || 20;
+                  const limiteTotal = f.valorOrcamento * (percentual / 100);
+                  const utilizado = getTotalUtilizado(f.nome);
+                  const disponivel = Math.max(0, limiteTotal - utilizado);
                   const acoes = isAdminGerente ? `
-                    <button class="btn btn-ghost btn-sm" data-editar-limite="${f.id}">Editar %</button>
+                    <button class="btn btn-ghost btn-sm" data-editar-percentual="${f.id}">Editar %</button>
                     <button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>
                   ` : (isEncarregado ? `<span style="color:var(--text-muted);font-size:12px;">Sem ações</span>` : '');
                   return `
                   <tr>
                     <td><strong>${f.nome}</strong></td>
-                    ${!isUsuario ? `<td>${fmt.money(f.valorOrcamento)}</td>` : ''}
-                    <td>${fmt.money(limite)}</td>
+                    <td>${fmt.money(f.valorOrcamento)}</td>
+                    <td>${percentual}%</td>
+                    <td>${fmt.money(limiteTotal)}</td>
+                    <td>${fmt.money(utilizado)}</td>
+                    <td style="color:${disponivel < 0 ? 'var(--danger)' : 'var(--accent)'}">${fmt.money(disponivel)}</td>
                     <td>${acoes}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
             </table>
           </div>
-          ${isAdminGerente ? `
-          <div style="margin-top:16px;padding:12px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border);">
-            <label style="font-size:13px;color:var(--text-muted);">Alterar % do Limite Global:</label>
-            <input type="number" id="inputLimitePercentual" value="${limitePercentual}" min="1" max="100" style="width:80px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);margin-left:10px;" />
-            <button class="btn btn-accent btn-sm" id="btnSalvarLimitePercentual" style="margin-left:10px;">Salvar %</button>
-          </div>` : ''}
         </div>
       `;
       return html;
     }
 
-    // =========== NOVO MATERIAL ===========
     function renderNovo() {
       const nextCode = getNextCode();
       const today = new Date().toLocaleDateString("pt-BR");
@@ -1307,7 +1291,7 @@
     }
 
     /* ============================================================
-       SEÇÃO REQUISIÇÕES DE COMPRA (usa rcs global)
+       SEÇÃO REQUISIÇÕES
     ============================================================ */
     function renderRequisicoes() {
       const filtered = getFilteredRCs();
@@ -1353,7 +1337,7 @@
     }
 
     /* ============================================================
-       TABELA DE RCs
+       TABELA DE RCs (com correções)
     ============================================================ */
     function renderRCTable(items) {
       const perfil = perfilAtual;
@@ -1390,7 +1374,8 @@
 
         let acoes = [];
 
-        if (rc.status !== 'rascunho' && rc.status !== 'arquivado') {
+        // PDF e WhatsApp: disponíveis apenas se NÃO for rejeitado e NÃO for rascunho/arquivado
+        if (rc.status !== 'rejeitado' && rc.status !== 'rascunho' && rc.status !== 'arquivado') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-pdf="${rc.numero}">PDF</button>`);
           acoes.push(`<button class="btn btn-ghost btn-sm" data-whats-rc="${rc.numero}">Whats</button>`);
         }
@@ -1411,6 +1396,11 @@
             acoes.unshift(`<button class="btn btn-success btn-sm" data-aprovar-rc="${rc.numero}">Aprovar</button>`);
             acoes.unshift(`<button class="btn btn-danger btn-sm" data-rejeitar-rc="${rc.numero}">Rejeitar</button>`);
           }
+        }
+
+        // ADMIN pode excluir qualquer RC (incluindo aprovadas e rejeitadas)
+        if (perfil === 'admin') {
+          acoes.push(`<button class="btn btn-danger btn-sm" data-excluir-rc="${rc.numero}">Excluir</button>`);
         }
 
         return `<tr>
@@ -1453,18 +1443,23 @@
     }
 
     /* ============================================================
-       FORMULÁRIO DE NOVA RC
+       FORMULÁRIO RC (com limite residual)
     ============================================================ */
     function renderFormRC(editData = null) {
       const isEdit = !!editData;
       const nextNum = isEdit ? editData.numero : getNextRCNumber();
       const today = new Date().toISOString().slice(0,10);
       const fornecedoresList = getUniqueValues('fornecedor');
-      const frotasList = frotas; // usa a variável global
+      const frotasList = frotas;
 
       const data = isEdit ? editData : {};
       const condPagOptions = ['À vista','7 dias','15 dias','30 dias','60 dias'];
       const selectedFrota = data.aplicacao || '';
+      // Calcula o limite residual para a frota selecionada
+      let limiteDisponivel = 0;
+      if (selectedFrota) {
+        limiteDisponivel = getLimiteDisponivel(selectedFrota);
+      }
 
       return `
         <div class="card" style="margin-top:20px; border:2px solid var(--accent);">
@@ -1496,13 +1491,16 @@
                 <select id="rcDestino" required>
                   <option value="">Selecione uma frota</option>
                   ${frotasList.map(f => {
-                    const limite = f.valorOrcamento * (limitePercentual / 100);
-                    return `<option value="${f.nome}" data-limite="${limite}" data-valor="${f.valorOrcamento}" ${selectedFrota===f.nome?'selected':''}>${f.nome} (Limite: ${fmt.money(limite)})</option>`;
+                    const percentual = f.percentualLimite || 20;
+                    const limiteTotal = f.valorOrcamento * (percentual / 100);
+                    const utilizado = getTotalUtilizado(f.nome);
+                    const disponivel = Math.max(0, limiteTotal - utilizado);
+                    return `<option value="${f.nome}" data-limite-total="${limiteTotal}" data-utilizado="${utilizado}" data-disponivel="${disponivel}" ${selectedFrota===f.nome?'selected':''}>${f.nome} (Disponível: ${fmt.money(disponivel)})</option>`;
                   }).join('')}
                 </select>
               </div>
               <div class="field"><label>Limite Disponível</label>
-                <input type="text" id="rcLimiteDisplay" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" value="${selectedFrota ? fmt.money(getLimiteFrota(selectedFrota)) : 'R$ 0,00'}" />
+                <input type="text" id="rcLimiteDisplay" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" value="${selectedFrota ? fmt.money(limiteDisponivel) : 'R$ 0,00'}" />
               </div>
               <div class="field"><label>Observações</label><input type="text" id="rcObservacoes" value="${data.observacoes || ''}" placeholder="Observações gerais" /></div>
             </div>
@@ -1596,10 +1594,10 @@
       });
     }
 
-    function removerItemRC(btn) {
+    window.removerItemRC = function(btn) {
       const row = btn.closest('.rc-item-row');
       if (row) { row.remove(); recalcularTotalRC(); }
-    }
+    };
 
     function recalcularTotalRC() {
       const totals = document.querySelectorAll('.rc-item-total');
@@ -1611,20 +1609,20 @@
       const display = document.getElementById('rcTotalDisplay');
       if (display) display.textContent = fmt.money(sum);
 
-      // Verificar limite
+      // Verifica limite residual
       const destinoSelect = document.getElementById('rcDestino');
       const limiteDisplay = document.getElementById('rcLimiteDisplay');
       const btnEnviar = document.getElementById('btnEnviarRC');
       const statusEl = document.getElementById('rcLimiteStatus');
 
       if (destinoSelect && destinoSelect.value) {
-        const limite = parseMoney(limiteDisplay.value);
-        if (sum > limite && limite > 0) {
+        const disponivel = parseMoney(limiteDisplay.value);
+        if (sum > disponivel && disponivel >= 0) {
           btnEnviar.disabled = true;
-          statusEl.innerHTML = '<span class="limite-excedido">⚠️ VALOR LIMITE ATINGIDO, SOLICITE APROVAÇÃO</span>';
+          statusEl.innerHTML = '<span class="limite-excedido">⚠️ VALOR EXCEDE O LIMITE DISPONÍVEL</span>';
         } else {
           btnEnviar.disabled = false;
-          statusEl.innerHTML = '<span style="color:var(--accent);">✅ Dentro do limite</span>';
+          statusEl.innerHTML = '<span style="color:var(--accent);">✅ Dentro do limite disponível</span>';
         }
       } else {
         btnEnviar.disabled = true;
@@ -1643,7 +1641,7 @@
     }
 
     /* ============================================================
-       HANDLERS DAS RCs (adaptados)
+       HANDLERS DAS RCs (formulário)
     ============================================================ */
     function handleNovaRC() {
       const container = document.getElementById('rcFormContainer');
@@ -1669,9 +1667,9 @@
       });
       document.getElementById('rcDestino')?.addEventListener('change', function() {
         const selected = this.options[this.selectedIndex];
-        const limite = selected ? parseMoney(selected.dataset.limite) : 0;
+        const disponivel = selected ? parseFloat(selected.dataset.disponivel) || 0 : 0;
         const display = document.getElementById('rcLimiteDisplay');
-        if (display) display.value = fmt.money(limite);
+        if (display) display.value = fmt.money(disponivel);
         recalcularTotalRC();
       });
       document.getElementById('formRC')?.addEventListener('submit', function(e) {
@@ -1685,14 +1683,14 @@
         document.getElementById('rcFormContainer').innerHTML = '';
         render();
       });
-      // Inicializar limite
+      // Inicializa limite
       const destinoSelect = document.getElementById('rcDestino');
       if (destinoSelect) {
         const selected = destinoSelect.options[destinoSelect.selectedIndex];
         if (selected && selected.value) {
-          const limite = parseMoney(selected.dataset.limite);
+          const disponivel = parseFloat(selected.dataset.disponivel) || 0;
           const display = document.getElementById('rcLimiteDisplay');
-          if (display) display.value = fmt.money(limite);
+          if (display) display.value = fmt.money(disponivel);
         }
         recalcularTotalRC();
       }
@@ -1737,14 +1735,11 @@
         return;
       }
 
-      // Validar limite
-      const frota = getFrotaByNome(aplicacao);
-      if (frota) {
-        const limite = frota.valorOrcamento * (limitePercentual / 100);
-        if (total > limite) {
-          showToast('VALOR LIMITE ATINGIDO! Solicite aprovação ao gerente.', true);
-          return;
-        }
+      // Validar limite residual
+      const disponivel = getLimiteDisponivel(aplicacao);
+      if (total > disponivel) {
+        showToast('VALOR EXCEDE O LIMITE DISPONÍVEL!', true);
+        return;
       }
 
       const existing = rcs.find(r => r.numero === numero);
@@ -1784,7 +1779,7 @@
     }
 
     /* ============================================================
-       GERAR PDF E WHATSAPP (mantidos)
+       GERAR PDF E WHATSAPP
     ============================================================ */
     function gerarPDF(rcData) {
       const container = document.createElement('div');
@@ -2003,7 +1998,7 @@
     }
 
     /* ============================================================
-       BIND EVENTS (adaptado)
+       BIND EVENTS
     ============================================================ */
     function bindEvents() {
       // ===== MATERIAIS =====
@@ -2124,11 +2119,9 @@
         if (state.section === 'fornecedores') render();
       });
 
-      // CORREÇÃO AQUI: uso da variável global fornecedores
       document.querySelectorAll('[data-editar-fornecedor]').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.dataset.editarFornecedor;
-          // Substituímos a chamada assíncrona por busca direta na variável global
           const f = fornecedores.find(f => f.id === id);
           if (!f) return;
           document.getElementById('novoFornecedorNome').value = f.nome;
@@ -2186,7 +2179,7 @@
         });
       });
 
-      // ===== FROTAS =====
+      // ===== FROTAS (com percentual) =====
       document.getElementById('btnAbrirModalFrota')?.addEventListener('click', () => {
         const nome = prompt('Nome da frota:');
         if (!nome) return;
@@ -2194,8 +2187,12 @@
         if (!valor) return;
         const valorNum = parseMoney(valor);
         if (valorNum <= 0) { showToast('Valor inválido.', true); return; }
-        addFrota(nome, valorNum);
-        showToast(`Frota "${nome}" cadastrada com orçamento de ${fmt.money(valorNum)}`);
+        let percentual = prompt('Percentual do limite para esta frota (padrão 20):', '20');
+        if (percentual === null) return;
+        let p = parseFloat(percentual);
+        if (isNaN(p) || p <= 0 || p > 100) { showToast('Percentual deve ser entre 1 e 100.', true); return; }
+        addFrota(nome, valorNum, p);
+        showToast(`Frota "${nome}" cadastrada com orçamento de ${fmt.money(valorNum)} e ${p}% de limite.`);
         if (state.section === 'frotas') render();
       });
 
@@ -2217,34 +2214,24 @@
         });
       });
 
-      document.querySelectorAll('[data-editar-limite]').forEach(btn => {
+      document.querySelectorAll('[data-editar-percentual]').forEach(btn => {
         btn.addEventListener('click', () => {
           const perfil = perfilAtual;
           if (perfil !== 'admin' && perfil !== 'gerente') {
-            showToast('Apenas Gerente e Administrador podem editar o limite.', true);
+            showToast('Apenas Gerente e Administrador podem editar o percentual.', true);
             return;
           }
-          const id = btn.dataset.editarLimite;
+          const id = btn.dataset.editarPercentual;
           const f = frotas.find(f => f.id === id);
           if (!f) return;
-          const novoPercentual = prompt(`Alterar % do limite para a frota "${f.nome}" (atual: ${limitePercentual}%):`, limitePercentual);
+          const novoPercentual = prompt(`Alterar % de limite para a frota "${f.nome}" (atual: ${f.percentualLimite || 20}%):`, f.percentualLimite || 20);
           if (novoPercentual === null) return;
           const p = parseFloat(novoPercentual);
           if (isNaN(p) || p <= 0 || p > 100) { showToast('Percentual deve ser entre 1 e 100.', true); return; }
-          setLimitePercentual(p);
-          showToast(`Limite percentual alterado para ${p}%`);
+          updateFrota(id, { percentualLimite: p });
+          showToast(`Percentual da frota "${f.nome}" alterado para ${p}%`);
           if (state.section === 'frotas') render();
         });
-      });
-
-      document.getElementById('btnSalvarLimitePercentual')?.addEventListener('click', () => {
-        const input = document.getElementById('inputLimitePercentual');
-        if (!input) return;
-        const p = parseFloat(input.value);
-        if (isNaN(p) || p <= 0 || p > 100) { showToast('Percentual deve ser entre 1 e 100.', true); return; }
-        setLimitePercentual(p);
-        showToast(`Limite percentual global alterado para ${p}%`);
-        if (state.section === 'frotas') render();
       });
 
       // ===== RCs =====
@@ -2288,9 +2275,9 @@
               });
               document.getElementById('rcDestino')?.addEventListener('change', function() {
                 const selected = this.options[this.selectedIndex];
-                const limite = selected ? parseMoney(selected.dataset.limite) : 0;
+                const disponivel = selected ? parseFloat(selected.dataset.disponivel) || 0 : 0;
                 const display = document.getElementById('rcLimiteDisplay');
-                if (display) display.value = fmt.money(limite);
+                if (display) display.value = fmt.money(disponivel);
                 recalcularTotalRC();
               });
               document.getElementById('formRC')?.addEventListener('submit', function(e) {
@@ -2308,9 +2295,9 @@
               if (destinoSelect) {
                 const selected = destinoSelect.options[destinoSelect.selectedIndex];
                 if (selected && selected.value) {
-                  const limite = parseMoney(selected.dataset.limite);
+                  const disponivel = parseFloat(selected.dataset.disponivel) || 0;
                   const display = document.getElementById('rcLimiteDisplay');
-                  if (display) display.value = fmt.money(limite);
+                  if (display) display.value = fmt.money(disponivel);
                 }
                 recalcularTotalRC();
               }
@@ -2336,13 +2323,10 @@
           if (confirm(`Enviar requisição ${numero} para aprovação?`)) {
             const rc = rcs.find(r => r.numero === numero);
             if (!rc) { showToast('RC não encontrada.', true); return; }
-            const frota = getFrotaByNome(rc.aplicacao);
-            if (frota) {
-              const limite = frota.valorOrcamento * (limitePercentual / 100);
-              if (rc.total > limite) {
-                showToast('VALOR LIMITE ATINGIDO! Solicite aprovação ao gerente.', true);
-                return;
-              }
+            const disponivel = getLimiteDisponivel(rc.aplicacao);
+            if (rc.total > disponivel) {
+              showToast('VALOR EXCEDE O LIMITE DISPONÍVEL!', true);
+              return;
             }
             updateRC(numero, { status: 'em_aprovacao' });
             showToast(`Requisição ${numero} enviada para aprovação!`);
@@ -2359,6 +2343,11 @@
 
         if (target.dataset.rejeitarRc) {
           handleRejeitarRC(target.dataset.rejeitarRc);
+          return;
+        }
+
+        if (target.dataset.excluirRc) {
+          handleExcluirRC(target.dataset.excluirRc);
           return;
         }
 
@@ -2555,7 +2544,6 @@
     ============================================================ */
     function iniciarSistema() {
       // Listeners em tempo real
-      // Materiais
       db.collection('materiais').onSnapshot((snapshot) => {
         const items = [];
         snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
@@ -2564,37 +2552,31 @@
         console.log('Materiais sincronizados em tempo real.');
       }, error => console.error('Erro no listener de materiais:', error));
 
-      // Fornecedores
       db.collection('fornecedores').onSnapshot((snapshot) => {
         const list = [];
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         fornecedores = list;
       }, error => console.error('Erro no listener de fornecedores:', error));
 
-      // Frotas
       db.collection('frotas').onSnapshot((snapshot) => {
         const list = [];
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         frotas = list;
       }, error => console.error('Erro no listener de frotas:', error));
 
-      // RCs
       db.collection('requisicoes').onSnapshot((snapshot) => {
         const list = [];
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         rcs = list;
       }, error => console.error('Erro no listener de RCs:', error));
 
-      limitePercentual = getLimitePercentual();
       perfilAtual = getPerfil();
 
       document.getElementById("sidebarSource").textContent = "Dados em tempo real - Firebase Firestore";
 
-      // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
       if (btnLogout) {
         btnLogout.addEventListener('click', logout);
-        console.log('Evento de logout vinculado com sucesso.');
       }
 
       render();
@@ -2607,7 +2589,6 @@
           state.page = 1;
           state.rcPage = 1;
           render();
-          // Fechar menu mobile ao clicar em um item
           if (window.innerWidth <= 768) {
             document.querySelector('.sidebar').classList.remove('mobile-open');
             document.getElementById('sidebarBackdrop').classList.remove('active');
@@ -2754,14 +2735,12 @@
           toggleMenu();
         });
 
-        // Fecha ao clicar no backdrop
         backdrop.addEventListener('click', function() {
           sidebar.classList.remove('mobile-open');
           backdrop.classList.remove('active');
           document.body.style.overflow = '';
         });
 
-        // Fecha ao redimensionar para desktop
         window.addEventListener('resize', function() {
           if (window.innerWidth > 768) {
             sidebar.classList.remove('mobile-open');
