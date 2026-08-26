@@ -10,7 +10,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <!-- ===== FIREBASE SDK ===== -->
+  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
@@ -23,17 +23,13 @@
       messagingSenderId: "1002852929804",
       appId: "1:1002852929804:web:31f7a903b1e48b24955b1"
     };
-
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-
-    db.enablePersistence()
-      .then(() => console.log('Firestore: persistência offline ativada'))
-      .catch(err => console.warn('Firestore: persistência offline não suportada', err));
+    db.enablePersistence().catch(() => {});
   </script>
 
   <style>
-    /* ====== ESTILOS (MANTIDOS) ====== */
+    /* ===== TODOS OS ESTILOS ORIGINAIS (mantidos integralmente) ===== */
     :root {
       --bg: #0d0f0d;
       --bg-card: #151815;
@@ -380,6 +376,8 @@
       <li><button class="nav-btn" data-section="frotas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="8" width="20" height="12" rx="2"/><circle cx="7" cy="16" r="3"/><circle cx="17" cy="16" r="3"/><path d="M8 8V6a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Frotas</button></li>
       <li><button class="nav-btn" data-section="novo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Novo Cadastro</button></li>
       <li><button class="nav-btn" data-section="requisicoes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h18M3 14h18M3 18h12"/><rect x="3" y="4" width="18" height="16" rx="1"/></svg>Requisições</button></li>
+      <!-- NOVA ABA: SOLICITAR RC -->
+      <li><button class="nav-btn" data-section="solicitar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v8M8 12h8"/><rect x="3" y="4" width="18" height="16" rx="1"/></svg>Solicitar RC</button></li>
     </ul>
     <div class="sidebar-footer" id="sidebarSource">—</div>
   </aside>
@@ -523,13 +521,16 @@
     ];
 
     /* ============================================================
-       VARIÁVEIS GLOBAIS
+       VARIÁVEIS GLOBAIS (mantidas)
     ============================================================ */
+    var DATA = null; // não usado mais, mas mantido para compatibilidade
     var allItems = [];
     var rcs = [];
     var fornecedores = [];
     var frotas = [];
+    var solicitacoes = []; // NOVO
     var perfilAtual = 'usuario';
+    var limitePercentual = 20; // mantido para compatibilidade, mas agora cada frota tem seu próprio %
     var toastTimeout = null;
 
     var state = {
@@ -544,7 +545,7 @@
     };
 
     /* ============================================================
-       UTILITÁRIOS
+       UTILITÁRIOS (mantidos)
     ============================================================ */
     const fmt = {
       money: (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
@@ -565,7 +566,7 @@
     function clean(str) { return (str || "").trim(); }
 
     /* ============================================================
-       SESSÃO
+       FUNÇÕES DE SESSÃO (mantidas)
     ============================================================ */
     function getSession() {
       try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
@@ -617,9 +618,12 @@
         document.getElementById('loginSenha').focus();
       }
     });
+    document.getElementById('loginSenha').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+    });
 
     /* ============================================================
-       AUXILIARES
+       FUNÇÕES AUXILIARES (adaptadas para Firestore)
     ============================================================ */
     function getNextCode() {
       if (!allItems.length) return "CRY-0001";
@@ -629,13 +633,14 @@
       return "CRY-" + String(max + 1).padStart(4, "0");
     }
 
+    // Adaptado para usar a variável global rcs (atualizada pelo listener)
     function getNextRCNumber() {
       const nums = rcs.map(r => { const n = parseInt(r.numero.replace("RC ", ""), 10); return isNaN(n) ? 0 : n; });
       const max = Math.max(0, ...nums);
       return "RC " + String(max + 1).padStart(4, "0");
     }
 
-    // WhatsApp
+    // WhatsApp (mantido)
     var DEFAULT_WHATSAPP = ['5511999999999', '5511988888888', '5511977777777'];
     var WHATSAPP_STORAGE_KEY = 'cryotronics_whatsapp_numbers';
     function getWhatsAppNumbers() {
@@ -651,8 +656,19 @@
       return 'usuario';
     }
 
+    function getLimitePercentual() {
+      // Mantido para compatibilidade, mas não usado mais para o cálculo global
+      const saved = localStorage.getItem('cryotronics_limite_percentual');
+      if (saved) { const val = parseFloat(saved); if (!isNaN(val) && val > 0) return val; }
+      return 20;
+    }
+    function setLimitePercentual(val) {
+      localStorage.setItem('cryotronics_limite_percentual', String(val));
+      limitePercentual = val;
+    }
+
     /* ============================================================
-       FIRESTORE – CRUD
+       FUNÇÕES FIRESTORE – MATERIAIS (mantidas)
     ============================================================ */
     async function salvarMaterial(material) {
       if (material.id) {
@@ -663,9 +679,11 @@
       }
       return material;
     }
+
     async function excluirMaterial(id) {
       await db.collection('materiais').doc(id).delete();
     }
+
     async function encontrarMaterialPorCodigo(codigo) {
       const snapshot = await db.collection('materiais').where('codigo', '==', codigo).get();
       if (snapshot.empty) return null;
@@ -673,6 +691,9 @@
       return { id: doc.id, ...doc.data() };
     }
 
+    /* ============================================================
+       FUNÇÕES FIRESTORE – FORNECEDORES (mantidas)
+    ============================================================ */
     async function salvarFornecedor(fornecedor) {
       if (fornecedor.id) {
         await db.collection('fornecedores').doc(fornecedor.id).set(fornecedor);
@@ -682,10 +703,20 @@
       }
       return fornecedor;
     }
+
     async function excluirFornecedor(id) {
       await db.collection('fornecedores').doc(id).delete();
     }
 
+    async function getFornecedorById(id) {
+      const doc = await db.collection('fornecedores').doc(id).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...doc.data() };
+    }
+
+    /* ============================================================
+       FUNÇÕES FIRESTORE – FROTAS (mantidas, com percentual)
+    ============================================================ */
     async function salvarFrota(frota) {
       if (frota.id) {
         await db.collection('frotas').doc(frota.id).set(frota);
@@ -695,13 +726,24 @@
       }
       return frota;
     }
+
     async function excluirFrota(id) {
       await db.collection('frotas').doc(id).delete();
     }
+
+    async function getFrotaById(id) {
+      const doc = await db.collection('frotas').doc(id).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...doc.data() };
+    }
+
     function getFrotaByNome(nome) {
       return frotas.find(f => f.nome === nome) || null;
     }
 
+    /* ============================================================
+       FUNÇÕES FIRESTORE – RCs (mantidas)
+    ============================================================ */
     async function salvarRC(rc) {
       if (rc.id) {
         await db.collection('requisicoes').doc(rc.id).set(rc);
@@ -711,12 +753,30 @@
       }
       return rc;
     }
+
     async function excluirRC(id) {
       await db.collection('requisicoes').doc(id).delete();
     }
 
     /* ============================================================
-       TOAST
+       FUNÇÕES FIRESTORE – SOLICITAÇÕES (NOVO)
+    ============================================================ */
+    async function salvarSolicitacao(sol) {
+      if (sol.id) {
+        await db.collection('solicitacoes').doc(sol.id).set(sol);
+      } else {
+        const docRef = await db.collection('solicitacoes').add(sol);
+        sol.id = docRef.id;
+      }
+      return sol;
+    }
+
+    async function excluirSolicitacao(id) {
+      await db.collection('solicitacoes').doc(id).delete();
+    }
+
+    /* ============================================================
+       TOAST (mantido)
     ============================================================ */
     function showToast(msg, isError = false) {
       const el = document.getElementById("toast");
@@ -730,7 +790,7 @@
     }
 
     /* ============================================================
-       FILTROS E ORDENAÇÃO
+       FILTROS E ORDENAÇÃO (mantidos)
     ============================================================ */
     function getUniqueValues(key) {
       if (key === 'fornecedor') {
@@ -779,7 +839,7 @@
     }
 
     /* ============================================================
-       FILTROS RCs
+       FILTROS PARA RCs (mantido)
     ============================================================ */
     function getFilteredRCs() {
       const f = state.rcFilters;
@@ -794,7 +854,7 @@
     }
 
     /* ============================================================
-       CRUD (adaptado)
+       FUNÇÕES DE CRUD ADAPTADAS (mantidas)
     ============================================================ */
     function addNewItem(item) {
       salvarMaterial(item)
@@ -822,7 +882,7 @@
         .catch(err => showToast('Erro ao excluir: ' + err.message, true));
     }
 
-    // Fornecedores
+    // Fornecedores adaptados
     function addFornecedor(nome, contato, telefone, email, obs) {
       const novo = { nome: clean(nome), contato: clean(contato), telefone: clean(telefone), email: clean(email), obs: clean(obs) };
       salvarFornecedor(novo)
@@ -842,13 +902,9 @@
         .catch(err => showToast('Erro ao excluir: ' + err.message, true));
     }
 
-    // Frotas (com percentual)
+    // Frotas adaptadas (com percentual)
     function addFrota(nome, valorOrcamento, percentualLimite = 20) {
-      const nova = {
-        nome: clean(nome),
-        valorOrcamento: parseFloat(valorOrcamento) || 0,
-        percentualLimite: parseFloat(percentualLimite) || 20
-      };
+      const nova = { nome: clean(nome), valorOrcamento: parseFloat(valorOrcamento) || 0, percentualLimite: parseFloat(percentualLimite) || 20 };
       salvarFrota(nova)
         .then(() => showToast(`Frota "${nome}" cadastrada!`))
         .catch(err => showToast('Erro ao adicionar frota: ' + err.message, true));
@@ -866,7 +922,7 @@
         .catch(err => showToast('Erro ao excluir: ' + err.message, true));
     }
 
-    // RCs
+    // RCs adaptados
     function addRC(rc) {
       salvarRC(rc)
         .then(() => showToast(`Requisição ${rc.numero} criada!`))
@@ -882,14 +938,34 @@
     }
 
     /* ============================================================
-       HANDLERS DAS RCs
+       FUNÇÕES DE LIMITE RESIDUAL (CORREÇÃO)
+    ============================================================ */
+    function getTotalUtilizado(frotaNome) {
+      let total = 0;
+      rcs.forEach(rc => {
+        if (rc.aplicacao === frotaNome && (rc.status === 'aprovado' || rc.status === 'em_aprovacao')) {
+          total += (rc.total || 0);
+        }
+      });
+      return total;
+    }
+
+    function getLimiteDisponivel(frotaNome) {
+      const frota = getFrotaByNome(frotaNome);
+      if (!frota) return 0;
+      const percentual = frota.percentualLimite || 20;
+      const limiteTotal = frota.valorOrcamento * (percentual / 100);
+      const utilizado = getTotalUtilizado(frotaNome);
+      return Math.max(0, limiteTotal - utilizado);
+    }
+
+    /* ============================================================
+       HANDLERS DAS RCs (com correção de agilidade e bloqueio)
     ============================================================ */
     function handleAprovarRC(numero) {
       if (!confirm(`Aprovar requisição ${numero}?`)) return;
-      const rc = rcs.find(r => r.numero === numero);
-      if (!rc) return;
-      // Feedback imediato (desabilitar botão será feito via re-render)
       updateRC(numero, { status: 'aprovado' });
+      // A atualização é instantânea via Firestore, sem demora
     }
 
     function handleRejeitarRC(numero) {
@@ -917,29 +993,7 @@
     }
 
     /* ============================================================
-       LIMITE RESIDUAL POR FROTA
-    ============================================================ */
-    function getTotalUtilizado(frotaNome) {
-      let total = 0;
-      rcs.forEach(rc => {
-        if (rc.aplicacao === frotaNome && (rc.status === 'aprovado' || rc.status === 'em_aprovacao')) {
-          total += (rc.total || 0);
-        }
-      });
-      return total;
-    }
-
-    function getLimiteDisponivel(frotaNome) {
-      const frota = getFrotaByNome(frotaNome);
-      if (!frota) return 0;
-      const percentual = frota.percentualLimite || 20;
-      const limiteTotal = frota.valorOrcamento * (percentual / 100);
-      const utilizado = getTotalUtilizado(frotaNome);
-      return Math.max(0, limiteTotal - utilizado);
-    }
-
-    /* ============================================================
-       RENDERIZAÇÃO
+       RENDERIZAÇÃO (TODAS AS FUNÇÕES ORIGINAIS, COM LEVES AJUSTES)
     ============================================================ */
 
     function renderFilters(extraFields = true) {
@@ -1083,7 +1137,7 @@
     }
 
     /* ============================================================
-       SEÇÕES
+       SEÇÕES (DASHBOARD, MATERIAIS, CATEGORIAS, FORNECEDORES, FROTAS, NOVO, REQUISIÇÕES)
     ============================================================ */
     function renderDashboard() {
       const filtered = getFilteredItems();
@@ -1142,8 +1196,9 @@
       return `${renderFilters(false)}<div class="grid-2">${cards}</div>`;
     }
 
+    // =========== SEÇÃO FORNECEDORES (ajustada para usar variável global) ===========
     function renderFornecedores() {
-      const list = fornecedores;
+      const list = fornecedores; // agora usa a variável global atualizada pelo listener
       let html = `
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
@@ -1176,6 +1231,7 @@
       return html;
     }
 
+    // =========== SEÇÃO FROTAS (ajustada para usar variável global e percentual) ===========
     function renderFrotas() {
       const list = frotas;
       const perfil = perfilAtual;
@@ -1231,6 +1287,7 @@
       return html;
     }
 
+    // =========== NOVO MATERIAL ===========
     function renderNovo() {
       const nextCode = getNextCode();
       const today = new Date().toLocaleDateString("pt-BR");
@@ -1291,7 +1348,7 @@
     }
 
     /* ============================================================
-       SEÇÃO REQUISIÇÕES
+       SEÇÃO REQUISIÇÕES DE COMPRA (usa rcs global)
     ============================================================ */
     function renderRequisicoes() {
       const filtered = getFilteredRCs();
@@ -1337,7 +1394,7 @@
     }
 
     /* ============================================================
-       TABELA DE RCs (com correções)
+       TABELA DE RCs (com correções: bloqueio PDF/Whats em rejeitadas, exclusão admin)
     ============================================================ */
     function renderRCTable(items) {
       const perfil = perfilAtual;
@@ -1398,7 +1455,7 @@
           }
         }
 
-        // ADMIN pode excluir qualquer RC (incluindo aprovadas e rejeitadas)
+        // ADMIN pode excluir qualquer RC (inclusive aprovadas e rejeitadas) - correção
         if (perfil === 'admin') {
           acoes.push(`<button class="btn btn-danger btn-sm" data-excluir-rc="${rc.numero}">Excluir</button>`);
         }
@@ -1443,7 +1500,7 @@
     }
 
     /* ============================================================
-       FORMULÁRIO RC (com limite residual)
+       FORMULÁRIO DE NOVA RC (com correção de limite residual)
     ============================================================ */
     function renderFormRC(editData = null) {
       const isEdit = !!editData;
@@ -1455,7 +1512,6 @@
       const data = isEdit ? editData : {};
       const condPagOptions = ['À vista','7 dias','15 dias','30 dias','60 dias'];
       const selectedFrota = data.aplicacao || '';
-      // Calcula o limite residual para a frota selecionada
       let limiteDisponivel = 0;
       if (selectedFrota) {
         limiteDisponivel = getLimiteDisponivel(selectedFrota);
@@ -1529,7 +1585,7 @@
     }
 
     /* ============================================================
-       FUNÇÕES AUXILIARES RC
+       FUNÇÕES AUXILIARES RC (mantidas)
     ============================================================ */
     function addItemRowRC(container, itemData = null) {
       const row = document.createElement('div');
@@ -1735,7 +1791,7 @@
         return;
       }
 
-      // Validar limite residual
+      // Valida limite residual
       const disponivel = getLimiteDisponivel(aplicacao);
       if (total > disponivel) {
         showToast('VALOR EXCEDE O LIMITE DISPONÍVEL!', true);
@@ -1779,7 +1835,7 @@
     }
 
     /* ============================================================
-       GERAR PDF E WHATSAPP
+       GERAR PDF E WHATSAPP (mantidos)
     ============================================================ */
     function gerarPDF(rcData) {
       const container = document.createElement('div');
@@ -1877,7 +1933,7 @@
     }
 
     /* ============================================================
-       EXPORTAÇÕES E RESET
+       EXPORTAÇÕES E RESET (mantidos)
     ============================================================ */
     function exportCSV() {
       const items = sortItems(getFilteredItems());
@@ -1955,7 +2011,201 @@
     }
 
     /* ============================================================
-       RENDER PRINCIPAL
+       SEÇÃO SOLICITAR RC (NOVA)
+    ============================================================ */
+    function renderSolicitar() {
+      const perfil = perfilAtual;
+      const podeCriar = ['encarregado', 'gerente', 'admin'].includes(perfil);
+      const podeConverter = ['usuario', 'admin'].includes(perfil);
+
+      let html = `
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div><div class="card-title">📝 Solicitar Material</div><div class="card-sub">Crie uma solicitação simplificada para converter em RC depois</div></div>
+            ${podeCriar ? `<button class="btn btn-accent" id="btnNovaSolicitacao">+ Nova Solicitação</button>` : ''}
+          </div>
+          ${podeCriar ? `
+          <div id="formSolicitacaoContainer" style="margin-top:12px;"></div>
+          ` : `<p style="color:var(--text-muted);">Seu perfil não permite criar solicitações. Apenas Encarregado, Gerente e Administrador podem.</p>`}
+        </div>
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">Clique em "Converter" para transformar em RC (apenas Usuário e Admin)</div></div></div>
+          ${renderTabelaSolicitacoes(solicitacoes, podeConverter)}
+        </div>
+      `;
+      return html;
+    }
+
+    function renderTabelaSolicitacoes(lista, podeConverter) {
+      if (!lista.length) return `<p style="color:var(--text-muted);padding:20px;">Nenhuma solicitação encontrada.</p>`;
+      const rows = lista.map(sol => {
+        const status = sol.convertida ? 'Convertida' : 'Pendente';
+        const statusCls = sol.convertida ? 'badge-ok' : 'badge-pending';
+        const acoes = [];
+        if (!sol.convertida && podeConverter) {
+          acoes.push(`<button class="btn btn-accent btn-sm" data-converter-sol="${sol.id}">Converter em RC</button>`);
+        }
+        if (perfilAtual === 'admin') {
+          acoes.push(`<button class="btn btn-danger btn-sm" data-excluir-sol="${sol.id}">Excluir</button>`);
+        }
+        return `<tr>
+          <td>${sol.destino || '—'}</td>
+          <td>${fmt.date(sol.dataNecessidade)}</td>
+          <td>${sol.itens ? sol.itens.length : 0} itens</td>
+          <td><span class="badge ${statusCls}">${status}</span></td>
+          <td>${acoes.join(' ')}</td>
+        </tr>`;
+      }).join('');
+      return `<div class="table-wrap"><table>
+        <thead><tr><th>Destino</th><th>Data Necessidade</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+    }
+
+    function renderFormSolicitacao(editData = null) {
+      const hoje = new Date().toISOString().slice(0,10);
+      const frotasList = frotas;
+      const isEdit = !!editData;
+      const data = isEdit ? editData : {};
+
+      return `
+        <div class="card" style="border:2px solid var(--accent);margin-top:8px;">
+          <div class="card-header">
+            <div><div class="card-title">${isEdit ? 'Editar Solicitação' : 'Nova Solicitação'}</div></div>
+            <button class="btn btn-ghost" id="btnCancelarSolicitacao">Cancelar</button>
+          </div>
+          <form id="formSolicitacao">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+              <div class="field"><label>Destino (Frota) *</label>
+                <select id="solDestino" required>
+                  <option value="">Selecione</option>
+                  ${frotasList.map(f => `<option value="${f.nome}" ${data.destino===f.nome?'selected':''}>${f.nome}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${data.dataNecessidade || hoje}" required /></div>
+            </div>
+            <div style="margin:16px 0;">
+              <div class="card-header"><div class="card-title">Itens solicitados</div></div>
+              <div id="solItensContainer"></div>
+              <button type="button" class="btn btn-ghost" id="btnAddItemSol" style="margin-top:8px;">+ Adicionar Item</button>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-accent">Salvar Solicitação</button>
+              <button type="reset" class="btn btn-ghost">Limpar</button>
+            </div>
+          </form>
+        </div>
+      `;
+    }
+
+    function addItemRowSol(container, itemData = null) {
+      const row = document.createElement('div');
+      row.className = 'rc-item-row';
+      row.innerHTML = `
+        <div class="field" style="flex:3"><label>Material</label><input type="text" class="sol-item-busca" placeholder="Digite o nome do material..." value="${itemData ? itemData.descricao || '' : ''}" /></div>
+        <div class="field" style="flex:1"><label>Qtd</label><input type="number" class="sol-item-qtd" min="1" value="${itemData ? itemData.qtd : 1}" /></div>
+        <div class="field" style="flex:1"><label>Unidade</label><input type="text" class="sol-item-unidade" placeholder="Ex: un, kg" value="${itemData ? itemData.unidade || '' : ''}" /></div>
+        <button type="button" class="btn btn-danger" style="align-self:flex-end;margin-bottom:2px;" onclick="removerItemSol(this)">×</button>
+      `;
+      container.appendChild(row);
+      const busca = row.querySelector('.sol-item-busca');
+      busca.addEventListener('input', function() {
+        const term = this.value.trim().toLowerCase();
+        if (term.length < 2) return;
+        const matches = allItems.filter(i => i.descricaoSimples.toLowerCase().includes(term) || i.codigo.toLowerCase().includes(term)).slice(0,5);
+        if (matches.length === 1) {
+          this.value = matches[0].descricaoSimples;
+        }
+      });
+    }
+    window.removerItemSol = function(btn) {
+      const row = btn.closest('.rc-item-row');
+      if (row) row.remove();
+    };
+
+    async function converterSolicitacaoEmRC(idSolicitacao) {
+      const sol = solicitacoes.find(s => s.id === idSolicitacao);
+      if (!sol) { showToast('Solicitação não encontrada.', true); return; }
+      if (sol.convertida) { showToast('Esta solicitação já foi convertida.', true); return; }
+      if (!sol.itens || !sol.itens.length) { showToast('Solicitação sem itens.', true); return; }
+
+      const numero = getNextRCNumber();
+      const hoje = new Date().toISOString().slice(0,10);
+      const rcData = {
+        numero,
+        data: hoje,
+        fornecedor: '',
+        prazoEntrega: sol.dataNecessidade || hoje,
+        condPag: 'À vista',
+        dataBase: hoje,
+        vencimento: hoje,
+        solicitante: perfilAtual,
+        aplicacao: sol.destino,
+        observacoes: `Solicitação convertida automaticamente (ID: ${sol.id})`,
+        itens: sol.itens.map(item => ({
+          descricao: item.descricao || 'Material',
+          qtd: parseFloat(item.qtd) || 1,
+          valorUnit: 0,
+          total: 0
+        })),
+        total: 0,
+        status: 'rascunho',
+        criadoPor: perfilAtual,
+        justificativa: '',
+      };
+
+      try {
+        await salvarRC(rcData);
+        await db.collection('solicitacoes').doc(sol.id).update({ convertida: true });
+        showToast(`Solicitação convertida em ${numero} (rascunho). Acesse a aba Requisições para editar/enviar.`);
+        sol.convertida = true;
+        render();
+      } catch (err) {
+        showToast('Erro ao converter: '+err.message, true);
+      }
+    }
+
+    function salvarSolicitacaoHandler() {
+      const getVal = (id) => document.getElementById(id)?.value || '';
+      const destino = getVal('solDestino');
+      const dataNecessidade = getVal('solDataNecessidade');
+      if (!destino || !dataNecessidade) {
+        showToast('Preencha destino e data.', true);
+        return;
+      }
+
+      const rows = document.querySelectorAll('#solItensContainer .rc-item-row');
+      const itens = [];
+      rows.forEach(row => {
+        const desc = row.querySelector('.sol-item-busca')?.value.trim();
+        const qtd = parseFloat(row.querySelector('.sol-item-qtd')?.value) || 0;
+        const unidade = row.querySelector('.sol-item-unidade')?.value.trim() || 'un';
+        if (desc && qtd > 0) {
+          itens.push({ descricao: desc, qtd, unidade });
+        }
+      });
+      if (!itens.length) { showToast('Adicione pelo menos um item.', true); return; }
+
+      const novaSol = {
+        destino,
+        dataNecessidade,
+        itens,
+        convertida: false,
+        criadoPor: perfilAtual,
+        dataCriacao: new Date().toISOString()
+      };
+
+      salvarSolicitacao(novaSol)
+        .then(() => {
+          showToast('Solicitação salva!');
+          document.getElementById('formSolicitacaoContainer').innerHTML = '';
+          render();
+        })
+        .catch(err => showToast('Erro: '+err.message, true));
+    }
+
+    /* ============================================================
+       RENDER PRINCIPAL (com nova seção)
     ============================================================ */
     function render() {
       try {
@@ -1968,6 +2218,7 @@
           frotas: { title: 'Frotas', meta: 'Cadastro de frotas e orçamentos' },
           novo: { title: 'Novo Cadastro', meta: 'Adicione um novo material à base' },
           requisicoes: { title: 'Requisições de Compra', meta: 'Fluxo completo de aprovação' },
+          solicitar: { title: 'Solicitar RC', meta: 'Solicitações simplificadas para conversão' },
         };
         const info = titleMap[sec] || titleMap.dashboard;
         document.getElementById('pageTitle').textContent = info.title;
@@ -1981,6 +2232,7 @@
         else if (sec === 'frotas') html = renderFrotas();
         else if (sec === 'novo') html = renderNovo();
         else if (sec === 'requisicoes') html = renderRequisicoes();
+        else if (sec === 'solicitar') html = renderSolicitar();
         else html = '<div class="loading"><span>Carregando…</span></div>';
 
         document.getElementById('appContent').innerHTML = html;
@@ -1998,7 +2250,7 @@
     }
 
     /* ============================================================
-       BIND EVENTS
+       BIND EVENTS (completo, incluindo nova seção)
     ============================================================ */
     function bindEvents() {
       // ===== MATERIAIS =====
@@ -2066,7 +2318,7 @@
               showToast(`Material ${btn.dataset.delete} excluído.`);
               render();
             } else {
-              showToast('Não foi possível excluir este material (pode ser do base original).', true);
+              showToast('Não foi possível excluir este material.', true);
             }
           }
         });
@@ -2179,7 +2431,7 @@
         });
       });
 
-      // ===== FROTAS (com percentual) =====
+      // ===== FROTAS =====
       document.getElementById('btnAbrirModalFrota')?.addEventListener('click', () => {
         const nome = prompt('Nome da frota:');
         if (!nome) return;
@@ -2366,6 +2618,44 @@
         }
       });
 
+      // ===== SOLICITAÇÕES (NOVO) =====
+      document.getElementById('btnNovaSolicitacao')?.addEventListener('click', function() {
+        const container = document.getElementById('formSolicitacaoContainer');
+        if (!container) return;
+        container.innerHTML = renderFormSolicitacao();
+        const itensContainer = document.getElementById('solItensContainer');
+        if (itensContainer) addItemRowSol(itensContainer);
+        document.getElementById('btnAddItemSol')?.addEventListener('click', function() {
+          const c = document.getElementById('solItensContainer');
+          if (c) addItemRowSol(c);
+        });
+        document.getElementById('btnCancelarSolicitacao')?.addEventListener('click', function() {
+          container.innerHTML = '';
+        });
+        document.getElementById('formSolicitacao')?.addEventListener('submit', function(e) {
+          e.preventDefault();
+          salvarSolicitacaoHandler();
+        });
+      });
+
+      document.querySelectorAll('[data-converter-sol]').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const id = this.dataset.converterSol;
+          converterSolicitacaoEmRC(id);
+        });
+      });
+
+      document.querySelectorAll('[data-excluir-sol]').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const id = this.dataset.excluirSol;
+          if (!confirm('Excluir esta solicitação?')) return;
+          excluirSolicitacao(id)
+            .then(() => { showToast('Solicitação excluída.'); render(); })
+            .catch(err => showToast('Erro: '+err.message, true));
+        });
+      });
+
+      // ===== MODAIS (Rejeitar, Editar, Fornecedor) =====
       document.getElementById('rejeitarModalClose')?.addEventListener('click', () => {
         document.getElementById('rejeitarModal').classList.remove('active');
       });
@@ -2385,10 +2675,76 @@
           document.getElementById('rejeitarModal').classList.remove('active');
         }
       });
+
+      document.getElementById('editModalClose')?.addEventListener('click', () => {
+        document.getElementById('editModal').classList.remove('active');
+      });
+      document.getElementById('editCancel')?.addEventListener('click', () => {
+        document.getElementById('editModal').classList.remove('active');
+      });
+      document.getElementById('editModal')?.addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) document.getElementById('editModal').classList.remove('active');
+      });
+      document.getElementById('formEdit')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const codigo = document.getElementById('editCodigo').value;
+        const getVal = (id) => document.getElementById(id)?.value || '';
+        const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
+
+        const newData = {
+          dataCadastro: getVal('editData'),
+          usuario: getVal('editUsuario'),
+          cadastroCompleto: getVal('editCompleto'),
+          descricaoSimples: getVal('editDescSimples'),
+          descricaoCurta: getVal('editDescCurta'),
+          descricaoCompleta: getVal('editDescCompleta'),
+          categoria: getVal('editCategoria'),
+          subcategoria: getVal('editSubcategoria'),
+          unid: getVal('editUnid'),
+          unidDetalhe: getVal('editUnidDetalhe'),
+          ncm: getVal('editNcm'),
+          marca: getVal('editMarca'),
+          modelo: getVal('editModelo'),
+          tipoMaterial: getVal('editTipoMat'),
+          dimensoes: getVal('editDimensoes'),
+          cor: getVal('editCor'),
+          peso: getVal('editPeso'),
+          tensao: getVal('editTensao'),
+          pressao: getVal('editPressao'),
+          temperatura: getVal('editTemperatura'),
+          certificacoes: getVal('editCertificacoes'),
+          localArmazenagem: getVal('editLocal'),
+          estoqueMin: String(getNum('editEstMin')),
+          estoqueMax: String(getNum('editEstMax')),
+          pontoPedido: getVal('editPontoPedido'),
+          loteMinimo: getVal('editLoteMin'),
+          leadTime: getVal('editLeadTime'),
+          condicoesArmazenamento: getVal('editCondArm'),
+          custoUnitario: getVal('editCustoUnit') ? `R$ ${getVal('editCustoUnit')}` : '',
+          fornecedor: getVal('editFornecedor'),
+          fornecedoresAlt: getVal('editFornecedoresAlt'),
+          codigoFornecedor: getVal('editCodFornecedor'),
+          moeda: getVal('editMoeda'),
+        };
+
+        const custoUnitNum = parseMoney(getVal('editCustoUnit'));
+        const estMin = getNum('editEstMin');
+        const estMax = getNum('editEstMax');
+        newData.custoUnitarioNum = custoUnitNum;
+        newData.custoEstoqueMinNum = estMin * custoUnitNum;
+        newData.custoEstoqueMaxNum = estMax * custoUnitNum;
+        newData.custoEstoqueMin = `R$ ${(estMin * custoUnitNum).toFixed(2)}`;
+        newData.custoEstoqueMax = `R$ ${(estMax * custoUnitNum).toFixed(2)}`;
+
+        updateItem(codigo, newData);
+        document.getElementById('editModal').classList.remove('active');
+      });
+
+      // Fornecedor modal (já vinculado acima)
     }
 
     /* ============================================================
-       FORM NOVO MATERIAL
+       FORM NOVO MATERIAL (mantido)
     ============================================================ */
     function handleFormNovo() {
       const getVal = (id) => document.getElementById(id)?.value || '';
@@ -2485,7 +2841,7 @@
     }
 
     /* ============================================================
-       EDIÇÃO DE MATERIAL (MODAL)
+       EDIÇÃO DE MATERIAL (MODAL) (mantido)
     ============================================================ */
     function abrirModalEdicao(codigo) {
       const item = allItems.find(i => i.codigo === codigo);
@@ -2570,10 +2926,18 @@
         rcs = list;
       }, error => console.error('Erro no listener de RCs:', error));
 
-      perfilAtual = getPerfil();
+      // NOVO: Solicitações
+      db.collection('solicitacoes').onSnapshot((snapshot) => {
+        const list = [];
+        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+        solicitacoes = list;
+        if (state.section === 'solicitar') render();
+      }, error => console.error('Erro no listener de solicitações:', error));
 
+      perfilAtual = getPerfil();
       document.getElementById("sidebarSource").textContent = "Dados em tempo real - Firebase Firestore";
 
+      // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
       if (btnLogout) {
         btnLogout.addEventListener('click', logout);
@@ -2589,6 +2953,7 @@
           state.page = 1;
           state.rcPage = 1;
           render();
+          // Fechar menu mobile ao clicar em um item
           if (window.innerWidth <= 768) {
             document.querySelector('.sidebar').classList.remove('mobile-open');
             document.getElementById('sidebarBackdrop').classList.remove('active');
@@ -2599,124 +2964,6 @@
       document.getElementById("btnResetFilters").addEventListener("click", resetFilters);
       document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
       document.getElementById("btnExportDataJS").addEventListener("click", exportDataJS);
-
-      document.getElementById('editModalClose').addEventListener('click', () => {
-        document.getElementById('editModal').classList.remove('active');
-      });
-      document.getElementById('editCancel').addEventListener('click', () => {
-        document.getElementById('editModal').classList.remove('active');
-      });
-      document.getElementById('editModal').addEventListener('click', (e) => {
-        if (e.target === e.currentTarget) document.getElementById('editModal').classList.remove('active');
-      });
-
-      document.getElementById('formEdit').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const codigo = document.getElementById('editCodigo').value;
-        const getVal = (id) => document.getElementById(id)?.value || '';
-        const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
-
-        const newData = {
-          dataCadastro: getVal('editData'),
-          usuario: getVal('editUsuario'),
-          cadastroCompleto: getVal('editCompleto'),
-          descricaoSimples: getVal('editDescSimples'),
-          descricaoCurta: getVal('editDescCurta'),
-          descricaoCompleta: getVal('editDescCompleta'),
-          categoria: getVal('editCategoria'),
-          subcategoria: getVal('editSubcategoria'),
-          unid: getVal('editUnid'),
-          unidDetalhe: getVal('editUnidDetalhe'),
-          ncm: getVal('editNcm'),
-          marca: getVal('editMarca'),
-          modelo: getVal('editModelo'),
-          tipoMaterial: getVal('editTipoMat'),
-          dimensoes: getVal('editDimensoes'),
-          cor: getVal('editCor'),
-          peso: getVal('editPeso'),
-          tensao: getVal('editTensao'),
-          pressao: getVal('editPressao'),
-          temperatura: getVal('editTemperatura'),
-          certificacoes: getVal('editCertificacoes'),
-          localArmazenagem: getVal('editLocal'),
-          estoqueMin: String(getNum('editEstMin')),
-          estoqueMax: String(getNum('editEstMax')),
-          pontoPedido: getVal('editPontoPedido'),
-          loteMinimo: getVal('editLoteMin'),
-          leadTime: getVal('editLeadTime'),
-          condicoesArmazenamento: getVal('editCondArm'),
-          custoUnitario: getVal('editCustoUnit') ? `R$ ${getVal('editCustoUnit')}` : '',
-          fornecedor: getVal('editFornecedor'),
-          fornecedoresAlt: getVal('editFornecedoresAlt'),
-          codigoFornecedor: getVal('editCodFornecedor'),
-          moeda: getVal('editMoeda'),
-        };
-
-        const custoUnitNum = parseMoney(getVal('editCustoUnit'));
-        const estMin = getNum('editEstMin');
-        const estMax = getNum('editEstMax');
-        newData.custoUnitarioNum = custoUnitNum;
-        newData.custoEstoqueMinNum = estMin * custoUnitNum;
-        newData.custoEstoqueMaxNum = estMax * custoUnitNum;
-        newData.custoEstoqueMin = `R$ ${(estMin * custoUnitNum).toFixed(2)}`;
-        newData.custoEstoqueMax = `R$ ${(estMax * custoUnitNum).toFixed(2)}`;
-
-        updateItem(codigo, newData);
-        document.getElementById('editModal').classList.remove('active');
-      });
-
-      // Fornecedor modal
-      document.getElementById('novoFornecedorModalClose').addEventListener('click', () => {
-        document.getElementById('novoFornecedorModal').classList.remove('active');
-      });
-      document.getElementById('novoFornecedorCancel').addEventListener('click', () => {
-        document.getElementById('novoFornecedorModal').classList.remove('active');
-      });
-      document.getElementById('novoFornecedorModal').addEventListener('click', (e) => {
-        if (e.target === e.currentTarget) document.getElementById('novoFornecedorModal').classList.remove('active');
-      });
-
-      document.getElementById('formNovoFornecedor').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const nome = document.getElementById('novoFornecedorNome').value.trim();
-        if (!nome) { showToast('Informe o nome.', true); return; }
-        const contato = document.getElementById('novoFornecedorContato').value.trim();
-        const telefone = document.getElementById('novoFornecedorTelefone').value.trim();
-        const email = document.getElementById('novoFornecedorEmail').value.trim();
-        const obs = document.getElementById('novoFornecedorObs').value.trim();
-        addFornecedor(nome, contato, telefone, email, obs);
-        document.getElementById('novoFornecedorModal').classList.remove('active');
-        document.querySelectorAll('select[id$="Fornecedor"]').forEach(sel => {
-          const exists = Array.from(sel.options).some(o => o.value === nome);
-          if (!exists) {
-            const opt = document.createElement('option');
-            opt.value = nome;
-            opt.textContent = nome;
-            sel.appendChild(opt);
-          }
-        });
-      });
-
-      // Rejeitar modal
-      document.getElementById('rejeitarModalClose').addEventListener('click', () => {
-        document.getElementById('rejeitarModal').classList.remove('active');
-      });
-      document.getElementById('rejeitarCancel').addEventListener('click', () => {
-        document.getElementById('rejeitarModal').classList.remove('active');
-      });
-      document.getElementById('rejeitarModal').addEventListener('click', (e) => {
-        if (e.target === e.currentTarget) document.getElementById('rejeitarModal').classList.remove('active');
-      });
-      document.getElementById('formRejeitar').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const justificativa = document.getElementById('rejeitarJustificativa').value.trim();
-        if (!justificativa) { showToast('Informe a justificativa.', true); return; }
-        const numero = document.getElementById('rejeitarModal').dataset.rcNumero;
-        if (numero) {
-          updateRC(numero, { status: 'rejeitado', justificativa });
-          document.getElementById('rejeitarModal').classList.remove('active');
-        }
-      });
 
       // ===== MENU MOBILE =====
       const menuToggle = document.getElementById('menuToggle');
