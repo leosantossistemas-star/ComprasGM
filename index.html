@@ -13,18 +13,20 @@
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
   <script>
     const firebaseConfig = {
-      apiKey: "AIzaSyAJ6scC0N3QxLzIAgZhrshm3VRhP2kuJ4g",
+      apiKey: "AIzaSyAJ65cc0N3QxlZiAGzhrsmh3VRhP2kuJ4g",
       authDomain: "cryotronics.firebaseapp.com",
       projectId: "cryotronics",
       storageBucket: "cryotronics.firebasestorage.app",
-      messagingSenderId: "1002852929804",
-      appId: "1:1002852929804:web:31f7a903b1e48b24955b1"
+      messagingSenderId: "1002852992804",
+      appId: "1:1002852992804:web:caf0b5e6a81ef8674955b1"
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+    const auth = firebase.auth();
     db.enablePersistence().catch(() => {});
   </script>
 
@@ -510,15 +512,17 @@
 
   <script>
     /* ============================================================
-       SISTEMA DE LOGIN
+       SISTEMA DE LOGIN — FIREBASE AUTHENTICATION
+       Senhas NÃO ficam gravadas no HTML.
+       O campo aceita o usuário antigo (admin, gerente, encarregado,
+       usuario) ou o e-mail completo cadastrado no Firebase Auth.
     ============================================================ */
-    const SESSION_KEY = 'cryotronics_session';
-    const USUARIOS = [
-      { usuario: 'admin', senha: 'Mechatronics@2026', perfil: 'admin' },
-      { usuario: 'gerente', senha: 'gerente123', perfil: 'gerente' },
-      { usuario: 'encarregado', senha: 'encarregado123', perfil: 'encarregado' },
-      { usuario: 'usuario', senha: 'usuario123', perfil: 'usuario' },
-    ];
+    const LOGIN_EMAILS = Object.freeze({
+      admin: 'admin@cryotronics.com',
+      gerente: 'gerente@cryotronics.com',
+      encarregado: 'encarregado@cryotronics.com',
+      usuario: 'usuario@cryotronics.com'
+    });
 
     /* ============================================================
        VARIÁVEIS GLOBAIS (mantidas)
@@ -530,6 +534,9 @@
     var frotas = [];
     var solicitacoes = []; // NOVO
     var perfilAtual = 'usuario';
+    var usuarioAtual = null;
+    var usuarioAtualPerfil = null;
+    var sistemaIniciado = false;
     var limitePercentual = 20; // mantido para compatibilidade, mas agora cada frota tem seu próprio %
     var toastTimeout = null;
 
@@ -566,60 +573,164 @@
     function clean(str) { return (str || "").trim(); }
 
     /* ============================================================
-       FUNÇÕES DE SESSÃO (mantidas)
+       AUTENTICAÇÃO + PERFIL DO USUÁRIO
     ============================================================ */
-    function getSession() {
-      try { const data = localStorage.getItem(SESSION_KEY); return data ? JSON.parse(data) : null; } catch(e) { return null; }
-    }
-    function setSession(usuario, perfil) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ usuario, perfil, loginTime: Date.now() }));
-    }
-    function clearSession() { localStorage.removeItem(SESSION_KEY); }
-    function fazerLogin(usuario, senha) {
-      const found = USUARIOS.find(u => u.usuario === usuario && u.senha === senha);
-      if (!found) return false;
-      setSession(found.usuario, found.perfil);
-      return true;
-    }
-    function logout() {
-      clearSession();
-      location.reload();
+    function resolverEmailLogin(valor) {
+      const login = (valor || '').trim().toLowerCase();
+      if (!login) return '';
+      if (login.includes('@')) return login;
+      return LOGIN_EMAILS[login] || '';
     }
 
-    (function checkSession() {
-      const sess = getSession();
-      if (sess) {
-        document.getElementById('loginScreen').classList.add('hidden');
-        document.getElementById('mainContent').classList.remove('hidden');
-        const label = document.getElementById('profileLabel');
-        if (label) {
-          const nomes = { admin: 'Administrador', gerente: 'Gerente', encarregado: 'Encarregado', usuario: 'Usuário' };
-          label.textContent = nomes[sess.perfil] || sess.perfil;
-        }
-        iniciarSistema();
-      } else {
-        document.getElementById('loginScreen').classList.remove('hidden');
-        document.getElementById('mainContent').classList.add('hidden');
+    function getPerfil() {
+      return usuarioAtualPerfil?.perfil || perfilAtual || 'usuario';
+    }
+
+    function getUsuarioUid() {
+      return usuarioAtual?.uid || '';
+    }
+
+    function getUsuarioEmail() {
+      return usuarioAtual?.email || usuarioAtualPerfil?.email || '';
+    }
+
+    function getUsuarioNome() {
+      return usuarioAtualPerfil?.nome || getUsuarioEmail() || 'Usuário';
+    }
+
+    function ehDonoRegistro(registro) {
+      if (!registro) return false;
+
+      // Registros novos: identificação real pelo UID.
+      if (registro.criadoPorUid) {
+        return registro.criadoPorUid === getUsuarioUid();
       }
-    })();
 
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
+      // Compatibilidade temporária com registros antigos, que guardavam apenas o perfil.
+      return registro.criadoPor === perfilAtual;
+    }
+
+    async function carregarPerfilUsuario(user) {
+      const perfilDoc = await db.collection('usuarios').doc(user.uid).get();
+
+      if (!perfilDoc.exists) {
+        throw new Error('Seu usuário existe no Authentication, mas não possui perfil na coleção "usuarios".');
+      }
+
+      const dados = perfilDoc.data() || {};
+
+      if (dados.ativo !== true) {
+        throw new Error('Este usuário está inativo.');
+      }
+
+      if (!['admin', 'gerente', 'encarregado', 'usuario'].includes(dados.perfil)) {
+        throw new Error('Perfil de acesso inválido no Firestore.');
+      }
+
+      usuarioAtual = user;
+      usuarioAtualPerfil = {
+        uid: user.uid,
+        email: dados.email || user.email || '',
+        nome: dados.nome || user.email || 'Usuário',
+        perfil: dados.perfil,
+        ativo: true
+      };
+      perfilAtual = dados.perfil;
+
+      const label = document.getElementById('profileLabel');
+      if (label) {
+        const nomes = {
+          admin: 'Administrador',
+          gerente: 'Gerente',
+          encarregado: 'Encarregado',
+          usuario: 'Usuário'
+        };
+        label.textContent = `${nomes[perfilAtual] || perfilAtual} — ${getUsuarioNome()}`;
+      }
+    }
+
+    async function logout() {
+      try {
+        await auth.signOut();
+      } finally {
+        location.reload();
+      }
+    }
+
+    auth.onAuthStateChanged(async (user) => {
+      const loginScreen = document.getElementById('loginScreen');
+      const mainContent = document.getElementById('mainContent');
+      const errorEl = document.getElementById('loginError');
+
+      if (!user) {
+        usuarioAtual = null;
+        usuarioAtualPerfil = null;
+        perfilAtual = 'usuario';
+        sistemaIniciado = false;
+        loginScreen.classList.remove('hidden');
+        mainContent.classList.add('hidden');
+        return;
+      }
+
+      try {
+        if (errorEl) errorEl.textContent = 'Carregando perfil...';
+        await carregarPerfilUsuario(user);
+
+        loginScreen.classList.add('hidden');
+        mainContent.classList.remove('hidden');
+        if (errorEl) errorEl.textContent = '';
+
+        if (!sistemaIniciado) {
+          sistemaIniciado = true;
+          iniciarSistema();
+        }
+      } catch (err) {
+        console.error('Erro ao carregar perfil:', err);
+        if (errorEl) errorEl.textContent = 'Erro de acesso: ' + (err.message || err);
+        await auth.signOut().catch(() => {});
+        loginScreen.classList.remove('hidden');
+        mainContent.classList.add('hidden');
+      }
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
       e.preventDefault();
-      const usuario = document.getElementById('loginUsuario').value.trim();
+
+      const usuarioDigitado = document.getElementById('loginUsuario').value.trim();
       const senha = document.getElementById('loginSenha').value;
       const errorEl = document.getElementById('loginError');
-      if (!usuario || !senha) { errorEl.textContent = 'Preencha usuário e senha.'; return; }
-      if (fazerLogin(usuario, senha)) {
+      const email = resolverEmailLogin(usuarioDigitado);
+
+      if (!usuarioDigitado || !senha) {
+        errorEl.textContent = 'Preencha usuário/e-mail e senha.';
+        return;
+      }
+
+      if (!email) {
+        errorEl.textContent = 'Usuário inválido. Use admin, gerente, encarregado, usuario ou o e-mail completo.';
+        return;
+      }
+
+      try {
+        errorEl.textContent = 'Entrando...';
+        await auth.signInWithEmailAndPassword(email, senha);
         errorEl.textContent = '';
-        location.reload();
-      } else {
-        errorEl.textContent = 'Usuário ou senha inválidos.';
+      } catch (err) {
+        console.error('Erro de login:', err);
+
+        const mensagens = {
+          'auth/invalid-login-credentials': 'Usuário/e-mail ou senha inválidos.',
+          'auth/invalid-credential': 'Usuário/e-mail ou senha inválidos.',
+          'auth/user-not-found': 'Usuário não encontrado no Firebase Authentication.',
+          'auth/wrong-password': 'Senha inválida.',
+          'auth/too-many-requests': 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
+          'auth/network-request-failed': 'Falha de rede ao acessar o Firebase.'
+        };
+
+        errorEl.textContent = mensagens[err.code] || ('Erro ao entrar: ' + (err.message || err));
         document.getElementById('loginSenha').value = '';
         document.getElementById('loginSenha').focus();
       }
-    });
-    document.getElementById('loginSenha').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') document.getElementById('loginForm').dispatchEvent(new Event('submit'));
     });
 
     /* ============================================================
@@ -650,11 +761,6 @@
     }
     function setWhatsAppNumbers(numbers) { localStorage.setItem(WHATSAPP_STORAGE_KEY, JSON.stringify(numbers)); }
 
-    function getPerfil() {
-      const sess = getSession();
-      if (sess) return sess.perfil;
-      return 'usuario';
-    }
 
     function getLimitePercentual() {
       // Mantido para compatibilidade, mas não usado mais para o cálculo global
@@ -903,8 +1009,19 @@
     }
 
     // Frotas adaptadas (com percentual)
-    function addFrota(nome, valorOrcamento, percentualLimite = 20) {
-      const nova = { nome: clean(nome), valorOrcamento: parseFloat(valorOrcamento) || 0, percentualLimite: parseFloat(percentualLimite) || 20 };
+    function addFrota(nome, valorOrcamento, percentualLimite = 20, dataPrevisaoSaida = '') {
+      const valor = Number(valorOrcamento);
+      const percentual = Number(percentualLimite);
+      const nova = {
+        nome: clean(nome),
+        valorOrcamento: Number.isFinite(valor) ? valor : 0,
+        percentualLimite: Number.isFinite(percentual) ? percentual : 20,
+        dataPrevisaoSaida: dataPrevisaoSaida || '',
+        criadoPorUid: getUsuarioUid(),
+        criadoPorEmail: getUsuarioEmail(),
+        criadoPorNome: getUsuarioNome(),
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+      };
       salvarFrota(nova)
         .then(() => showToast(`Frota "${nome}" cadastrada!`))
         .catch(err => showToast('Erro ao adicionar frota: ' + err.message, true));
@@ -938,25 +1055,135 @@
     }
 
     /* ============================================================
-       FUNÇÕES DE LIMITE RESIDUAL (CORREÇÃO)
+       CONTROLE FINANCEIRO E PRAZO POR FROTA
     ============================================================ */
-    function getTotalUtilizado(frotaNome) {
-      let total = 0;
-      rcs.forEach(rc => {
-        if (rc.aplicacao === frotaNome && (rc.status === 'aprovado' || rc.status === 'em_aprovacao')) {
-          total += (rc.total || 0);
-        }
-      });
-      return total;
+    const DESTINOS_PADRAO = Object.freeze([
+      { id: 'padrao_estoque', nome: 'ESTOQUE', limiteFixo: 50000 },
+      { id: 'padrao_oficina', nome: 'OFICINA', limiteFixo: 50000 },
+      { id: 'padrao_despesas_administrativas', nome: 'DESPESAS ADMINISTRATIVAS', limiteFixo: 50000 }
+    ]);
+
+    function nomeNormalizadoDestino(nome) {
+      return normalize(nome || '').replace(/\s+/g, ' ').trim();
     }
 
-    function getLimiteDisponivel(frotaNome) {
-      const frota = getFrotaByNome(frotaNome);
+    function configuracaoDestinoPadrao(frotaOuNome) {
+      const nome = typeof frotaOuNome === 'string' ? frotaOuNome : (frotaOuNome?.nome || '');
+      const norm = nomeNormalizadoDestino(nome);
+      return DESTINOS_PADRAO.find(d => nomeNormalizadoDestino(d.nome) === norm) || null;
+    }
+
+    function isDestinoPadrao(frota) {
+      return !!frota && (frota.tipoDestino === 'padrao' || !!configuracaoDestinoPadrao(frota));
+    }
+
+    async function garantirDestinosPadrao() {
+      try {
+        const batch = db.batch();
+        let alterou = false;
+
+        for (const cfg of DESTINOS_PADRAO) {
+          const existente = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(cfg.nome));
+
+          if (!existente) {
+            const ref = db.collection('frotas').doc(cfg.id);
+            batch.set(ref, {
+              nome: cfg.nome,
+              tipoDestino: 'padrao',
+              limiteFixo: cfg.limiteFixo,
+              valorOrcamento: cfg.limiteFixo,
+              percentualLimite: 100,
+              dataPrevisaoSaida: '',
+              criadoAutomaticamente: true,
+              criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            alterou = true;
+          }
+        }
+
+        if (alterou) await batch.commit();
+      } catch (err) {
+        console.warn('Não foi possível criar automaticamente os destinos padrão:', err);
+      }
+    }
+
+    function numeroSeguro(v) {
+      if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+      if (v === null || v === undefined || v === '') return 0;
+      if (typeof v === 'string') {
+        const limpo = v.replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.');
+        const n = Number(limpo);
+        return Number.isFinite(n) ? n : 0;
+      }
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function getPercentualFrota(frota) {
+      if (!frota) return 20;
+      if (isDestinoPadrao(frota)) return 100;
+      const p = Number(String(frota.percentualLimite ?? 20).replace(',', '.'));
+      return Number.isFinite(p) ? p : 20;
+    }
+
+    function getLimiteTotalFrota(frota) {
       if (!frota) return 0;
-      const percentual = frota.percentualLimite || 20;
-      const limiteTotal = frota.valorOrcamento * (percentual / 100);
-      const utilizado = getTotalUtilizado(frotaNome);
-      return Math.max(0, limiteTotal - utilizado);
+      if (isDestinoPadrao(frota)) {
+        const cfg = configuracaoDestinoPadrao(frota);
+        const salvo = numeroSeguro(frota.limiteFixo);
+        return salvo > 0 ? salvo : (cfg?.limiteFixo || 50000);
+      }
+      return numeroSeguro(frota.valorOrcamento) * (getPercentualFrota(frota) / 100);
+    }
+
+    function rcPertenceFrota(rc, frota) {
+      if (!rc || !frota) return false;
+      if (rc.frotaId) return rc.frotaId === frota.id;
+      return (rc.aplicacao || '') === (frota.nome || '');
+    }
+
+    function getTotalUtilizadoFrota(frota, ignorarNumeroRC = '') {
+      if (!frota) return 0;
+      return rcs.reduce((total, rc) => {
+        if (ignorarNumeroRC && rc.numero === ignorarNumeroRC) return total;
+        if (!rcPertenceFrota(rc, frota)) return total;
+        if (!['aprovado','em_aprovacao'].includes(rc.status)) return total;
+        return total + numeroSeguro(rc.total);
+      }, 0);
+    }
+
+    function getTotalUtilizado(frotaNome) {
+      return getTotalUtilizadoFrota(getFrotaByNome(frotaNome));
+    }
+
+    function getLimiteDisponivelFrota(frota, ignorarNumeroRC = '') {
+      return frota ? getLimiteTotalFrota(frota) - getTotalUtilizadoFrota(frota, ignorarNumeroRC) : 0;
+    }
+
+    function getLimiteDisponivel(frotaNome, ignorarNumeroRC = '') {
+      return getLimiteDisponivelFrota(getFrotaByNome(frotaNome), ignorarNumeroRC);
+    }
+
+    function hojeISO() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function validarFrotaParaEnvio(frota, valorRC, ignorarNumeroRC = '') {
+      if (!frota) return { ok:false, motivo:'Selecione uma frota válida.' };
+      if (!isDestinoPadrao(frota)) {
+        if (!frota.dataPrevisaoSaida) {
+          return { ok:false, motivo:`A frota "${frota.nome}" ainda não possui previsão de saída. A RC pode ficar em rascunho, mas não pode ser enviada para aprovação.` };
+        }
+        if (hojeISO() > frota.dataPrevisaoSaida) {
+          return { ok:false, motivo:`Prazo encerrado: a previsão de saída da frota "${frota.nome}" foi ${fmt.date(frota.dataPrevisaoSaida)}. O envio de novas RCs está bloqueado.` };
+        }
+      }
+      const disponivel = getLimiteDisponivelFrota(frota, ignorarNumeroRC);
+      if (numeroSeguro(valorRC) > disponivel + 0.00001) {
+        return { ok:false, motivo:`Limite financeiro excedido. Disponível para "${frota.nome}": ${fmt.money(Math.max(0, disponivel))}.` };
+      }
+      return { ok:true, disponivel };
     }
 
     /* ============================================================
@@ -1139,6 +1366,62 @@
     /* ============================================================
        SEÇÕES (DASHBOARD, MATERIAIS, CATEGORIAS, FORNECEDORES, FROTAS, NOVO, REQUISIÇÕES)
     ============================================================ */
+    function getComprasMensais12Meses() {
+      const hoje = new Date();
+      const meses = [];
+
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+        const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
+        meses.push({ chave, label, total: 0, quantidade: 0 });
+      }
+
+      const mapa = Object.fromEntries(meses.map(m => [m.chave, m]));
+
+      rcs.forEach(rc => {
+        // Compra efetiva: somente RC aprovada entra no histórico mensal.
+        if (rc.status !== 'aprovado') return;
+        const data = rc.data || '';
+        const chave = /^\d{4}-\d{2}/.test(data) ? data.slice(0, 7) : '';
+        if (!mapa[chave]) return;
+        mapa[chave].total += numeroSeguro(rc.total);
+        mapa[chave].quantidade += 1;
+      });
+
+      return meses;
+    }
+
+    function renderGraficoComprasMensais() {
+      const meses = getComprasMensais12Meses();
+      const max = Math.max(1, ...meses.map(m => m.total));
+      const totalPeriodo = meses.reduce((s, m) => s + m.total, 0);
+
+      return `
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Compras mensais — últimos 12 meses</div>
+              <div class="card-sub">Comparativo mês a mês de RCs aprovadas · Total no período: ${fmt.money(totalPeriodo)}</div>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <div style="min-width:760px;height:280px;display:flex;align-items:flex-end;gap:12px;padding:22px 10px 0;border-bottom:1px solid var(--border);">
+              ${meses.map(m => {
+                const altura = m.total <= 0 ? 2 : Math.max(8, (m.total / max) * 210);
+                return `
+                  <div style="flex:1;min-width:44px;height:250px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:7px;">
+                    <div title="${m.label}: ${fmt.money(m.total)} · ${m.quantidade} RC(s)"
+                         style="font-size:10px;color:var(--text-muted);white-space:nowrap;">${m.total > 0 ? fmt.money(m.total) : '—'}</div>
+                    <div style="width:72%;max-width:52px;height:${altura}px;background:linear-gradient(180deg,var(--accent),#5f9600);border-radius:7px 7px 2px 2px;box-shadow:${m.total > 0 ? '0 0 10px var(--accent-glow)' : 'none'};"></div>
+                    <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${m.label}</div>
+                  </div>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>`;
+    }
+
     function renderDashboard() {
       const filtered = getFilteredItems();
       const completos = filtered.filter(i => i.cadastroCompleto.toUpperCase() === "SIM").length;
@@ -1154,6 +1437,7 @@
           <div class="kpi-card"><div class="kpi-label">Custo Estoque Mín.</div><div class="kpi-value">${fmt.money(custoMin)}</div><div class="kpi-sub">Soma dos estoques mínimos</div></div>
           <div class="kpi-card"><div class="kpi-label">Custo Estoque Máx.</div><div class="kpi-value accent">${fmt.money(custoMax)}</div><div class="kpi-sub">Soma dos estoques máximos</div></div>
         </div>
+        ${renderGraficoComprasMensais()}
         <div class="grid-3-1">
           <div class="card"><div class="card-header"><div><div class="card-title">Materiais por Categoria</div><div class="card-sub">${cats} categorias</div></div></div><div class="bar-chart">${renderBarChart(filtered, "categoria")}</div></div>
           <div class="card"><div class="card-header"><div><div class="card-title">Top Fornecedores</div><div class="card-sub">Por quantidade</div></div></div><ul class="supplier-list">${renderSupplierList(filtered)}</ul></div>
@@ -1233,58 +1517,105 @@
 
     // =========== SEÇÃO FROTAS (ajustada para usar variável global e percentual) ===========
     function renderFrotas() {
-      const list = frotas;
       const perfil = perfilAtual;
-      const isAdminGerente = perfil === 'admin' || perfil === 'gerente';
-      const isEncarregado = perfil === 'encarregado' || perfil === 'admin';
+      const podeCadastrarFrota = ['encarregado','gerente','admin'].includes(perfil);
+      const podeEditar = ['gerente','admin'].includes(perfil);
 
-      let html = `
+      const destinosPadrao = DESTINOS_PADRAO.map(cfg => {
+        const existente = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(cfg.nome));
+        return existente || {
+          id: cfg.id,
+          nome: cfg.nome,
+          tipoDestino: 'padrao',
+          limiteFixo: cfg.limiteFixo,
+          valorOrcamento: cfg.limiteFixo,
+          percentualLimite: 100,
+          dataPrevisaoSaida: ''
+        };
+      });
+
+      const idsPadrao = new Set(destinosPadrao.map(f => nomeNormalizadoDestino(f.nome)));
+      const frotasManutencao = frotas.filter(f => !idsPadrao.has(nomeNormalizadoDestino(f.nome)) && !isDestinoPadrao(f));
+
+      const renderLinhaPadrao = f => {
+        const limiteTotal = getLimiteTotalFrota(f);
+        const utilizado = getTotalUtilizadoFrota(f);
+        const disponivel = limiteTotal - utilizado;
+        const status = disponivel <= 0
+          ? `<span class="badge badge-danger">Limite atingido</span>`
+          : `<span class="badge badge-ok">Liberado</span>`;
+
+        return `<tr>
+          <td><strong>${f.nome}</strong></td>
+          <td><span class="badge badge-info">Conta padrão</span></td>
+          <td>${fmt.money(limiteTotal)}</td>
+          <td>${fmt.money(utilizado)}</td>
+          <td style="color:${disponivel<=0?'var(--danger)':'var(--accent)'}">${fmt.money(Math.max(0,disponivel))}</td>
+          <td>Não se aplica</td>
+          <td>${status}</td>
+          <td>${podeEditar ? `<button class="btn btn-ghost btn-sm" data-editar-limite-padrao="${f.id}" data-nome-padrao="${f.nome}">Editar limite</button>` : '<span style="color:var(--text-muted);font-size:12px">Somente Gerente/Admin</span>'}</td>
+        </tr>`;
+      };
+
+      const renderLinhaFrota = f => {
+        const limiteTotal = getLimiteTotalFrota(f);
+        const utilizado = getTotalUtilizadoFrota(f);
+        const disponivel = limiteTotal - utilizado;
+        let status = '';
+        if (!f.dataPrevisaoSaida) status = `<span class="badge badge-pending">Aguardando data de saída</span>`;
+        else if (hojeISO() > f.dataPrevisaoSaida) status = `<span class="badge badge-danger">Bloqueado por prazo</span>`;
+        else if (disponivel <= 0) status = `<span class="badge badge-danger">Limite atingido</span>`;
+        else status = `<span class="badge badge-ok">Liberado</span>`;
+
+        return `<tr>
+          <td><strong>${f.nome}</strong></td>
+          <td>${fmt.money(numeroSeguro(f.valorOrcamento))}</td>
+          <td>${getPercentualFrota(f)}%</td>
+          <td>${fmt.money(limiteTotal)}</td>
+          <td>${fmt.money(utilizado)}</td>
+          <td style="color:${disponivel<=0?'var(--danger)':'var(--accent)'}">${fmt.money(Math.max(0,disponivel))}</td>
+          <td>${f.dataPrevisaoSaida ? fmt.date(f.dataPrevisaoSaida) : '<span style="color:var(--warning)">Não informada</span>'}</td>
+          <td>${status}</td>
+          <td>${podeEditar ? `<button class="btn btn-ghost btn-sm" data-editar-frota="${f.id}">Editar parâmetros</button> <button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>` : '<span style="color:var(--text-muted);font-size:12px">Parâmetros bloqueados</span>'}</td>
+        </tr>`;
+      };
+
+      return `
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
-            <div><div class="card-title">Cadastro de Frotas</div><div class="card-sub">Gerencie as frotas para manutenção</div></div>
-            ${isEncarregado ? `<button class="btn btn-accent" id="btnAbrirModalFrota">+ Adicionar Frota</button>` : ''}
+            <div>
+              <div class="card-title">Contas padrão de compras</div>
+              <div class="card-sub">Estoque, Oficina e Despesas Administrativas já fazem parte do sistema. Limite inicial: R$ 50.000,00 por conta.</div>
+            </div>
           </div>
           <div style="overflow-x:auto;">
             <table>
-              <thead>
-                <tr>
-                  <th>Nome da Frota</th>
-                  <th>Valor do Orçamento</th>
-                  <th>% Limite</th>
-                  <th>Limite Total</th>
-                  <th>Utilizado</th>
-                  <th>Disponível</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${list.length === 0 ? `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-muted);">Nenhuma frota cadastrada.</td></tr>` : ''}
-                ${list.map(f => {
-                  const percentual = f.percentualLimite || 20;
-                  const limiteTotal = f.valorOrcamento * (percentual / 100);
-                  const utilizado = getTotalUtilizado(f.nome);
-                  const disponivel = Math.max(0, limiteTotal - utilizado);
-                  const acoes = isAdminGerente ? `
-                    <button class="btn btn-ghost btn-sm" data-editar-percentual="${f.id}">Editar %</button>
-                    <button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>
-                  ` : (isEncarregado ? `<span style="color:var(--text-muted);font-size:12px;">Sem ações</span>` : '');
-                  return `
-                  <tr>
-                    <td><strong>${f.nome}</strong></td>
-                    <td>${fmt.money(f.valorOrcamento)}</td>
-                    <td>${percentual}%</td>
-                    <td>${fmt.money(limiteTotal)}</td>
-                    <td>${fmt.money(utilizado)}</td>
-                    <td style="color:${disponivel < 0 ? 'var(--danger)' : 'var(--accent)'}">${fmt.money(disponivel)}</td>
-                    <td>${acoes}</td>
-                  </tr>`;
-                }).join('')}
-              </tbody>
+              <thead><tr>
+                <th>Destino</th><th>Tipo</th><th>Limite</th><th>Utilizado</th><th>Disponível</th><th>Previsão de Saída</th><th>Status RC</th><th>Ações</th>
+              </tr></thead>
+              <tbody>${destinosPadrao.map(renderLinhaPadrao).join('')}</tbody>
             </table>
           </div>
         </div>
-      `;
-      return html;
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div><div class="card-title">Frotas em manutenção</div><div class="card-sub">Controle individual de orçamento, limite percentual e previsão de saída.</div></div>
+            ${podeCadastrarFrota ? `<button class="btn btn-accent" id="btnAbrirModalFrota">+ Adicionar Frota</button>` : ''}
+          </div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr>
+                <th>Nome da Frota</th><th>Valor do Orçamento</th><th>% Limite</th><th>Limite Total</th>
+                <th>Utilizado</th><th>Disponível</th><th>Previsão de Saída</th><th>Status RC</th><th>Ações</th>
+              </tr></thead>
+              <tbody>
+                ${frotasManutencao.length===0 ? `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhuma frota de manutenção cadastrada.</td></tr>` : ''}
+                ${frotasManutencao.map(renderLinhaFrota).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
     }
 
     // =========== NOVO MATERIAL ===========
@@ -1438,12 +1769,12 @@
         }
 
         if (perfil === 'usuario' || perfil === 'admin') {
-          if (rc.status === 'rascunho' && rc.criadoPor === perfilAtual) {
+          if (rc.status === 'rascunho' && ehDonoRegistro(rc)) {
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
             acoes.unshift(`<button class="btn btn-warning btn-sm" data-arquivar-rc="${rc.numero}">Arquivar</button>`);
             acoes.unshift(`<button class="btn btn-accent btn-sm" data-enviar-rc="${rc.numero}">Enviar</button>`);
           }
-          if (rc.status === 'arquivado' && rc.criadoPor === perfilAtual) {
+          if (rc.status === 'arquivado' && ehDonoRegistro(rc)) {
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-reabrir-rc="${rc.numero}">Reabrir</button>`);
           }
         }
@@ -1514,7 +1845,8 @@
       const selectedFrota = data.aplicacao || '';
       let limiteDisponivel = 0;
       if (selectedFrota) {
-        limiteDisponivel = getLimiteDisponivel(selectedFrota);
+        const frotaSelecionada = data.frotaId ? frotas.find(f => f.id === data.frotaId) : getFrotaByNome(selectedFrota);
+        limiteDisponivel = getLimiteDisponivelFrota(frotaSelecionada, isEdit ? data.numero : '');
       }
 
       return `
@@ -1542,16 +1874,19 @@
               </div>
               <div class="field"><label>Data Base *</label><input type="date" id="rcDataBase" value="${data.dataBase || today}" required /></div>
               <div class="field"><label>Vencimento (automático)</label><input type="date" id="rcVencimento" value="${data.vencimento || ''}" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
-              <div class="field"><label>Solicitante *</label><input type="text" id="rcSolicitante" value="${data.solicitante || perfilAtual}" required placeholder="Seu nome" /></div>
+              <div class="field"><label>Solicitante *</label><input type="text" id="rcSolicitante" value="${data.solicitante || getUsuarioNome()}" required placeholder="Seu nome" /></div>
               <div class="field"><label>Destino (Frota) *</label>
                 <select id="rcDestino" required>
                   <option value="">Selecione uma frota</option>
                   ${frotasList.map(f => {
-                    const percentual = f.percentualLimite || 20;
-                    const limiteTotal = f.valorOrcamento * (percentual / 100);
-                    const utilizado = getTotalUtilizado(f.nome);
-                    const disponivel = Math.max(0, limiteTotal - utilizado);
-                    return `<option value="${f.nome}" data-limite-total="${limiteTotal}" data-utilizado="${utilizado}" data-disponivel="${disponivel}" ${selectedFrota===f.nome?'selected':''}>${f.nome} (Disponível: ${fmt.money(disponivel)})</option>`;
+                    const limiteTotal = getLimiteTotalFrota(f);
+                    const utilizado = getTotalUtilizadoFrota(f, isEdit ? data.numero : '');
+                    const disponivel = limiteTotal - utilizado;
+                    const aviso = isDestinoPadrao(f)
+                      ? ' | CONTA PADRÃO'
+                      : (!f.dataPrevisaoSaida ? ' | SEM DATA DE SAÍDA' : (hojeISO() > f.dataPrevisaoSaida ? ' | PRAZO ENCERRADO' : ''));
+                    const selected = (data.frotaId && data.frotaId===f.id) || (!data.frotaId && selectedFrota===f.nome);
+                    return `<option value="${f.nome}" data-frota-id="${f.id}" data-disponivel="${disponivel}" data-saida="${f.dataPrevisaoSaida || ''}" ${selected?'selected':''}>${f.nome} (Disponível: ${fmt.money(Math.max(0,disponivel))}${aviso})</option>`;
                   }).join('')}
                 </select>
               </div>
@@ -1656,35 +1991,49 @@
     };
 
     function recalcularTotalRC() {
-      const totals = document.querySelectorAll('.rc-item-total');
-      let sum = 0;
-      totals.forEach(input => {
-        const val = parseMoney(input.value);
-        if (!isNaN(val)) sum += val;
+      let total = 0;
+      document.querySelectorAll('.rc-item-row').forEach(row => {
+        const qtd = numeroSeguro(row.querySelector('.rc-item-qtd')?.value);
+        const unit = parseMoney(row.querySelector('.rc-item-unit')?.value || '0');
+        total += qtd * unit;
       });
-      const display = document.getElementById('rcTotalDisplay');
-      if (display) display.textContent = fmt.money(sum);
 
-      // Verifica limite residual
-      const destinoSelect = document.getElementById('rcDestino');
-      const limiteDisplay = document.getElementById('rcLimiteDisplay');
-      const btnEnviar = document.getElementById('btnEnviarRC');
+      const totalEl = document.getElementById('rcTotalDisplay');
+      if (totalEl) totalEl.textContent = fmt.money(total);
+
+      const destino = document.getElementById('rcDestino');
+      const opt = destino?.options[destino.selectedIndex];
+      const frota = opt?.dataset?.frotaId ? frotas.find(f => f.id===opt.dataset.frotaId) : null;
+      const numero = document.getElementById('rcNumero')?.value || '';
+      const existente = rcs.find(r => r.numero===numero);
+      const disponivel = frota ? getLimiteDisponivelFrota(frota, existente ? numero : '') : 0;
+
+      const display = document.getElementById('rcLimiteDisplay');
+      if (display) display.value = fmt.money(Math.max(0,disponivel));
+
       const statusEl = document.getElementById('rcLimiteStatus');
-
-      if (destinoSelect && destinoSelect.value) {
-        const disponivel = parseMoney(limiteDisplay.value);
-        if (sum > disponivel && disponivel >= 0) {
-          btnEnviar.disabled = true;
-          statusEl.innerHTML = '<span class="limite-excedido">⚠️ VALOR EXCEDE O LIMITE DISPONÍVEL</span>';
-        } else {
-          btnEnviar.disabled = false;
-          statusEl.innerHTML = '<span style="color:var(--accent);">✅ Dentro do limite disponível</span>';
-        }
-      } else {
-        btnEnviar.disabled = true;
-        statusEl.innerHTML = '<span style="color:var(--text-muted);">Selecione um destino</span>';
+      const btn = document.getElementById('btnEnviarRC');
+      if (!frota) {
+        if(statusEl){statusEl.textContent='Selecione uma frota.';statusEl.style.color='var(--warning)';}
+        if(btn) btn.disabled=true; return;
       }
-      return sum;
+      if (!isDestinoPadrao(frota)) {
+        if (!frota.dataPrevisaoSaida) {
+          if(statusEl){statusEl.textContent='Rascunho permitido — envio bloqueado até informar a previsão de saída.';statusEl.style.color='var(--warning)';}
+          if(btn) btn.disabled=true; return;
+        }
+        if (hojeISO() > frota.dataPrevisaoSaida) {
+          if(statusEl){statusEl.textContent=`ENVIO BLOQUEADO — prazo encerrado em ${fmt.date(frota.dataPrevisaoSaida)}.`;statusEl.style.color='var(--danger)';}
+          if(btn) btn.disabled=true; return;
+        }
+      }
+      if (total > disponivel + 0.00001) {
+        if(statusEl){statusEl.textContent=`LIMITE EXCEDIDO em ${fmt.money(total-Math.max(0,disponivel))}.`;statusEl.style.color='var(--danger)';}
+        if(btn) btn.disabled=true;
+      } else {
+        if(statusEl){statusEl.textContent=`Dentro do limite. Saldo após esta RC: ${fmt.money(Math.max(0,disponivel-total))}.`;statusEl.style.color='var(--accent)';}
+        if(btn) btn.disabled=false;
+      }
     }
 
     function calcularVencimento(dataBase, condPag) {
@@ -1753,84 +2102,50 @@
     }
 
     function salvarRascunho(enviar = false) {
-      const getVal = (id) => document.getElementById(id)?.value || '';
-      const numero = getVal('rcNumero');
-      const data = getVal('rcData');
-      const fornecedor = getVal('rcFornecedor');
-      const prazoEntrega = getVal('rcPrazoEntrega');
-      const condPag = getVal('rcCondPag');
-      const dataBase = getVal('rcDataBase');
-      const vencimento = getVal('rcVencimento');
-      const solicitante = getVal('rcSolicitante');
-      const aplicacao = getVal('rcDestino');
-      const observacoes = getVal('rcObservacoes');
+      const getVal = id => document.getElementById(id)?.value || '';
+      const numero=getVal('rcNumero'), data=getVal('rcData'), fornecedor=getVal('rcFornecedor'),
+            prazoEntrega=getVal('rcPrazoEntrega'), condPag=getVal('rcCondPag'), dataBase=getVal('rcDataBase'),
+            vencimento=getVal('rcVencimento'), solicitante=getVal('rcSolicitante'),
+            aplicacao=getVal('rcDestino'), observacoes=getVal('rcObservacoes');
 
       if (!fornecedor || !data || !prazoEntrega || !condPag || !dataBase || !solicitante || !aplicacao) {
-        showToast('Preencha todos os campos obrigatórios.', true);
-        return;
+        showToast('Preencha todos os campos obrigatórios.', true); return;
       }
 
-      const rows = document.querySelectorAll('.rc-item-row');
-      const itens = [];
-      let total = 0;
-      rows.forEach(row => {
-        const descInput = row.querySelector('.rc-item-busca');
-        const qtdInput = row.querySelector('.rc-item-qtd');
-        const unitInput = row.querySelector('.rc-item-unit');
-        const desc = descInput ? descInput.value.trim() : '';
-        const qtd = parseFloat(qtdInput?.value) || 0;
-        const unit = parseMoney(unitInput?.value || '0');
-        const totalItem = qtd * unit;
-        if (desc && qtd > 0) {
-          itens.push({ descricao: desc, qtd, valorUnit: unit, total: totalItem });
-          total += totalItem;
-        }
+      const destinoEl=document.getElementById('rcDestino');
+      const opt=destinoEl?.options[destinoEl.selectedIndex];
+      const frota=opt?.dataset?.frotaId ? frotas.find(f=>f.id===opt.dataset.frotaId) : getFrotaByNome(aplicacao);
+      if(!frota){showToast('Frota selecionada não encontrada.',true);return;}
+
+      const itens=[]; let total=0;
+      document.querySelectorAll('.rc-item-row').forEach(row=>{
+        const desc=row.querySelector('.rc-item-busca')?.value.trim()||'';
+        const qtd=numeroSeguro(row.querySelector('.rc-item-qtd')?.value);
+        const unit=parseMoney(row.querySelector('.rc-item-unit')?.value||'0');
+        const totalItem=qtd*unit;
+        if(desc && qtd>0){itens.push({descricao:desc,qtd,valorUnit:unit,total:totalItem});total+=totalItem;}
       });
-      if (itens.length === 0) {
-        showToast('Adicione pelo menos um item.', true);
-        return;
+      if(!itens.length){showToast('Adicione pelo menos um item.',true);return;}
+
+      const existing=rcs.find(r=>r.numero===numero);
+      if(enviar){
+        const validacao=validarFrotaParaEnvio(frota,total,existing?numero:'');
+        if(!validacao.ok){showToast(validacao.motivo,true);return;}
       }
 
-      // Valida limite residual
-      const disponivel = getLimiteDisponivel(aplicacao);
-      if (total > disponivel) {
-        showToast('VALOR EXCEDE O LIMITE DISPONÍVEL!', true);
-        return;
-      }
+      const status=enviar?'em_aprovacao':'rascunho';
+      const rcData={numero,data,fornecedor,prazoEntrega,condPag,dataBase,vencimento,solicitante,
+        aplicacao:frota.nome,frotaId:frota.id,observacoes,itens,total,status,
+        criadoPor:existing?.criadoPor||perfilAtual,
+        criadoPorUid:existing?.criadoPorUid||getUsuarioUid(),
+        criadoPorEmail:existing?.criadoPorEmail||getUsuarioEmail(),
+        criadoPorNome:existing?.criadoPorNome||getUsuarioNome(),
+        justificativa:existing?.justificativa||''};
 
-      const existing = rcs.find(r => r.numero === numero);
-      const status = enviar ? 'em_aprovacao' : 'rascunho';
-      const rcData = {
-        numero,
-        data,
-        fornecedor,
-        prazoEntrega,
-        condPag,
-        dataBase,
-        vencimento,
-        solicitante,
-        aplicacao,
-        observacoes,
-        itens,
-        total,
-        status,
-        criadoPor: perfilAtual,
-        justificativa: '',
-      };
-
-      if (existing) {
-        updateRC(numero, rcData);
-        showToast(`Requisição ${numero} atualizada.`);
-      } else {
-        addRC(rcData);
-        showToast(`Requisição ${numero} criada como ${status}.`);
-      }
-
-      if (enviar) {
-        enviarWhatsApp(rcData);
-      }
-
-      document.getElementById('rcFormContainer').innerHTML = '';
+      if(existing) updateRC(numero,rcData); else addRC(rcData);
+      showToast(enviar?`Requisição ${numero} enviada para aprovação.`:`Requisição ${numero} salva como rascunho.`);
+      if(enviar) enviarWhatsApp(rcData);
+      document.getElementById('rcFormContainer').innerHTML='';
       render();
     }
 
@@ -2139,7 +2454,7 @@
         condPag: 'À vista',
         dataBase: hoje,
         vencimento: hoje,
-        solicitante: perfilAtual,
+        solicitante: getUsuarioNome(),
         aplicacao: sol.destino,
         observacoes: `Solicitação convertida automaticamente (ID: ${sol.id})`,
         itens: sol.itens.map(item => ({
@@ -2151,6 +2466,9 @@
         total: 0,
         status: 'rascunho',
         criadoPor: perfilAtual,
+        criadoPorUid: getUsuarioUid(),
+        criadoPorEmail: getUsuarioEmail(),
+        criadoPorNome: getUsuarioNome(),
         justificativa: '',
       };
 
@@ -2192,6 +2510,9 @@
         itens,
         convertida: false,
         criadoPor: perfilAtual,
+        criadoPorUid: getUsuarioUid(),
+        criadoPorEmail: getUsuarioEmail(),
+        criadoPorNome: getUsuarioNome(),
         dataCriacao: new Date().toISOString()
       };
 
@@ -2433,58 +2754,81 @@
 
       // ===== FROTAS =====
       document.getElementById('btnAbrirModalFrota')?.addEventListener('click', () => {
-        const nome = prompt('Nome da frota:');
-        if (!nome) return;
-        const valor = prompt('Valor total do orçamento (ex: 10000):');
-        if (!valor) return;
-        const valorNum = parseMoney(valor);
-        if (valorNum <= 0) { showToast('Valor inválido.', true); return; }
-        let percentual = prompt('Percentual do limite para esta frota (padrão 20):', '20');
-        if (percentual === null) return;
-        let p = parseFloat(percentual);
-        if (isNaN(p) || p <= 0 || p > 100) { showToast('Percentual deve ser entre 1 e 100.', true); return; }
-        addFrota(nome, valorNum, p);
-        showToast(`Frota "${nome}" cadastrada com orçamento de ${fmt.money(valorNum)} e ${p}% de limite.`);
-        if (state.section === 'frotas') render();
+        if(!['encarregado','gerente','admin'].includes(perfilAtual)){showToast('Seu perfil não pode cadastrar frotas.',true);return;}
+        const nome=prompt('Nome / número da frota:'); if(!nome||!nome.trim())return;
+        if(frotas.some(f=>normalize(f.nome)===normalize(nome.trim()))){showToast('Já existe uma frota com esse nome/número.',true);return;}
+        const valor=prompt('Valor total do orçamento da manutenção (ex: 100000):'); if(valor===null)return;
+        const valorNum=parseMoney(valor); if(valorNum<=0){showToast('Informe um orçamento maior que zero.',true);return;}
+        const dataSaida=prompt('Previsão de saída da frota (AAAA-MM-DD).\nPode deixar em branco; sem data a RC só poderá ficar em rascunho:','');
+        if(dataSaida===null)return;
+        const dataLimpa=dataSaida.trim();
+        if(dataLimpa&&!/^\d{4}-\d{2}-\d{2}$/.test(dataLimpa)){showToast('Data inválida. Use AAAA-MM-DD.',true);return;}
+        addFrota(nome.trim(),valorNum,20,dataLimpa);
       });
 
-      document.querySelectorAll('[data-excluir-frota]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const perfil = perfilAtual;
-          if (perfil !== 'admin' && perfil !== 'gerente') {
-            showToast('Apenas Gerente e Administrador podem excluir frotas.', true);
-            return;
-          }
-          const id = btn.dataset.excluirFrota;
-          const f = frotas.find(f => f.id === id);
-          if (!f) return;
-          if (confirm(`Excluir frota "${f.nome}"?`)) {
-            deleteFrota(id);
-            showToast(`Frota "${f.nome}" excluída.`);
-            if (state.section === 'frotas') render();
-          }
-        });
-      });
+      document.querySelectorAll('[data-editar-limite-padrao]').forEach(btn=>btn.addEventListener('click', async ()=>{
+        if(!['gerente','admin'].includes(perfilAtual)){
+          showToast('Somente Gerente e Administrador podem alterar o limite das contas padrão.',true);
+          return;
+        }
 
-      document.querySelectorAll('[data-editar-percentual]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const perfil = perfilAtual;
-          if (perfil !== 'admin' && perfil !== 'gerente') {
-            showToast('Apenas Gerente e Administrador podem editar o percentual.', true);
-            return;
-          }
-          const id = btn.dataset.editarPercentual;
-          const f = frotas.find(f => f.id === id);
-          if (!f) return;
-          const novoPercentual = prompt(`Alterar % de limite para a frota "${f.nome}" (atual: ${f.percentualLimite || 20}%):`, f.percentualLimite || 20);
-          if (novoPercentual === null) return;
-          const p = parseFloat(novoPercentual);
-          if (isNaN(p) || p <= 0 || p > 100) { showToast('Percentual deve ser entre 1 e 100.', true); return; }
-          updateFrota(id, { percentualLimite: p });
-          showToast(`Percentual da frota "${f.nome}" alterado para ${p}%`);
-          if (state.section === 'frotas') render();
-        });
-      });
+        const nome = btn.dataset.nomePadrao;
+        const cfg = configuracaoDestinoPadrao(nome);
+        let destino = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(nome));
+
+        if (!destino) {
+          destino = { id: cfg.id, nome: cfg.nome, tipoDestino:'padrao', limiteFixo:cfg.limiteFixo };
+        }
+
+        const atual = getLimiteTotalFrota(destino);
+        const valorTxt = prompt(`Novo limite para "${nome}" (R$):`, String(atual));
+        if (valorTxt === null) return;
+        const novoLimite = parseMoney(valorTxt);
+
+        if (novoLimite <= 0) {
+          showToast('Informe um limite maior que zero.', true);
+          return;
+        }
+
+        try {
+          await db.collection('frotas').doc(destino.id || cfg.id).set({
+            nome: cfg?.nome || nome,
+            tipoDestino: 'padrao',
+            limiteFixo: novoLimite,
+            valorOrcamento: novoLimite,
+            percentualLimite: 100,
+            dataPrevisaoSaida: '',
+            alteradoPorUid: getUsuarioUid(),
+            alteradoPorEmail: getUsuarioEmail(),
+            alteradoPorNome: getUsuarioNome(),
+            alteradoEm: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+          showToast(`Limite de "${nome}" atualizado para ${fmt.money(novoLimite)}.`);
+        } catch (err) {
+          showToast('Erro ao atualizar limite: ' + err.message, true);
+        }
+      }));
+
+      document.querySelectorAll('[data-editar-frota]').forEach(btn=>btn.addEventListener('click',()=>{
+        if(!['gerente','admin'].includes(perfilAtual)){showToast('Somente Gerente e Administrador podem alterar os parâmetros depois de salvar.',true);return;}
+        const f=frotas.find(x=>x.id===btn.dataset.editarFrota); if(!f)return;
+        const orcTxt=prompt(`Orçamento da frota "${f.nome}":`,String(numeroSeguro(f.valorOrcamento))); if(orcTxt===null)return;
+        const orc=parseMoney(orcTxt); if(orc<=0){showToast('Orçamento inválido.',true);return;}
+        const pctTxt=prompt(`Percentual de limite da frota "${f.nome}":`,String(getPercentualFrota(f))); if(pctTxt===null)return;
+        const pct=Number(String(pctTxt).replace(',','.')); if(!Number.isFinite(pct)||pct<0){showToast('Percentual inválido.',true);return;}
+        const dt=prompt(`Previsão de saída da frota "${f.nome}" (AAAA-MM-DD):`,f.dataPrevisaoSaida||''); if(dt===null)return;
+        const data=dt.trim(); if(data&&!/^\d{4}-\d{2}-\d{2}$/.test(data)){showToast('Data inválida. Use AAAA-MM-DD.',true);return;}
+        updateFrota(f.id,{valorOrcamento:orc,percentualLimite:pct,dataPrevisaoSaida:data,
+          alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoPorNome:getUsuarioNome(),
+          alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
+      }));
+
+      document.querySelectorAll('[data-excluir-frota]').forEach(btn=>btn.addEventListener('click',()=>{
+        if(!['gerente','admin'].includes(perfilAtual)){showToast('Apenas Gerente e Administrador podem excluir frotas.',true);return;}
+        const f=frotas.find(x=>x.id===btn.dataset.excluirFrota); if(!f)return;
+        if(rcs.some(rc=>rcPertenceFrota(rc,f))){showToast('Esta frota possui RC vinculada e não pode ser excluída.',true);return;}
+        if(confirm(`Excluir frota "${f.nome}"?`)) deleteFrota(f.id);
+      }));
 
       // ===== RCs =====
       document.getElementById('btnNovaRC')?.addEventListener('click', handleNovaRC);
@@ -2571,18 +2915,16 @@
         }
 
         if (target.dataset.enviarRc) {
-          const numero = target.dataset.enviarRc;
-          if (confirm(`Enviar requisição ${numero} para aprovação?`)) {
-            const rc = rcs.find(r => r.numero === numero);
-            if (!rc) { showToast('RC não encontrada.', true); return; }
-            const disponivel = getLimiteDisponivel(rc.aplicacao);
-            if (rc.total > disponivel) {
-              showToast('VALOR EXCEDE O LIMITE DISPONÍVEL!', true);
-              return;
-            }
-            updateRC(numero, { status: 'em_aprovacao' });
+          const numero=target.dataset.enviarRc;
+          if(confirm(`Enviar requisição ${numero} para aprovação?`)){
+            const rc=rcs.find(r=>r.numero===numero);
+            if(!rc){showToast('RC não encontrada.',true);return;}
+            const frota=rc.frotaId?frotas.find(f=>f.id===rc.frotaId):getFrotaByNome(rc.aplicacao);
+            const validacao=validarFrotaParaEnvio(frota,rc.total,numero);
+            if(!validacao.ok){showToast(validacao.motivo,true);return;}
+            updateRC(numero,{status:'em_aprovacao',frotaId:frota.id,aplicacao:frota.nome});
             showToast(`Requisição ${numero} enviada para aprovação!`);
-            enviarWhatsApp(rc);
+            enviarWhatsApp({...rc,frotaId:frota.id,aplicacao:frota.nome});
             render();
           }
           return;
@@ -2906,25 +3248,36 @@
         allItems = items;
         render();
         console.log('Materiais sincronizados em tempo real.');
-      }, error => console.error('Erro no listener de materiais:', error));
+      }, error => { console.error('Erro no listener de materiais:', error); showToast('Erro ao carregar materiais: ' + error.message, true); });
 
       db.collection('fornecedores').onSnapshot((snapshot) => {
         const list = [];
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         fornecedores = list;
-      }, error => console.error('Erro no listener de fornecedores:', error));
+      }, error => { console.error('Erro no listener de fornecedores:', error); showToast('Erro ao carregar fornecedores: ' + error.message, true); });
 
-      db.collection('frotas').onSnapshot((snapshot) => {
+      let destinosPadraoVerificados = false;
+      db.collection('frotas').onSnapshot(async (snapshot) => {
         const list = [];
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         frotas = list;
-      }, error => console.error('Erro no listener de frotas:', error));
+
+        if (!destinosPadraoVerificados) {
+          destinosPadraoVerificados = true;
+          await garantirDestinosPadrao();
+        }
+
+        if (state.section === 'frotas' || state.section === 'dashboard' || state.section === 'requisicoes') {
+          render();
+        }
+      }, error => { console.error('Erro no listener de frotas:', error); showToast('Erro ao carregar frotas: ' + error.message, true); });
 
       db.collection('requisicoes').onSnapshot((snapshot) => {
         const list = [];
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         rcs = list;
-      }, error => console.error('Erro no listener de RCs:', error));
+        if (state.section === 'dashboard' || state.section === 'frotas' || state.section === 'requisicoes') render();
+      }, error => { console.error('Erro no listener de RCs:', error); showToast('Erro ao carregar requisições: ' + error.message, true); });
 
       // NOVO: Solicitações
       db.collection('solicitacoes').onSnapshot((snapshot) => {
@@ -2932,7 +3285,7 @@
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         solicitacoes = list;
         if (state.section === 'solicitar') render();
-      }, error => console.error('Erro no listener de solicitações:', error));
+      }, error => { console.error('Erro no listener de solicitações:', error); showToast('Erro ao carregar solicitações: ' + error.message, true); });
 
       perfilAtual = getPerfil();
       document.getElementById("sidebarSource").textContent = "Dados em tempo real - Firebase Firestore";
