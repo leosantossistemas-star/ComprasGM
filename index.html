@@ -367,6 +367,7 @@
 </head>
 <body>
 
+  <!-- ===== V7.8 FINAL — correções RC, parcelas, materiais e recebimento parcial ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -2518,11 +2519,9 @@
       }
 
       const qtd = Math.max(2, Math.min(24, Number(document.getElementById('nfNumeroParcelas')?.value || registro?.numeroParcelas || 2)));
-      const existentes = Array.isArray(registro?.parcelas) ? registro.parcelas : [];
+      const existentes = Array.isArray(registro?.parcelas) && registro.parcelas.length ? registro.parcelas : (Array.isArray(registro?.parcelasPagamento) ? registro.parcelasPagamento : []);
       const totalVisualTexto = document.getElementById('nfValorTotalVisual')?.value || '';
-      const rcAtual = getRCAprovadaPorNumero(document.getElementById('nfRC')?.value);
-      const total = numeroSeguro(rcAtual?.total) || totalItensRC(rcAtual) ||
-        numeroSeguro(totalVisualTexto.replace(/[R$\s.]/g,'').replace(',','.'));
+      const total = parseMoney(totalVisualTexto || '0');
       const valorBase = qtd ? total / qtd : 0;
 
       campos.innerHTML = `
@@ -2538,7 +2537,7 @@
               const venc=ex.vencimento || somarDiasISO(document.getElementById('nfDataDocumento')?.value, prazo);
               return `<div class="field" style="margin:0">
                 <label>Parcela ${i+1} — prazo (dias)</label>
-                <input type="number" min="0" step="1" class="nfParcelaPrazo" data-parcela="${i+1}" value="${prazo}">
+                <input type="number" min="0" step="1" class="nfParcelaPrazo" data-parcela="${i+1}" data-vencimento="${venc || ''}" value="${prazo}">
                 <div style="font-size:11px;color:var(--text-muted);margin-top:5px">
                   Vencimento: <strong class="nfParcelaVencimento">${venc ? fmt.date(venc) : '—'}</strong><br>
                   Valor: <strong class="nfParcelaValor">${fmt.money(valorBase)}</strong>
@@ -2552,6 +2551,7 @@
         inp.addEventListener('input',()=>{
           const data=document.getElementById('nfDataDocumento')?.value||'';
           const venc=somarDiasISO(data, inp.value);
+          inp.dataset.vencimento = venc || '';
           inp.closest('.field')?.querySelector('.nfParcelaVencimento')?.replaceChildren(document.createTextNode(venc?fmt.date(venc):'—'));
         });
       });
@@ -2561,9 +2561,7 @@
       const cond = document.getElementById('nfCondicaoPagamento')?.value || 'A_VISTA';
       const data = document.getElementById('nfDataDocumento')?.value || '';
       const totalVisualTexto = document.getElementById('nfValorTotalVisual')?.value || '';
-      const rcAtual = getRCAprovadaPorNumero(document.getElementById('nfRC')?.value);
-      const total = numeroSeguro(rcAtual?.total) || totalItensRC(rcAtual) ||
-        numeroSeguro(totalVisualTexto.replace(/[R$\s.]/g,'').replace(',','.'));
+      const total = parseMoney(totalVisualTexto || '0');
 
       if (cond === 'A_VISTA') {
         return [{parcela:1,prazoDias:0,vencimento:data,valor:total}];
@@ -2766,6 +2764,21 @@
       return itensExatosDaRC(rc).reduce((s,i)=>s+numeroSeguro(i.valorTotal),0);
     }
 
+    function quantidadesJaRecebidasRC(rcNumero, ignorarId='') {
+      const acumulado={};
+      recebimentosNF.filter(n=>normalizarNumeroRC(n.rcNumero)===normalizarNumeroRC(rcNumero) && n.id!==ignorarId && !n.excluidoHistorico).forEach(n=>{
+        (n.itensRecebidos||[]).forEach(i=>{const chave=i.materialId||i.codigo||normalize(i.descricao||''); acumulado[chave]=(acumulado[chave]||0)+numeroSeguro(i.quantidadeRecebida ?? i.quantidade);});
+      });
+      return acumulado;
+    }
+
+    function itensPendentesRC(rc, ignorarId='') {
+      const recebidos=quantidadesJaRecebidasRC(rc?.numero,ignorarId);
+      return itensExatosDaRC(rc).map(i=>{const chave=i.materialId||i.codigo||normalize(i.descricao||'');const ja=numeroSeguro(recebidos[chave]);return {...i,quantidadeRecebidaAnterior:ja,quantidadePendente:Math.max(0,numeroSeguro(i.quantidade)-ja)};});
+    }
+
+    function rcTotalmenteRecebida(rc, ignorarId='') { const its=itensPendentesRC(rc,ignorarId); return its.length>0 && its.every(i=>i.quantidadePendente<=0); }
+
     function recebimentosDaRC(rcNumero) {
       const q = normalizarNumeroRC(rcNumero);
       return recebimentosNF.filter(n =>
@@ -2774,60 +2787,16 @@
       );
     }
 
-    function renderResumoRCAprovada(rc) {
-      if (!rc) {
-        return `<div class="card" style="padding:14px;background:var(--surface-2);border-style:dashed">
-          <div style="font-weight:800">Informe uma RC aprovada</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:5px">
-            Ao carregar a RC, fornecedor, destino, materiais, quantidades e valores serão preenchidos automaticamente e ficarão bloqueados.
-          </div>
-        </div>`;
-      }
-
-      const itens = itensExatosDaRC(rc);
-      const jaRecebidos = recebimentosDaRC(rc.numero);
-      return `
-        <div class="card" style="padding:14px;background:var(--surface-2)">
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px">
-            <div>
-              <div style="font-weight:900;font-size:16px">${rc.numero}</div>
-              <div style="font-size:12px;color:var(--text-muted)">
-                Fornecedor: <strong>${rc.fornecedor || '—'}</strong> ·
-                Destino: <strong>${rc.aplicacao || '—'}</strong> ·
-                Centro: <strong>${getCentroCustoRegistro(rc)}</strong>
-              </div>
-            </div>
-            <div style="text-align:right">
-              <div style="font-size:11px;color:var(--text-muted)">Total aprovado</div>
-              <div style="font-size:18px;font-weight:900">${fmt.money(numeroSeguro(rc.total) || totalItensRC(rc))}</div>
-            </div>
-          </div>
-
-          ${jaRecebidos.length ? `<div style="padding:9px 10px;margin-bottom:10px;border:1px solid var(--warning);border-radius:8px;font-size:12px">
-            Atenção: já existe ${jaRecebidos.length} recebimento(s) vinculado(s) a esta RC.
-          </div>` : ''}
-
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>#</th><th>Código</th><th>Material aprovado</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th></tr></thead>
-              <tbody>
-                ${itens.map(i=>`<tr>
-                  <td>${i.ordem}</td>
-                  <td>${i.codigo || '—'}</td>
-                  <td><strong>${i.descricao || '—'}</strong></td>
-                  <td>${i.quantidade}</td>
-                  <td>${i.unidade || '—'}</td>
-                  <td>${fmt.money(i.valorUnitario)}</td>
-                  <td><strong>${fmt.money(i.valorTotal)}</strong></td>
-                </tr>`).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">RC sem itens cadastrados.</td></tr>`}
-              </tbody>
-            </table>
-          </div>
-
-          <div style="margin-top:10px;font-size:12px;color:var(--text-muted)">
-            Os itens acima são uma cópia bloqueada do que foi aprovado. O recebimento não permite alterar material, quantidade ou valor.
-          </div>
-        </div>`;
+    function renderResumoRCAprovada(rc, editId='') {
+      if(!rc) return `<div class="card" style="padding:14px;background:var(--surface-2);border-style:dashed"><div style="font-weight:800">Informe uma RC aprovada</div><div style="font-size:12px;color:var(--text-muted);margin-top:5px">O sistema carregará fornecedor, destino, materiais, quantidades e valores.</div></div>`;
+      const itens=itensPendentesRC(rc,editId);
+      const anteriores=recebimentosDaRC(rc.numero).filter(n=>n.id!==editId);
+      return `<div class="card" style="padding:14px;background:var(--surface-2)">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px"><div><div style="font-weight:900;font-size:16px">${rc.numero}</div><div style="font-size:12px;color:var(--text-muted)">Fornecedor: <strong>${rc.fornecedor||'—'}</strong> · Destino: <strong>${rc.aplicacao||'—'}</strong> · Centro: <strong>${getCentroCustoRegistro(rc)}</strong></div></div><div style="text-align:right"><div style="font-size:11px;color:var(--text-muted)">Total aprovado</div><div style="font-size:18px;font-weight:900">${fmt.money(numeroSeguro(rc.total)||totalItensRC(rc))}</div></div></div>
+        ${anteriores.length?`<div style="padding:9px 10px;margin-bottom:10px;border:1px solid var(--warning);border-radius:8px;font-size:12px">Já existem ${anteriores.length} recebimento(s). O saldo pendente já desconta as entregas anteriores.</div>`:''}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:10px"><input type="checkbox" id="nfRecebimentoParcial" ${anteriores.length?'checked':''}> Recebimento parcial</label>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>Código</th><th>Material</th><th>Aprovado</th><th>Já recebido</th><th>Pendente</th><th>Receber nesta NF</th><th>Un.</th><th>Valor unit.</th></tr></thead><tbody>${itens.map(i=>`<tr><td>${i.ordem}</td><td>${i.codigo||'—'}</td><td><strong>${i.descricao||'—'}</strong></td><td>${i.quantidade}</td><td>${i.quantidadeRecebidaAnterior}</td><td><strong>${i.quantidadePendente}</strong></td><td><input type="number" min="0" max="${i.quantidadePendente}" step="0.001" class="nfQtdReceberItem" data-ordem="${i.ordem}" value="${i.quantidadePendente}"></td><td>${i.unidade||'—'}</td><td>${fmt.money(i.valorUnitario)}</td></tr>`).join('')}</tbody></table></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:10px">Materiais e preços permanecem conforme a RC. Apenas a quantidade desta entrega pode ser reduzida até o saldo pendente.</div></div>`;
     }
 
     function renderRecebimentoNFs() {
@@ -2906,7 +2875,7 @@
               <div class="field"><label>Valor aprovado / NF</label><input id="nfValorTotalVisual" readonly value="${fmt.money(ed?.valorTotal||numeroSeguro(rcEd?.total)||totalItensRC(rcEd))}"></div>
 
               <div class="field" style="grid-column:span 4">
-                <div id="nfResumoRC">${renderResumoRCAprovada(rcEd)}</div>
+                <div id="nfResumoRC">${renderResumoRCAprovada(rcEd, ed?.id||'')}</div>
               </div>
 
               ${renderCronogramaParcelasForm(ed || (rcEd ? {
@@ -3129,7 +3098,7 @@
           acoes.push(`<button class="btn btn-ghost btn-sm" data-whats-rc="${rc.numero}">Whats</button>`);
         }
 
-        if (perfil === 'usuario' || perfil === 'admin') {
+        if (perfil === 'usuario' || perfil === 'gerente' || perfil === 'admin') {
           if (rc.status === 'rascunho') {
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
             acoes.unshift(`<button class="btn btn-warning btn-sm" data-arquivar-rc="${rc.numero}">Arquivar</button>`);
@@ -3202,7 +3171,6 @@
       const frotasList = frotas;
 
       const data = isEdit ? editData : {};
-      const condPagOptions = ['À vista','7 dias','15 dias','30 dias','60 dias'];
       const selectedFrota = data.aplicacao || '';
       let limiteDisponivel = 0;
       if (selectedFrota) {
@@ -3229,12 +3197,14 @@
               </div>
               <div class="field"><label>Prazo de Entrega *</label><input type="date" id="rcPrazoEntrega" value="${data.prazoEntrega || ''}" required /></div>
               <div class="field"><label>Condição de Pagamento *</label>
-                <select id="rcCondPag" required>
-                  ${condPagOptions.map(c => `<option value="${c}" ${data.condPag===c?'selected':''}>${c}</option>`).join('')}
+                <select id="rcCondicaoPagamento" required>
+                  <option value="A_VISTA" ${(data.condicaoPagamento || (String(data.condPag||'').toLowerCase().includes('vista')?'A_VISTA':'PARCELADO'))==='A_VISTA'?'selected':''}>À vista</option>
+                  <option value="PARCELADO" ${(data.condicaoPagamento || (String(data.condPag||'').toLowerCase().includes('vista')?'A_VISTA':'PARCELADO'))==='PARCELADO'?'selected':''}>Faturado / Parcelado</option>
                 </select>
               </div>
-              <div class="field"><label>Data Base *</label><input type="date" id="rcDataBase" value="${data.dataBase || today}" required /></div>
-              <div class="field"><label>Vencimento (automático)</label><input type="date" id="rcVencimento" value="${data.vencimento || ''}" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
+              <div class="field" id="rcNumeroParcelasWrap"><label>Número de parcelas *</label><input type="number" min="2" max="24" step="1" id="rcNumeroParcelas" value="${data.numeroParcelas || (data.vencimentos?.length || 2)}" /></div>
+              <div class="field"><label>Data Base *</label><input type="date" id="rcDataBase" value="${data.dataBase || data.data || today}" required /></div>
+              <div class="field" style="grid-column:span 4"><div id="rcParcelasCampos"></div></div>
               <div class="field"><label>Solicitante *</label><input type="text" id="rcSolicitante" value="${data.solicitante || getUsuarioNome()}" required placeholder="Seu nome" /></div>
               <div class="field"><label>Centro de custo *</label>
                 <select id="rcCentroCusto" required>
@@ -3296,6 +3266,9 @@
       row.innerHTML = `
         <div class="field" style="flex:3;position:relative"><label>Código/Descrição</label>
           <input type="text" class="rc-item-busca" autocomplete="off" placeholder="Digite uma letra, número ou parte da descrição..." value="${itemData ? itemData.descricao || '' : ''}" />
+          <input type="hidden" class="rc-item-codigo" value="${itemData?.codigo || ''}" />
+          <input type="hidden" class="rc-item-id" value="${itemData?.materialId || ''}" />
+          <input type="hidden" class="rc-item-unidade" value="${itemData?.unidade || itemData?.unid || ''}" />
           <div class="rc-sugestoes" style="display:none;position:absolute;top:66px;left:0;right:0;z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 12px 30px rgba(0,0,0,.35)"></div>
         </div>
         <div class="field" style="flex:1"><label>Quantidade</label><input type="number" class="rc-item-qtd" min="0.01" step="any" value="${itemData ? itemData.qtd : 1}" /></div>
@@ -3306,6 +3279,9 @@
       container.appendChild(row);
 
       const buscaInput = row.querySelector('.rc-item-busca');
+      const codigoInput = row.querySelector('.rc-item-codigo');
+      const materialIdInput = row.querySelector('.rc-item-id');
+      const unidadeInput = row.querySelector('.rc-item-unidade');
       const qtdInput = row.querySelector('.rc-item-qtd');
       const unitInput = row.querySelector('.rc-item-unit');
       const totalInput = row.querySelector('.rc-item-total');
@@ -3319,7 +3295,10 @@
       };
 
       const selecionarMaterial = item => {
-        buscaInput.value = `${item.codigo || ''} - ${item.descricaoSimples || item.descricaoCurta || ''}`.replace(/^ - /,'');
+        buscaInput.value = [item.codigo, item.descricaoSimples, item.descricaoCurta, item.descricaoCompleta, item.descricao, item.item, item.especificacao, item.marca, item.modelo].filter(Boolean).map(v=>String(v).trim()).filter((v,i,a)=>a.indexOf(v)===i).join(' — ');
+        if (codigoInput) codigoInput.value = item.codigo || '';
+        if (materialIdInput) materialIdInput.value = item.id || '';
+        if (unidadeInput) unidadeInput.value = item.unidade || item.un || item.um || '';
         const qtdCadastro = numeroSeguro(item.quantidade || item.qtd || item.estoqueMin);
         qtdInput.value = qtdCadastro > 0 ? qtdCadastro : 1;
         if (item.custoUnitario) unitInput.value = String(item.custoUnitario).replace('R$','').trim();
@@ -3331,14 +3310,14 @@
         const t = normalize(termo);
         if (!t) { sugestoes.style.display='none'; return; }
         const matches = allItems.filter(item => {
-          const alvo = normalize([item.codigo,item.descricaoSimples,item.descricaoCurta,item.marca,item.modelo].filter(Boolean).join(' '));
+          const alvo = normalize([item.codigo,item.descricaoSimples,item.descricaoCurta,item.descricaoCompleta,item.especificacao,item.marca,item.modelo,item.observacao].filter(Boolean).join(' '));
           return alvo.includes(t);
         }).slice(0,10);
 
         if (!matches.length) { sugestoes.style.display='none'; return; }
         sugestoes.innerHTML = matches.map((m,i)=>`
           <button type="button" data-sug="${i}" style="display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
-            <strong style="color:var(--accent)">${m.codigo || 'S/C'}</strong> — ${m.descricaoSimples || m.descricaoCurta || 'Sem descrição'}
+            <strong style="color:var(--accent)">${m.codigo || 'S/C'}</strong> — ${[m.descricaoSimples,m.descricaoCurta,m.descricaoCompleta,m.especificacao,m.marca,m.modelo].filter(Boolean).join(' — ') || 'Sem descrição'}
             <small style="display:block;color:var(--text-muted);margin-top:3px">Qtd. cadastro: ${numeroSeguro(m.quantidade || m.qtd || m.estoqueMin) || 1} · Unit.: ${m.custoUnitario || 'não informado'}</small>
           </button>`).join('');
         sugestoes.style.display='block';
@@ -3350,7 +3329,12 @@
 
       qtdInput.addEventListener('input', updateTotal);
       unitInput.addEventListener('input', updateTotal);
-      buscaInput.addEventListener('input', e => renderSugestoes(e.target.value));
+      buscaInput.addEventListener('input', e => {
+        if (codigoInput) codigoInput.value = '';
+        if (materialIdInput) materialIdInput.value = '';
+        if (unidadeInput) unidadeInput.value = '';
+        renderSugestoes(e.target.value);
+      });
       buscaInput.addEventListener('focus', e => { if(e.target.value) renderSugestoes(e.target.value); });
       buscaInput.addEventListener('blur', () => setTimeout(()=>sugestoes.style.display='none',150));
     }
@@ -3406,6 +3390,30 @@
       }
     }
 
+    function montarCamposParcelasRC(data=null) {
+      const cond=document.getElementById('rcCondicaoPagamento')?.value || 'A_VISTA';
+      const wrap=document.getElementById('rcNumeroParcelasWrap');
+      const box=document.getElementById('rcParcelasCampos');
+      if(!box) return;
+      if(wrap) wrap.style.display=cond==='PARCELADO'?'':'none';
+      const dataBase=document.getElementById('rcDataBase')?.value || document.getElementById('rcData')?.value || hojeISO();
+      if(cond==='A_VISTA'){
+        box.innerHTML=`<div class="card" style="padding:12px;margin:0;background:var(--surface-2)"><strong>À vista</strong><div style="font-size:12px;color:var(--text-muted);margin-top:4px">Vencimento: ${fmt.date(dataBase)}</div></div>`;
+        return;
+      }
+      const qtd=Math.max(2,Math.min(24,Number(document.getElementById('rcNumeroParcelas')?.value || data?.numeroParcelas || 2)));
+      const existentes=Array.isArray(data?.parcelasPagamento)?data.parcelasPagamento:[];
+      box.innerHTML=`<div class="card" style="padding:14px;margin:0;background:var(--surface-2)"><div style="font-weight:800;margin-bottom:8px">Prazos de pagamento</div><div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Informe os prazos em dias. As datas são calculadas automaticamente e serão carregadas no recebimento da NF.</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">${Array.from({length:qtd},(_,i)=>{const ex=existentes[i]||{};const prazo=ex.prazoDias ?? ((i+1)*30);const venc=ex.vencimento || somarDiasISO(dataBase,prazo);return `<div class="field" style="margin:0"><label>Parcela ${i+1} — prazo (dias)</label><input type="number" min="0" step="1" class="rcParcelaPrazo" value="${prazo}"><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Vencimento: <strong class="rcParcelaVenc">${fmt.date(venc)}</strong></div></div>`;}).join('')}</div></div>`;
+      box.querySelectorAll('.rcParcelaPrazo').forEach(inp=>inp.addEventListener('input',()=>{const venc=somarDiasISO(document.getElementById('rcDataBase')?.value||hojeISO(),inp.value);inp.closest('.field')?.querySelector('.rcParcelaVenc')?.replaceChildren(document.createTextNode(fmt.date(venc)));}));
+    }
+
+    function obterParcelasPagamentoRC() {
+      const cond=document.getElementById('rcCondicaoPagamento')?.value || 'A_VISTA';
+      const dataBase=document.getElementById('rcDataBase')?.value || hojeISO();
+      if(cond==='A_VISTA') return [{parcela:1,prazoDias:0,vencimento:dataBase}];
+      return [...document.querySelectorAll('.rcParcelaPrazo')].map((inp,i)=>{const prazo=numeroSeguro(inp.value);return {parcela:i+1,prazoDias:prazo,vencimento:somarDiasISO(dataBase,prazo)};});
+    }
+
     function calcularVencimento(dataBase, condPag) {
       if (!dataBase) return '';
       const dias = parseInt(condPag) || 0;
@@ -3428,18 +3436,10 @@
         const c = document.getElementById('rcItensContainer');
         if (c) addItemRowRC(c);
       });
-      document.getElementById('rcDataBase')?.addEventListener('change', function() {
-        const condPag = document.getElementById('rcCondPag')?.value || '0';
-        const venc = calcularVencimento(this.value, condPag);
-        const vencInput = document.getElementById('rcVencimento');
-        if (vencInput) vencInput.value = venc;
-      });
-      document.getElementById('rcCondPag')?.addEventListener('change', function() {
-        const dataBase = document.getElementById('rcDataBase')?.value;
-        const venc = calcularVencimento(dataBase, this.value);
-        const vencInput = document.getElementById('rcVencimento');
-        if (vencInput) vencInput.value = venc;
-      });
+      document.getElementById('rcDataBase')?.addEventListener('change', () => montarCamposParcelasRC());
+      document.getElementById('rcCondicaoPagamento')?.addEventListener('change', () => montarCamposParcelasRC());
+      document.getElementById('rcNumeroParcelas')?.addEventListener('input', () => montarCamposParcelasRC());
+      montarCamposParcelasRC();
       const filtrarDestinosPorCentro = () => {
         const centro = centroCustoNormalizado(document.getElementById('rcCentroCusto')?.value) || 'SANTOS';
         const select = document.getElementById('rcDestino');
@@ -3493,12 +3493,12 @@
     async function salvarRascunho(enviar = false) {
       const getVal = id => document.getElementById(id)?.value || '';
       const numero=getVal('rcNumero'), data=getVal('rcData'), fornecedor=getVal('rcFornecedor'),
-            prazoEntrega=getVal('rcPrazoEntrega'), condPag=getVal('rcCondPag'), dataBase=getVal('rcDataBase'),
-            vencimento=getVal('rcVencimento'), solicitante=getVal('rcSolicitante'),
+            prazoEntrega=getVal('rcPrazoEntrega'), condicaoPagamento=getVal('rcCondicaoPagamento'), dataBase=getVal('rcDataBase'),
+            solicitante=getVal('rcSolicitante'),
             centroCusto=centroCustoNormalizado(getVal('rcCentroCusto')),
             aplicacao=getVal('rcDestino'), observacoes=getVal('rcObservacoes');
 
-      if (!fornecedor || !data || !prazoEntrega || !condPag || !dataBase || !solicitante || !centroCusto || !aplicacao) {
+      if (!fornecedor || !data || !prazoEntrega || !condicaoPagamento || !dataBase || !solicitante || !centroCusto || !aplicacao) {
         showToast('Preencha todos os campos obrigatórios.', true); return;
       }
 
@@ -3510,10 +3510,13 @@
       const itens=[]; let total=0;
       document.querySelectorAll('.rc-item-row').forEach(row=>{
         const desc=row.querySelector('.rc-item-busca')?.value.trim()||'';
+        const codigo=row.querySelector('.rc-item-codigo')?.value||'';
+        const materialId=row.querySelector('.rc-item-id')?.value||'';
+        const unidade=row.querySelector('.rc-item-unidade')?.value||'';
         const qtd=numeroSeguro(row.querySelector('.rc-item-qtd')?.value);
         const unit=parseMoney(row.querySelector('.rc-item-unit')?.value||'0');
         const totalItem=qtd*unit;
-        if(desc && qtd>0){itens.push({descricao:desc,qtd,valorUnit:unit,total:totalItem});total+=totalItem;}
+        if(desc && qtd>0){itens.push({codigo,materialId,descricao:desc,unidade,qtd,valorUnit:unit,total:totalItem});total+=totalItem;}
       });
       if(!itens.length){showToast('Adicione pelo menos um item.',true);return;}
 
@@ -3524,7 +3527,12 @@
       }
 
       const status=enviar?'em_aprovacao':'rascunho';
-      const rcData={numero,data,fornecedor,prazoEntrega,condPag,dataBase,vencimento,solicitante,
+      const parcelasPagamento=obterParcelasPagamentoRC();
+      const numeroParcelas=parcelasPagamento.length;
+      const condPag=condicaoPagamento==='PARCELADO'?'FATURADO':'À vista';
+      const vencimentos=parcelasPagamento.map(p=>p.vencimento);
+      const vencimento=vencimentos[0]||dataBase;
+      const rcData={numero,data,fornecedor,prazoEntrega,condPag,condicaoPagamento,numeroParcelas,parcelasPagamento,vencimentos,dataBase,vencimento,solicitante,
         aplicacao:frota.nome,frotaId:frota.id,centroCusto,observacoes,itens,total,status,
         criadoPor:existing?.criadoPor||perfilAtual,
         criadoPorUid:existing?.criadoPorUid||getUsuarioUid(),
@@ -3728,8 +3736,8 @@
     function renderSolicitar() {
       const perfil = perfilAtual;
       const podeCriar = ['encarregado', 'gerente', 'admin'].includes(perfil);
-      const podeConverter = ['usuario', 'admin'].includes(perfil);
-      const podeOperarSolicitacoes = ['usuario', 'admin'].includes(perfil);
+      const podeConverter = ['encarregado', 'gerente', 'admin'].includes(perfil);
+      const podeOperarSolicitacoes = ['usuario', 'gerente', 'admin'].includes(perfil);
 
       let html = `
         <div class="card" style="margin-bottom:20px;">
@@ -3742,7 +3750,7 @@
           ` : `<p style="color:var(--text-muted);">Seu perfil não permite criar solicitações. Apenas Encarregado, Gerente e Administrador podem.</p>`}
         </div>
         <div class="card">
-          <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">Clique em "Converter" para transformar em RC (apenas Usuário e Admin)</div></div></div>
+          <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">A solicitação pode ser preparada/arquivada por Compras; conversão em RC por Encarregado, Gerente ou Administrador</div></div></div>
           ${renderTabelaSolicitacoes(solicitacoes, podeConverter, podeOperarSolicitacoes)}
         </div>
       `;
@@ -3859,7 +3867,8 @@
       const info=row.querySelector('.sol-item-info');
       const box=row.querySelector('.sol-sugestoes');
 
-      const desc=m=>m.descricaoSimples||m.descricaoCurta||m.descricao||m.item||'Sem descrição';
+      const desc=m=>[m.descricaoSimples,m.descricaoCurta,m.descricaoCompleta,m.descricao,m.item,m.especificacao,m.marca,m.modelo]
+        .filter(Boolean).map(v=>String(v).trim()).filter((v,i,a)=>a.indexOf(v)===i).join(' — ') || 'Sem descrição';
       const valor=m=>numeroSeguro(m.custoUnitario||m.valorUnitario||m.valorUnit||m.preco||m.precoUnitario);
       const un=m=>m.unidade||m.un||m.um||'';
 
@@ -3879,7 +3888,7 @@
         const t=normalize(termo).trim();
         if(!t){box.style.display='none';return;}
         const encontrados=allItems.filter(m=>{
-          const alvo=normalize([m.codigo,desc(m),m.marca,m.modelo,m.categoria,m.subcategoria].filter(Boolean).join(' '));
+          const alvo=normalize([m.codigo,desc(m),m.descricaoSimples,m.descricaoCurta,m.descricaoCompleta,m.descricao,m.item,m.especificacao,m.marca,m.modelo,m.categoria,m.subcategoria,m.observacao].filter(Boolean).join(' '));
           return alvo.includes(t);
         }).sort((a,b)=>{
           const ca=normalize(a.codigo||''), cb=normalize(b.codigo||'');
@@ -3929,6 +3938,10 @@
     };
 
     async function converterSolicitacaoEmRC(idSolicitacao) {
+      if (!['encarregado','gerente','admin'].includes(perfilAtual)) {
+        showToast('Seu perfil não possui permissão para converter solicitação em RC.', true);
+        return;
+      }
       const sol = solicitacoes.find(s => s.id === idSolicitacao);
       if (!sol) { showToast('Solicitação não encontrada.', true); return; }
       if (sol.convertida) { showToast('Esta solicitação já foi convertida.', true); return; }
@@ -3944,6 +3957,10 @@
         fornecedor: '',
         prazoEntrega: sol.dataNecessidade || hoje,
         condPag: 'À vista',
+        condicaoPagamento: 'A_VISTA',
+        numeroParcelas: 1,
+        parcelasPagamento: [{parcela:1,prazoDias:0,vencimento:hoje}],
+        vencimentos: [hoje],
         dataBase: hoje,
         vencimento: hoje,
         solicitante: getUsuarioNome(),
@@ -4170,8 +4187,43 @@
           document.getElementById('nfFornecedor').value = rc.fornecedor || '';
           document.getElementById('nfDestino').value = rc.aplicacao || '';
           document.getElementById('nfCentroCusto').value = getCentroCustoRegistro(rc);
-          document.getElementById('nfValorTotalVisual').value = fmt.money(numeroSeguro(rc.total) || totalItensRC(rc));
-          document.getElementById('nfResumoRC').innerHTML = renderResumoRCAprovada(rc);
+          const pendentesRC = itensPendentesRC(rc, editIdAtual);
+          const totalPendenteRC = pendentesRC.reduce((s,i)=>s + (numeroSeguro(i.quantidadePendente) * numeroSeguro(i.valorUnitario)),0);
+          document.getElementById('nfValorTotalVisual').value = fmt.money(totalPendenteRC);
+          document.getElementById('nfResumoRC').innerHTML = renderResumoRCAprovada(rc, editIdAtual);
+
+          const atualizarValorNFParcial = () => {
+            const pendentes = itensPendentesRC(rc, editIdAtual);
+            let totalAtual = 0;
+            document.querySelectorAll('.nfQtdReceberItem').forEach(inp => {
+              const ordem = Number(inp.dataset.ordem);
+              const item = pendentes.find(x => Number(x.ordem) === ordem);
+              if (!item) return;
+              let qtd = numeroSeguro(inp.value);
+              const max = numeroSeguro(item.quantidadePendente);
+              if (qtd > max) {
+                qtd = max;
+                inp.value = String(max);
+              }
+              if (qtd < 0) {
+                qtd = 0;
+                inp.value = '0';
+              }
+              totalAtual += qtd * numeroSeguro(item.valorUnitario);
+            });
+            document.getElementById('nfValorTotalVisual').value = fmt.money(totalAtual);
+
+            const dadosParcelas = {
+              condicaoPagamento: document.getElementById('nfCondicaoPagamento')?.value || rc.condicaoPagamento || 'A_VISTA',
+              numeroParcelas: Number(document.getElementById('nfNumeroParcelas')?.value || rc.numeroParcelas || 1),
+              parcelas: Array.isArray(rc.parcelasPagamento) ? rc.parcelasPagamento : []
+            };
+            montarCamposParcelasNF(dadosParcelas);
+          };
+
+          document.querySelectorAll('.nfQtdReceberItem').forEach(inp => {
+            inp.addEventListener('input', atualizarValorNFParcial);
+          });
 
           const contaSugerida = contaContabilSugeridaPorRC(rc);
           if (conta && !conta.value) {
@@ -4179,19 +4231,13 @@
             atualizarConta();
           }
 
-          const cond = normalize(rc.condPag || '');
-          const condEl = document.getElementById('nfCondicaoPagamento');
-          const qtdEl = document.getElementById('nfNumeroParcelas');
-
-          if (condEl) {
-            condEl.value = cond.includes('vista') ? 'A_VISTA' : 'PARCELADO';
-          }
-
-          if (qtdEl && Array.isArray(rc.vencimentos) && rc.vencimentos.length > 1) {
-            qtdEl.value = rc.vencimentos.length;
-          }
-
-          montarCamposParcelasNF(null);
+          const condEl=document.getElementById('nfCondicaoPagamento');
+          const qtdEl=document.getElementById('nfNumeroParcelas');
+          const condRC=rc.condicaoPagamento || (normalize(rc.condPag||'').includes('vista')?'A_VISTA':'PARCELADO');
+          if(condEl) condEl.value=condRC;
+          const qtdRC=Number(rc.numeroParcelas || rc.parcelasPagamento?.length || rc.vencimentos?.length || 1);
+          if(qtdEl && qtdRC>1) qtdEl.value=qtdRC;
+          montarCamposParcelasNF({condicaoPagamento:condRC,numeroParcelas:qtdRC,parcelas:Array.isArray(rc.parcelasPagamento)?rc.parcelasPagamento:[]});
           showToast(`${rc.numero} carregada. Confira somente NF, data e condições de pagamento.`);
         };
 
@@ -4224,20 +4270,14 @@
             return;
           }
 
-          const itens = itensExatosDaRC(rc);
-          const totalRC = numeroSeguro(rc.total) || itens.reduce((s,i)=>s+i.valorTotal,0);
+          const itensBase=itensPendentesRC(rc,editId);
+          const campos=[...document.querySelectorAll('.nfQtdReceberItem')];
+          const itens=itensBase.map(i=>{const inp=campos.find(x=>Number(x.dataset.ordem)===i.ordem);const qtd=numeroSeguro(inp?.value);if(qtd<0 || qtd>i.quantidadePendente+0.000001) throw new Error(`Quantidade inválida para ${i.descricao}`);return {...i,quantidadeAprovada:i.quantidade,quantidadeRecebidaAnterior:i.quantidadeRecebidaAnterior,quantidadePendenteAntes:i.quantidadePendente,quantidadeRecebida:qtd,quantidade:qtd,valorTotal:Math.round(qtd*numeroSeguro(i.valorUnitario)*100)/100};}).filter(i=>i.quantidadeRecebida>0);
+          const totalRC=itens.reduce((s,i)=>s+numeroSeguro(i.valorTotal),0);
+          if(!itens.length || totalRC<=0){showToast('Informe ao menos um item/quantidade para esta NF.',true);return;}
 
-          // Regra central: a NF recebida copia os itens aprovados da RC.
-          // O usuário não possui campos para alterar material, quantidade ou valor.
-          if (!itens.length || totalRC <= 0) {
-            showToast('RC sem itens/valor aprovado válido.', true);
-            return;
-          }
-
-          // Evita que a mesma RC seja recebida duas vezes por engano.
-          const duplicado = recebimentosDaRC(rc.numero).find(n=>n.id!==editId);
-          if (duplicado && !editId) {
-            showToast(`A ${rc.numero} já possui recebimento registrado (${duplicado.numeroNF || 'NF'}).`, true);
+          if (rcTotalmenteRecebida(rc, editId)) {
+            showToast(`A ${rc.numero} já foi recebida integralmente. Não há saldo pendente.`, true);
             return;
           }
 
@@ -4251,7 +4291,7 @@
 
           const somaParcelas = parcelas.reduce((s,p)=>s+numeroSeguro(p.valor),0);
           if (Math.abs(somaParcelas-totalRC) > 0.02) {
-            showToast('A soma das parcelas precisa ser igual ao valor aprovado da RC.', true);
+            showToast('A soma das parcelas precisa ser igual ao valor dos itens recebidos nesta NF.', true);
             return;
           }
 
@@ -4284,8 +4324,10 @@
             contaContabilDescricao: c?.descricao || '',
             contaContabilOrientacao: c?.orientacao || '',
             origem: 'recebimento_por_rc',
-            conferenciaItens: 'EXATAMENTE_CONFORME_RC',
-            valorAprovadoRC: totalRC
+            conferenciaItens: 'ITENS_CONFORME_RC_COM_SALDO_PARCIAL',
+            recebimentoParcial: document.getElementById('nfRecebimentoParcial')?.checked || itens.some(i=>i.quantidadeRecebida < i.quantidadePendenteAntes),
+            valorAprovadoRC: numeroSeguro(rc.total) || totalItensRC(rc),
+            valorRecebidoNestaNF: totalRC
           };
 
           if (!editId) {
@@ -4784,18 +4826,10 @@
                 (rc.itens || []).forEach(item => addItemRowRC(itensContainer, item));
               }
               recalcularTotalRC();
-              document.getElementById('rcDataBase')?.addEventListener('change', function() {
-                const condPag = document.getElementById('rcCondPag')?.value || '0';
-                const venc = calcularVencimento(this.value, condPag);
-                const vencInput = document.getElementById('rcVencimento');
-                if (vencInput) vencInput.value = venc;
-              });
-              document.getElementById('rcCondPag')?.addEventListener('change', function() {
-                const dataBase = document.getElementById('rcDataBase')?.value;
-                const venc = calcularVencimento(dataBase, this.value);
-                const vencInput = document.getElementById('rcVencimento');
-                if (vencInput) vencInput.value = venc;
-              });
+              document.getElementById('rcDataBase')?.addEventListener('change', () => montarCamposParcelasRC(rc));
+              document.getElementById('rcCondicaoPagamento')?.addEventListener('change', () => montarCamposParcelasRC(rc));
+              document.getElementById('rcNumeroParcelas')?.addEventListener('input', () => montarCamposParcelasRC(rc));
+              montarCamposParcelasRC(rc);
               document.getElementById('rcDestino')?.addEventListener('change', function() {
                 const selected = this.options[this.selectedIndex];
                 const disponivel = selected ? parseFloat(selected.dataset.disponivel) || 0 : 0;
@@ -4974,6 +5008,10 @@
 
       document.querySelectorAll('[data-converter-sol]').forEach(btn => {
         btn.addEventListener('click', function() {
+          if (!['encarregado','gerente','admin'].includes(perfilAtual)) {
+            showToast('Somente Encarregado, Gerente ou Administrador podem converter uma solicitação em RC.', true);
+            return;
+          }
           const id = this.dataset.converterSol;
           converterSolicitacaoEmRC(id);
         });
