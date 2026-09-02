@@ -1742,6 +1742,61 @@
     /* ============================================================
        SEÇÕES (DASHBOARD, MATERIAIS, CATEGORIAS, FORNECEDORES, FROTAS, NOVO, REQUISIÇÕES)
     ============================================================ */
+    function isoParaBRData(valor) {
+      if (!valor || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return '';
+      const [a,m,d] = valor.split('-');
+      return `${d}/${m}/${a}`;
+    }
+
+    function brParaISOData(valor) {
+      const v = String(valor || '').trim();
+      if (!v) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (!m) return null;
+      const d = Number(m[1]), mes = Number(m[2]), a = Number(m[3]);
+      const data = new Date(a, mes - 1, d);
+      if (data.getFullYear() !== a || data.getMonth() !== mes - 1 || data.getDate() !== d) return null;
+      return `${String(a).padStart(4,'0')}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    }
+
+    function mascaraDataBR(valor) {
+      const n = String(valor || '').replace(/\D/g,'').slice(0,8);
+      if (n.length <= 2) return n;
+      if (n.length <= 4) return n.slice(0,2) + '/' + n.slice(2);
+      return n.slice(0,2) + '/' + n.slice(2,4) + '/' + n.slice(4);
+    }
+
+    function renderRankingGastosPorDestino(lista) {
+      const totais = {};
+      lista.forEach(rc => {
+        const destino = clean(rc.aplicacao || 'Sem destino') || 'Sem destino';
+        totais[destino] = (totais[destino] || 0) + numeroSeguro(rc.total);
+      });
+
+      const ranking = Object.entries(totais)
+        .sort((a,b) => b[1] - a[1]);
+
+      if (!ranking.length) {
+        return `<div style="padding:28px;text-align:center;color:var(--text-muted)">Sem gastos aprovados para os filtros selecionados.</div>`;
+      }
+
+      const max = Math.max(1, ranking[0][1]);
+      return `
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${ranking.map(([nome, valor], idx) => `
+            <div style="display:grid;grid-template-columns:34px minmax(140px,260px) 1fr 130px;gap:12px;align-items:center;">
+              <div style="font-weight:700;color:var(--text-muted);text-align:right;">${idx+1}º</div>
+              <div title="${nome}" style="font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nome}</div>
+              <div style="height:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden;">
+                <div style="height:100%;width:${Math.max(1,(valor/max)*100).toFixed(1)}%;background:linear-gradient(90deg,var(--accent),#6ba800);border-radius:999px;"></div>
+              </div>
+              <div style="text-align:right;font-weight:800;">${fmt.money(valor)}</div>
+            </div>
+          `).join('')}
+        </div>`;
+    }
+
     function getDashboardRCsFiltradas() {
       const f = state.dashboardFilters || {};
       return rcs.filter(rc => {
@@ -1856,8 +1911,22 @@
             <button class="btn btn-ghost" id="dashLimparFiltros">Limpar filtros</button>
           </div>
           <div class="filters-grid">
-            <div class="field"><label>Data inicial</label><input type="date" id="dashDataIni" value="${f.dataIni||''}"></div>
-            <div class="field"><label>Data final</label><input type="date" id="dashDataFim" value="${f.dataFim||''}"></div>
+            <div class="field">
+              <label>Data inicial</label>
+              <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;">
+                <input type="text" id="dashDataIniTexto" value="${isoParaBRData(f.dataIni||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
+                <button type="button" class="btn btn-ghost" id="dashDataIniCalendarioBtn" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px;">📅</button>
+                <input type="date" id="dashDataIniCalendario" value="${f.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;">
+              </div>
+            </div>
+            <div class="field">
+              <label>Data final</label>
+              <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;">
+                <input type="text" id="dashDataFimTexto" value="${isoParaBRData(f.dataFim||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
+                <button type="button" class="btn btn-ghost" id="dashDataFimCalendarioBtn" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px;">📅</button>
+                <input type="date" id="dashDataFimCalendario" value="${f.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;">
+              </div>
+            </div>
             <div class="field"><label>Centro de custo</label><select id="dashCentroCusto"><option value="">Todos</option>${CENTROS_CUSTO.map(x=>`<option value="${x}" ${f.centroCusto===x?'selected':''}>${x}</option>`).join('')}</select></div>
             <div class="field"><label>Fornecedor</label><select id="dashFornecedor"><option value="">Todos</option>${fornecedoresList.map(x=>`<option value="${x}" ${f.fornecedor===x?'selected':''}>${x}</option>`).join('')}</select></div>
             <div class="field"><label>Destino / Frota</label><select id="dashDestino"><option value="">Todos</option>${destinosList.map(x=>`<option value="${x}" ${f.destino===x?'selected':''}>${x}</option>`).join('')}</select></div>
@@ -1872,6 +1941,16 @@
         </div>
 
         ${renderGraficoComprasMensais(dados)}
+
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Maiores gastos por frota / destino</div>
+              <div class="card-sub">Ranking do maior para o menor · inclui frotas, Despesas Administrativas, Estoque e Oficina · acompanha todos os filtros, inclusive Santos/Camaçari</div>
+            </div>
+          </div>
+          ${renderRankingGastosPorDestino(dados)}
+        </div>
 
         <div class="card" style="margin-bottom:24px;">
           <div class="card-header">
@@ -3168,7 +3247,7 @@
       try {
         const sec = state.section;
         const titleMap = {
-          dashboard: { title: 'Dashboard', meta: 'Visão geral do cadastro de materiais' },
+          dashboard: { title: 'Dashboard', meta: 'Visão geral da gestão de compras' },
           materiais: { title: 'Materiais', meta: 'Lista completa com ações de edição e exclusão' },
           categorias: { title: 'Categorias', meta: 'Distribuição por categoria e subcategoria' },
           fornecedores: { title: 'Fornecedores', meta: 'Gerenciamento de fornecedores' },
@@ -3219,10 +3298,55 @@
 
     function bindEvents() {
       // ===== DASHBOARD =====
-      ['dashDataIni','dashDataFim','dashCentroCusto','dashFornecedor','dashDestino'].forEach(id=>{
+      // Datas do Dashboard: permite digitação dd/mm/aaaa OU seleção em mini calendário.
+      [
+        { texto:'dashDataIniTexto', calendario:'dashDataIniCalendario', botao:'dashDataIniCalendarioBtn', chave:'dataIni' },
+        { texto:'dashDataFimTexto', calendario:'dashDataFimCalendario', botao:'dashDataFimCalendarioBtn', chave:'dataFim' }
+      ].forEach(cfg => {
+        const txt = document.getElementById(cfg.texto);
+        const cal = document.getElementById(cfg.calendario);
+        const btn = document.getElementById(cfg.botao);
+
+        txt?.addEventListener('input', e => {
+          e.target.value = mascaraDataBR(e.target.value);
+        });
+
+        const aplicarTexto = () => {
+          if (!txt) return;
+          const iso = brParaISOData(txt.value);
+          if (iso === null) {
+            showToast('Data inválida. Use dd/mm/aaaa.', true);
+            txt.focus();
+            return;
+          }
+          state.dashboardFilters[cfg.chave] = iso;
+          render();
+        };
+
+        txt?.addEventListener('change', aplicarTexto);
+        txt?.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            aplicarTexto();
+          }
+        });
+
+        btn?.addEventListener('click', () => {
+          if (!cal) return;
+          if (typeof cal.showPicker === 'function') cal.showPicker();
+          else cal.click();
+        });
+
+        cal?.addEventListener('change', e => {
+          state.dashboardFilters[cfg.chave] = e.target.value || '';
+          render();
+        });
+      });
+
+      ['dashCentroCusto','dashFornecedor','dashDestino'].forEach(id=>{
         const el=document.getElementById(id);
         if(!el)return;
-        const chave={dashDataIni:'dataIni',dashDataFim:'dataFim',dashCentroCusto:'centroCusto',dashFornecedor:'fornecedor',dashDestino:'destino'}[id];
+        const chave={dashCentroCusto:'centroCusto',dashFornecedor:'fornecedor',dashDestino:'destino'}[id];
         el.addEventListener('change',e=>{state.dashboardFilters[chave]=e.target.value;render();});
       });
       document.getElementById('dashLimparFiltros')?.addEventListener('click',()=>{
