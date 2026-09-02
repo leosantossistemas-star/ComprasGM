@@ -359,6 +359,7 @@
           <input type="password" id="loginSenha" placeholder="Digite sua senha" required />
         </div>
         <button type="submit" class="btn btn-accent">Entrar</button>
+        <button type="button" class="btn btn-ghost" id="btnEsqueciSenha" style="width:100%;margin-top:10px;">Esqueci minha senha</button>
         <div id="loginError" class="error"></div>
       </form>
     </div>
@@ -401,6 +402,7 @@
         <div class="profile-display">
           <span>👤 Perfil: <strong id="profileLabel">Carregando...</strong></span>
         </div>
+        <button class="btn btn-ghost" id="btnAlterarMinhaSenha">Alterar minha senha</button>
         <button class="btn btn-logout" id="btnLogout">Sair</button>
         <button class="btn btn-ghost" id="btnResetFilters">Limpar filtros</button>
         <button class="btn btn-ghost" id="btnExportCSV">Exportar CSV</button>
@@ -414,6 +416,30 @@
   </div>
 
   <!-- ===== MODAIS ===== -->
+  <div class="modal-overlay" id="senhaModal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <h2 id="senhaModalTitulo">Alterar minha senha</h2>
+        <button class="modal-close" id="senhaModalClose">&times;</button>
+      </div>
+      <form id="formSenhaModal">
+        <div class="field">
+          <label>Nova senha *</label>
+          <input type="password" id="senhaNova" minlength="8" autocomplete="new-password" required placeholder="Mínimo de 8 caracteres" />
+        </div>
+        <div class="field">
+          <label>Confirmar nova senha *</label>
+          <input type="password" id="senhaConfirmar" minlength="8" autocomplete="new-password" required placeholder="Digite novamente" />
+        </div>
+        <div id="senhaModalNota" style="font-size:12px;color:var(--text-muted);margin:8px 0 4px;"></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-accent">Salvar nova senha</button>
+          <button type="button" class="btn btn-ghost" id="senhaModalCancelar">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="editModal">
     <div class="modal">
       <div class="modal-header">
@@ -660,6 +686,7 @@
           nome: pre.nome,
           perfil: pre.perfil,
           ativo: true,
+          primeiroAcesso: true,
           criadoAutomaticamente: true,
           criadoEm: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -685,7 +712,8 @@
         email: dados.email || user.email || '',
         nome: dados.nome || user.email || 'Usuário',
         perfil: dados.perfil,
-        ativo: true
+        ativo: true,
+        primeiroAcesso: dados.primeiroAcesso === true
       };
       perfilAtual = dados.perfil;
 
@@ -707,6 +735,42 @@
       } finally {
         location.reload();
       }
+    }
+
+    let trocaSenhaObrigatoria = false;
+
+    function abrirModalSenha(obrigatoria = false) {
+      trocaSenhaObrigatoria = obrigatoria;
+      const modal = document.getElementById('senhaModal');
+      if (!modal) return;
+
+      document.getElementById('senhaModalTitulo').textContent =
+        obrigatoria ? 'Primeiro acesso — crie sua nova senha' : 'Alterar minha senha';
+
+      document.getElementById('senhaModalNota').textContent =
+        obrigatoria
+          ? 'Por segurança, troque a senha provisória antes de continuar usando o sistema.'
+          : 'Sua nova senha será atualizada diretamente no Firebase Authentication.';
+
+      const close = document.getElementById('senhaModalClose');
+      const cancel = document.getElementById('senhaModalCancelar');
+      if (close) close.style.display = obrigatoria ? 'none' : '';
+      if (cancel) cancel.style.display = obrigatoria ? 'none' : '';
+
+      document.getElementById('senhaNova').value = '';
+      document.getElementById('senhaConfirmar').value = '';
+      modal.classList.add('active');
+      setTimeout(() => document.getElementById('senhaNova')?.focus(), 60);
+    }
+
+    async function marcarPrimeiroAcessoConcluido() {
+      if (!usuarioAtual?.uid) return;
+      await db.collection('usuarios').doc(usuarioAtual.uid).set({
+        primeiroAcesso: false,
+        senhaAlteradaEm: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      if (usuarioAtualPerfil) usuarioAtualPerfil.primeiroAcesso = false;
     }
 
     auth.onAuthStateChanged(async (user) => {
@@ -735,6 +799,10 @@
         if (!sistemaIniciado) {
           sistemaIniciado = true;
           iniciarSistema();
+
+          if (usuarioAtualPerfil?.primeiroAcesso === true) {
+            setTimeout(() => abrirModalSenha(true), 180);
+          }
 
           // Importação histórica autorizada pelo usuário.
           // É idempotente: se o lote já existir no Firestore, nada é duplicado.
@@ -786,6 +854,91 @@
         errorEl.textContent = mensagens[err.code] || ('Erro ao entrar: ' + (err.message || err));
         document.getElementById('loginSenha').value = '';
         document.getElementById('loginSenha').focus();
+      }
+    });
+
+
+    document.getElementById('btnEsqueciSenha')?.addEventListener('click', async () => {
+      const campo = document.getElementById('loginUsuario');
+      let email = resolverEmailLogin(campo?.value?.trim() || '');
+
+      if (!email) {
+        email = prompt('Digite o e-mail cadastrado no sistema:');
+        if (!email) return;
+        email = String(email).trim().toLowerCase();
+      }
+
+      const errorEl = document.getElementById('loginError');
+      try {
+        if (errorEl) errorEl.textContent = 'Enviando e-mail de redefinição...';
+        await auth.sendPasswordResetEmail(email);
+        if (errorEl) errorEl.textContent = 'E-mail de redefinição enviado. Verifique sua caixa de entrada e spam.';
+      } catch (err) {
+        console.error('Erro ao enviar redefinição:', err);
+        const mensagens = {
+          'auth/user-not-found': 'Não existe usuário cadastrado com esse e-mail.',
+          'auth/invalid-email': 'E-mail inválido.',
+          'auth/too-many-requests': 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
+          'auth/network-request-failed': 'Falha de rede ao acessar o Firebase.'
+        };
+        if (errorEl) errorEl.textContent = mensagens[err.code] || ('Não foi possível enviar a redefinição: ' + (err.message || err));
+      }
+    });
+
+    document.getElementById('btnAlterarMinhaSenha')?.addEventListener('click', () => abrirModalSenha(false));
+
+    document.getElementById('senhaModalClose')?.addEventListener('click', () => {
+      if (!trocaSenhaObrigatoria) document.getElementById('senhaModal')?.classList.remove('active');
+    });
+
+    document.getElementById('senhaModalCancelar')?.addEventListener('click', () => {
+      if (!trocaSenhaObrigatoria) document.getElementById('senhaModal')?.classList.remove('active');
+    });
+
+    document.getElementById('senhaModal')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget && !trocaSenhaObrigatoria) {
+        e.currentTarget.classList.remove('active');
+      }
+    });
+
+    document.getElementById('formSenhaModal')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const nova = document.getElementById('senhaNova')?.value || '';
+      const confirmar = document.getElementById('senhaConfirmar')?.value || '';
+
+      if (nova.length < 8) {
+        showToast('A nova senha deve ter no mínimo 8 caracteres.', true);
+        return;
+      }
+
+      if (nova !== confirmar) {
+        showToast('As senhas informadas não são iguais.', true);
+        return;
+      }
+
+      if (!auth.currentUser) {
+        showToast('Sua sessão expirou. Entre novamente.', true);
+        return;
+      }
+
+      try {
+        await auth.currentUser.updatePassword(nova);
+
+        if (trocaSenhaObrigatoria) {
+          await marcarPrimeiroAcessoConcluido();
+        }
+
+        trocaSenhaObrigatoria = false;
+        document.getElementById('senhaModal')?.classList.remove('active');
+        showToast('Senha alterada com sucesso.');
+      } catch (err) {
+        console.error('Erro ao alterar senha:', err);
+        if (err.code === 'auth/requires-recent-login') {
+          showToast('Por segurança, saia e entre novamente antes de alterar a senha.', true);
+        } else {
+          showToast('Não foi possível alterar a senha: ' + (err.message || err), true);
+        }
       }
     });
 
