@@ -492,6 +492,29 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="frotaModal">
+    <div class="modal" style="max-width:760px;">
+      <div class="modal-header">
+        <h3 id="frotaModalTitulo">Nova Frota</h3>
+        <button class="modal-close" id="frotaModalClose">&times;</button>
+      </div>
+      <form id="formFrotaModal">
+        <div class="form-grid">
+          <div class="field"><label>Centro de custo *</label><select id="fmCentroCusto" required><option value="SANTOS">Santos</option><option value="CAMAÇARI">Camaçari</option></select></div>
+          <div class="field"><label>Nome / número da frota *</label><input type="text" id="fmNome" required placeholder="Ex.: FROTA 410"></div>
+          <div class="field"><label>Orçamento total da manutenção (R$) *</label><input type="text" id="fmOrcamento" required placeholder="100.000,00"></div>
+          <div class="field" id="fmPercentualWrap"><label>% limite liberado *</label><input type="number" id="fmPercentual" min="0" step="0.1" value="20" required></div>
+          <div class="field"><label>Previsão de saída</label><input type="text" id="fmDataSaida" placeholder="dd/mm/aaaa" maxlength="10"></div>
+        </div>
+        <div id="fmNotaPermissao" style="padding:10px 0;color:var(--text-muted);font-size:12px;">A data é exibida e digitada no padrão brasileiro. O sistema salva internamente no formato ISO para manter os cálculos corretos.</div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-accent">Salvar</button>
+          <button type="button" class="btn btn-ghost" id="frotaModalCancelar">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="rejeitarModal">
     <div class="modal" style="max-width:500px;">
       <div class="modal-header">
@@ -536,6 +559,16 @@
     var perfilAtual = 'usuario';
     var usuarioAtual = null;
     var usuarioAtualPerfil = null;
+
+    const PERFIS_PRECADASTRADOS = Object.freeze({
+      'fidel.rodriguez@cryotronics.com.br': { nome: 'Fidel Rodriguez', perfil: 'encarregado' },
+      'dario.paz@cryotronics.com.br': { nome: 'Dario Paz', perfil: 'encarregado' },
+      'compras@cryotronics.com.br': { nome: 'Compras', perfil: 'usuario' },
+      'stephanie.rossi@cryotronics.com.br': { nome: 'Stephanie Rossi', perfil: 'gerente' },
+      'slrossi@brmechatronics.com': { nome: 'SL Rossi', perfil: 'gerente' },
+      'thatiane.rossi@cryotronics.com.br': { nome: 'Thatiane Rossi', perfil: 'gerente' },
+      'yuri.rossi@cryotronics.com.br': { nome: 'Yuri Rossi', perfil: 'gerente' }
+    });
     var sistemaIniciado = false;
     var limitePercentual = 20; // mantido para compatibilidade, mas agora cada frota tem seu próprio %
     var toastTimeout = null;
@@ -546,7 +579,8 @@
       sort: { col: "codigo", dir: "asc" },
       page: 1,
       perPage: 25,
-      rcFilters: { status: "", dataIni: "", dataFim: "", fornecedor: "", destino: "" },
+      rcFilters: { status: "", dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "" },
+      dashboardFilters: { dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "" },
       rcPage: 1,
       rcPerPage: 20,
     };
@@ -614,10 +648,28 @@
       const perfilDoc = await db.collection('usuarios').doc(user.uid).get();
 
       if (!perfilDoc.exists) {
-        throw new Error('Seu usuário existe no Authentication, mas não possui perfil na coleção "usuarios".');
-      }
+        const emailChave = String(user.email || '').trim().toLowerCase();
+        const pre = PERFIS_PRECADASTRADOS[emailChave];
 
-      const dados = perfilDoc.data() || {};
+        if (!pre) {
+          throw new Error('Seu usuário existe no Authentication, mas não possui perfil na coleção "usuarios".');
+        }
+
+        await db.collection('usuarios').doc(user.uid).set({
+          email: user.email || emailChave,
+          nome: pre.nome,
+          perfil: pre.perfil,
+          ativo: true,
+          criadoAutomaticamente: true,
+          criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        const novoDoc = await db.collection('usuarios').doc(user.uid).get();
+        if (!novoDoc.exists) throw new Error('Não foi possível criar o perfil de acesso.');
+        var dados = novoDoc.data() || {};
+      } else {
+        var dados = perfilDoc.data() || {};
+      }
 
       if (dados.ativo !== true) {
         throw new Error('Este usuário está inativo.');
@@ -847,8 +899,9 @@
       return { id: doc.id, ...doc.data() };
     }
 
-    function getFrotaByNome(nome) {
-      return frotas.find(f => f.nome === nome) || null;
+    function getFrotaByNome(nome, centroCusto = '') {
+      const cc = centroCustoNormalizado(centroCusto);
+      return frotas.find(f => f.nome === nome && (!cc || getCentroCustoRegistro(f) === cc)) || null;
     }
 
     /* ============================================================
@@ -959,6 +1012,7 @@
         if (f.dataFim && rc.data > f.dataFim) return false;
         if (f.fornecedor && rc.fornecedor !== f.fornecedor) return false;
         if (f.destino && rc.aplicacao !== f.destino) return false;
+        if (f.centroCusto && getCentroCustoRegistro(rc) !== f.centroCusto) return false;
         return true;
       });
     }
@@ -1013,11 +1067,12 @@
     }
 
     // Frotas adaptadas (com percentual)
-    function addFrota(nome, valorOrcamento, percentualLimite = 20, dataPrevisaoSaida = '') {
+    function addFrota(nome, valorOrcamento, percentualLimite = 20, dataPrevisaoSaida = '', centroCusto = 'SANTOS') {
       const valor = Number(valorOrcamento);
       const percentual = Number(percentualLimite);
       const nova = {
         nome: clean(nome),
+        centroCusto: centroCustoNormalizado(centroCusto) || 'SANTOS',
         valorOrcamento: Number.isFinite(valor) ? valor : 0,
         percentualLimite: Number.isFinite(percentual) ? percentual : 20,
         dataPrevisaoSaida: dataPrevisaoSaida || '',
@@ -1061,10 +1116,27 @@
     /* ============================================================
        CONTROLE FINANCEIRO E PRAZO POR FROTA
     ============================================================ */
+    const CENTROS_CUSTO = Object.freeze(['SANTOS', 'CAMAÇARI']);
+
+    function centroCustoNormalizado(valor) {
+      const v = normalize(String(valor || '')).toUpperCase();
+      if (v === 'CAMACARI') return 'CAMAÇARI';
+      if (v === 'SANTOS') return 'SANTOS';
+      return '';
+    }
+
+    function getCentroCustoRegistro(registro) {
+      // Regra de migração: todos os registros anteriores à V6 pertencem a Santos.
+      return centroCustoNormalizado(registro?.centroCusto) || 'SANTOS';
+    }
+
     const DESTINOS_PADRAO = Object.freeze([
-      { id: 'padrao_estoque', nome: 'ESTOQUE', limiteFixo: 50000 },
-      { id: 'padrao_oficina', nome: 'OFICINA', limiteFixo: 50000 },
-      { id: 'padrao_despesas_administrativas', nome: 'DESPESAS ADMINISTRATIVAS', limiteFixo: 50000 }
+      { id: 'padrao_estoque', nome: 'ESTOQUE', centroCusto: 'SANTOS', limiteFixo: 50000 },
+      { id: 'padrao_oficina', nome: 'OFICINA', centroCusto: 'SANTOS', limiteFixo: 50000 },
+      { id: 'padrao_despesas_administrativas', nome: 'DESPESAS ADMINISTRATIVAS', centroCusto: 'SANTOS', limiteFixo: 50000 },
+      { id: 'padrao_estoque_camacari', nome: 'ESTOQUE', centroCusto: 'CAMAÇARI', limiteFixo: 50000 },
+      { id: 'padrao_oficina_camacari', nome: 'OFICINA', centroCusto: 'CAMAÇARI', limiteFixo: 50000 },
+      { id: 'padrao_despesas_administrativas_camacari', nome: 'DESPESAS ADMINISTRATIVAS', centroCusto: 'CAMAÇARI', limiteFixo: 50000 }
     ]);
 
     const HISTORICO_IMPORT_BATCH = 'controle_compras_historico_v1';
@@ -1106,6 +1178,7 @@
             const payload = {
               ...registro,
               frotaId: frota?.id || '',
+              centroCusto: 'SANTOS',
               criadoPor: 'admin',
               criadoPorUid: getUsuarioUid(),
               criadoPorEmail: getUsuarioEmail(),
@@ -1134,41 +1207,63 @@
       return normalize(nome || '').replace(/\s+/g, ' ').trim();
     }
 
-    function configuracaoDestinoPadrao(frotaOuNome) {
+    function configuracaoDestinoPadrao(frotaOuNome, centroCusto = '') {
       const nome = typeof frotaOuNome === 'string' ? frotaOuNome : (frotaOuNome?.nome || '');
       const norm = nomeNormalizadoDestino(nome);
-      return DESTINOS_PADRAO.find(d => nomeNormalizadoDestino(d.nome) === norm) || null;
+      const cc = centroCustoNormalizado(
+        centroCusto || (typeof frotaOuNome === 'object' ? frotaOuNome?.centroCusto : '')
+      ) || 'SANTOS';
+      return DESTINOS_PADRAO.find(d =>
+        nomeNormalizadoDestino(d.nome) === norm &&
+        centroCustoNormalizado(d.centroCusto) === cc
+      ) || null;
     }
 
     function isDestinoPadrao(frota) {
-      return !!frota && (frota.tipoDestino === 'padrao' || !!configuracaoDestinoPadrao(frota));
+      return !!frota && (frota.tipoDestino === 'padrao' || !!configuracaoDestinoPadrao(frota, getCentroCustoRegistro(frota)));
+    }
+
+    async function migrarLegadoParaSantos() {
+      try {
+        for (const nomeColecao of ['frotas', 'requisicoes']) {
+          const snap = await db.collection(nomeColecao).get();
+          const pendentes = snap.docs.filter(doc => !centroCustoNormalizado((doc.data() || {}).centroCusto));
+          for (let i = 0; i < pendentes.length; i += 400) {
+            const lote = pendentes.slice(i, i + 400);
+            const batch = db.batch();
+            lote.forEach(doc => batch.set(doc.ref, { centroCusto: 'SANTOS' }, { merge: true }));
+            if (lote.length) await batch.commit();
+          }
+        }
+      } catch (err) {
+        console.warn('Migração para Santos não concluída:', err);
+      }
     }
 
     async function garantirDestinosPadrao() {
       try {
-        const batch = db.batch();
-        let alterou = false;
+        const snap = await db.collection('frotas').get();
+        const atuais = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         for (const cfg of DESTINOS_PADRAO) {
-          const existente = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(cfg.nome));
+          const existente = atuais.find(f =>
+            nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(cfg.nome) &&
+            getCentroCustoRegistro(f) === cfg.centroCusto
+          );
+          if (existente) continue;
 
-          if (!existente) {
-            const ref = db.collection('frotas').doc(cfg.id);
-            batch.set(ref, {
-              nome: cfg.nome,
-              tipoDestino: 'padrao',
-              limiteFixo: cfg.limiteFixo,
-              valorOrcamento: cfg.limiteFixo,
-              percentualLimite: 100,
-              dataPrevisaoSaida: '',
-              criadoAutomaticamente: true,
-              criadoEm: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            alterou = true;
-          }
+          await db.collection('frotas').doc(cfg.id).set({
+            nome: cfg.nome,
+            centroCusto: cfg.centroCusto,
+            tipoDestino: 'padrao',
+            limiteFixo: cfg.limiteFixo,
+            valorOrcamento: cfg.limiteFixo,
+            percentualLimite: 100,
+            dataPrevisaoSaida: '',
+            criadoAutomaticamente: true,
+            criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
         }
-
-        if (alterou) await batch.commit();
       } catch (err) {
         console.warn('Não foi possível criar automaticamente os destinos padrão:', err);
       }
@@ -1188,23 +1283,24 @@
 
     function getPercentualFrota(frota) {
       if (!frota) return 20;
-      if (isDestinoPadrao(frota)) return 100;
-      const p = Number(String(frota.percentualLimite ?? 20).replace(',', '.'));
-      return Number.isFinite(p) ? p : 20;
+      const padraoDefault = isDestinoPadrao(frota) ? 100 : 20;
+      const p = Number(String(frota.percentualLimite ?? padraoDefault).replace(',', '.'));
+      return Number.isFinite(p) ? p : padraoDefault;
     }
 
     function getLimiteTotalFrota(frota) {
       if (!frota) return 0;
       if (isDestinoPadrao(frota)) {
-        const cfg = configuracaoDestinoPadrao(frota);
-        const salvo = numeroSeguro(frota.limiteFixo);
-        return salvo > 0 ? salvo : (cfg?.limiteFixo || 50000);
+        const cfg = configuracaoDestinoPadrao(frota, getCentroCustoRegistro(frota));
+        const base = numeroSeguro(frota.limiteFixo) > 0 ? numeroSeguro(frota.limiteFixo) : (cfg?.limiteFixo || 50000);
+        return base * (getPercentualFrota(frota) / 100);
       }
       return numeroSeguro(frota.valorOrcamento) * (getPercentualFrota(frota) / 100);
     }
 
     function rcPertenceFrota(rc, frota) {
       if (!rc || !frota) return false;
+      if (getCentroCustoRegistro(rc) !== getCentroCustoRegistro(frota)) return false;
       if (rc.frotaId) return rc.frotaId === frota.id;
       return (rc.aplicacao || '') === (frota.nome || '');
     }
@@ -1433,43 +1529,51 @@
     /* ============================================================
        SEÇÕES (DASHBOARD, MATERIAIS, CATEGORIAS, FORNECEDORES, FROTAS, NOVO, REQUISIÇÕES)
     ============================================================ */
-    function getComprasMensais12Meses() {
+    function getDashboardRCsFiltradas() {
+      const f = state.dashboardFilters || {};
+      return rcs.filter(rc => {
+        if (rc.status !== 'aprovado') return false;
+        const dataRef = rc.dataAprovacao || rc.data || '';
+        if (f.dataIni && dataRef && dataRef < f.dataIni) return false;
+        if (f.dataFim && dataRef && dataRef > f.dataFim) return false;
+        if (f.fornecedor && (rc.fornecedor || '') !== f.fornecedor) return false;
+        if (f.destino && (rc.aplicacao || '') !== f.destino) return false;
+        if (f.centroCusto && getCentroCustoRegistro(rc) !== f.centroCusto) return false;
+        return true;
+      });
+    }
+
+    function getComprasMensais12Meses(lista = null) {
+      const dados = lista || getDashboardRCsFiltradas();
       const hoje = new Date();
       const meses = [];
-
       for (let i = 11; i >= 0; i--) {
         const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
         const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
         meses.push({ chave, label, total: 0, quantidade: 0 });
       }
-
       const mapa = Object.fromEntries(meses.map(m => [m.chave, m]));
-
-      rcs.forEach(rc => {
-        // Compra efetiva: somente RC aprovada entra no histórico mensal.
-        if (rc.status !== 'aprovado') return;
-        const data = rc.data || '';
+      dados.forEach(rc => {
+        const data = rc.dataAprovacao || rc.data || '';
         const chave = /^\d{4}-\d{2}/.test(data) ? data.slice(0, 7) : '';
         if (!mapa[chave]) return;
         mapa[chave].total += numeroSeguro(rc.total);
         mapa[chave].quantidade += 1;
       });
-
       return meses;
     }
 
-    function renderGraficoComprasMensais() {
-      const meses = getComprasMensais12Meses();
+    function renderGraficoComprasMensais(lista = null) {
+      const meses = getComprasMensais12Meses(lista);
       const max = Math.max(1, ...meses.map(m => m.total));
       const totalPeriodo = meses.reduce((s, m) => s + m.total, 0);
-
       return `
         <div class="card" style="margin-bottom:24px;">
           <div class="card-header">
             <div>
               <div class="card-title">Compras mensais — últimos 12 meses</div>
-              <div class="card-sub">Comparativo mês a mês de RCs aprovadas · Total no período: ${fmt.money(totalPeriodo)}</div>
+              <div class="card-sub">RCs aprovadas conforme os filtros · Total: ${fmt.money(totalPeriodo)}</div>
             </div>
           </div>
           <div style="overflow-x:auto;">
@@ -1480,7 +1584,7 @@
                   <div style="flex:1;min-width:44px;height:250px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:7px;">
                     <div title="${m.label}: ${fmt.money(m.total)} · ${m.quantidade} RC(s)"
                          style="font-size:10px;color:var(--text-muted);white-space:nowrap;">${m.total > 0 ? fmt.money(m.total) : '—'}</div>
-                    <div style="width:72%;max-width:52px;height:${altura}px;background:linear-gradient(180deg,var(--accent),#5f9600);border-radius:7px 7px 2px 2px;box-shadow:${m.total > 0 ? '0 0 10px var(--accent-glow)' : 'none'};"></div>
+                    <div style="width:72%;max-width:52px;height:${altura}px;background:linear-gradient(180deg,var(--accent),#5f9600);border-radius:7px 7px 2px 2px;"></div>
                     <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${m.label}</div>
                   </div>`;
               }).join('')}
@@ -1489,27 +1593,93 @@
         </div>`;
     }
 
-    function renderDashboard() {
-      const filtered = getFilteredItems();
-      const completos = filtered.filter(i => i.cadastroCompleto.toUpperCase() === "SIM").length;
-      const custoMin = filtered.reduce((s, i) => s + (i.custoEstoqueMinNum || 0), 0);
-      const custoMax = filtered.reduce((s, i) => s + (i.custoEstoqueMaxNum || 0), 0);
-      const cats = new Set(filtered.map(i => i.categoria).filter(Boolean)).size;
+    function renderPizzaFornecedores(lista) {
+      const totais = {};
+      lista.forEach(rc => {
+        const nome = rc.fornecedor || 'Não informado';
+        totais[nome] = (totais[nome] || 0) + numeroSeguro(rc.total);
+      });
+      const entradas = Object.entries(totais).sort((a,b)=>b[1]-a[1]);
+      const total = entradas.reduce((s,[,v])=>s+v,0);
+      if (!total) return `<div style="padding:30px;text-align:center;color:var(--text-muted)">Sem compras aprovadas no período/filtro selecionado.</div>`;
+
+      const cores = ['#8bc34a','#42a5f5','#ffb74d','#ab47bc','#26a69a','#ef5350','#78909c','#ffee58','#5c6bc0','#ec407a','#66bb6a','#ffa726'];
+      let acumulado = 0;
+      const fatias = entradas.slice(0,12).map(([nome, valor], i) => {
+        const ini = acumulado;
+        acumulado += (valor/total)*100;
+        return `${cores[i % cores.length]} ${ini.toFixed(2)}% ${acumulado.toFixed(2)}%`;
+      }).join(', ');
 
       return `
-        ${renderFilters()}
+        <div style="display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:28px;align-items:center;">
+          <div style="width:260px;height:260px;border-radius:50%;background:conic-gradient(${fatias});margin:auto;box-shadow:inset 0 0 0 1px var(--border);"></div>
+          <div style="max-height:290px;overflow:auto;">
+            ${entradas.slice(0,12).map(([nome,valor],i)=>`
+              <div style="display:grid;grid-template-columns:14px 1fr auto auto;gap:9px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">
+                <span style="width:12px;height:12px;border-radius:3px;background:${cores[i%cores.length]}"></span>
+                <span title="${nome}">${nome}</span>
+                <strong>${fmt.money(valor)}</strong>
+                <span style="color:var(--text-muted);min-width:52px;text-align:right">${((valor/total)*100).toFixed(1)}%</span>
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }
+
+    function renderDashboard() {
+      const dados = getDashboardRCsFiltradas();
+      const f = state.dashboardFilters || {};
+      const fornecedoresList = [...new Set(rcs.filter(r=>r.status==='aprovado').map(r=>r.fornecedor).filter(Boolean))].sort();
+      const destinosList = [...new Set(rcs.filter(r=>r.status==='aprovado').map(r=>r.aplicacao).filter(Boolean))].sort();
+      const totalGasto = dados.reduce((s,r)=>s+numeroSeguro(r.total),0);
+      const qtdRC = dados.length;
+      const ticket = qtdRC ? totalGasto/qtdRC : 0;
+      const destinos = new Set(dados.map(r=>r.aplicacao).filter(Boolean)).size;
+
+      return `
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div><div class="card-title">Filtros de compras aprovadas</div><div class="card-sub">Filtre por período, fornecedor ou destino. Todos os indicadores e gráficos abaixo acompanham o filtro.</div></div>
+            <button class="btn btn-ghost" id="dashLimparFiltros">Limpar filtros</button>
+          </div>
+          <div class="filters-grid">
+            <div class="field"><label>Data inicial</label><input type="date" id="dashDataIni" value="${f.dataIni||''}"></div>
+            <div class="field"><label>Data final</label><input type="date" id="dashDataFim" value="${f.dataFim||''}"></div>
+            <div class="field"><label>Centro de custo</label><select id="dashCentroCusto"><option value="">Todos</option>${CENTROS_CUSTO.map(x=>`<option value="${x}" ${f.centroCusto===x?'selected':''}>${x}</option>`).join('')}</select></div>
+            <div class="field"><label>Fornecedor</label><select id="dashFornecedor"><option value="">Todos</option>${fornecedoresList.map(x=>`<option value="${x}" ${f.fornecedor===x?'selected':''}>${x}</option>`).join('')}</select></div>
+            <div class="field"><label>Destino / Frota</label><select id="dashDestino"><option value="">Todos</option>${destinosList.map(x=>`<option value="${x}" ${f.destino===x?'selected':''}>${x}</option>`).join('')}</select></div>
+          </div>
+        </div>
+
         <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Total de Materiais</div><div class="kpi-value accent">${fmt.num(filtered.length)}</div><div class="kpi-sub">de ${fmt.num(allItems.length)} cadastrados</div></div>
-          <div class="kpi-card"><div class="kpi-label">Cadastros Completos</div><div class="kpi-value">${fmt.num(completos)}</div><div class="kpi-sub">${filtered.length - completos} pendentes</div></div>
-          <div class="kpi-card"><div class="kpi-label">Custo Estoque Mín.</div><div class="kpi-value">${fmt.money(custoMin)}</div><div class="kpi-sub">Soma dos estoques mínimos</div></div>
-          <div class="kpi-card"><div class="kpi-label">Custo Estoque Máx.</div><div class="kpi-value accent">${fmt.money(custoMax)}</div><div class="kpi-sub">Soma dos estoques máximos</div></div>
+          <div class="kpi-card"><div class="kpi-label">Total aprovado / gasto</div><div class="kpi-value accent">${fmt.money(totalGasto)}</div><div class="kpi-sub">${qtdRC} RC(s) aprovadas</div></div>
+          <div class="kpi-card"><div class="kpi-label">Quantidade de RCs</div><div class="kpi-value">${fmt.num(qtdRC)}</div><div class="kpi-sub">No período/filtro selecionado</div></div>
+          <div class="kpi-card"><div class="kpi-label">Ticket médio</div><div class="kpi-value">${fmt.money(ticket)}</div><div class="kpi-sub">Média por RC aprovada</div></div>
+          <div class="kpi-card"><div class="kpi-label">Destinos</div><div class="kpi-value accent">${fmt.num(destinos)}</div><div class="kpi-sub">Frotas/locais com compra</div></div>
         </div>
-        ${renderGraficoComprasMensais()}
-        <div class="grid-3-1">
-          <div class="card"><div class="card-header"><div><div class="card-title">Materiais por Categoria</div><div class="card-sub">${cats} categorias</div></div></div><div class="bar-chart">${renderBarChart(filtered, "categoria")}</div></div>
-          <div class="card"><div class="card-header"><div><div class="card-title">Top Fornecedores</div><div class="card-sub">Por quantidade</div></div></div><ul class="supplier-list">${renderSupplierList(filtered)}</ul></div>
+
+        ${renderGraficoComprasMensais(dados)}
+
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card-header">
+            <div><div class="card-title">Participação dos fornecedores</div><div class="card-sub">% do gasto total no período/filtro aplicado</div></div>
+          </div>
+          ${renderPizzaFornecedores(dados)}
         </div>
-        <div class="card"><div class="card-header"><div><div class="card-title">Últimos Materiais</div><div class="card-sub">Prévia</div></div></div>${renderTable(filtered, { preview: true, previewLimit: 10 })}</div>
+
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">Resumo das compras filtradas</div><div class="card-sub">Fornecedor, destino, data e valor aprovado</div></div></div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>RC</th><th>Data</th><th>Centro de custo</th><th>Fornecedor</th><th>Destino</th><th>Valor</th></tr></thead>
+              <tbody>
+                ${dados.length ? dados.slice().sort((a,b)=>String(b.dataAprovacao||b.data||'').localeCompare(String(a.dataAprovacao||a.data||''))).slice(0,100).map(rc=>`
+                  <tr><td><strong>${rc.numero||'—'}</strong></td><td>${fmt.date(rc.dataAprovacao||rc.data)}</td><td>${getCentroCustoRegistro(rc)}</td><td>${rc.fornecedor||'—'}</td><td>${rc.aplicacao||'—'}</td><td><strong>${fmt.money(numeroSeguro(rc.total))}</strong></td></tr>
+                `).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhuma compra aprovada encontrada.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
       `;
     }
 
@@ -1582,6 +1752,59 @@
       return html;
     }
 
+    function dataBRparaISO(valor) {
+      const v = String(valor || '').trim();
+      if (!v) return '';
+      const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (!m) return null;
+      const [,d,mo,a] = m;
+      const iso = `${a}-${mo}-${d}`;
+      const dt = new Date(`${iso}T12:00:00`);
+      if (dt.getFullYear() != Number(a) || dt.getMonth()+1 != Number(mo) || dt.getDate() != Number(d)) return null;
+      return iso;
+    }
+
+    function dataISOparaBR(valor) {
+      const v = String(valor || '');
+      const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+    }
+
+    function abrirModalFrota(frota = null) {
+      const modal = document.getElementById('frotaModal');
+      if (!modal) return;
+      modal.dataset.editId = frota?.id || '';
+      document.getElementById('frotaModalTitulo').textContent = frota ? `Editar ${frota.nome}` : 'Nova Frota em Manutenção';
+      document.getElementById('fmCentroCusto').value = frota ? getCentroCustoRegistro(frota) : 'SANTOS';
+      document.getElementById('fmCentroCusto').disabled = !!frota;
+      document.getElementById('fmNome').value = frota?.nome || '';
+      document.getElementById('fmNome').readOnly = !!frota;
+      document.getElementById('fmOrcamento').value = frota ? numeroSeguro(frota.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+
+      const podeGerenciarLimite = ['gerente','admin'].includes(getPerfil());
+      const percentualWrap = document.getElementById('fmPercentualWrap');
+      const percentualInput = document.getElementById('fmPercentual');
+
+      if (percentualWrap) percentualWrap.style.display = podeGerenciarLimite ? '' : 'none';
+      if (percentualInput) {
+        percentualInput.value = frota ? getPercentualFrota(frota) : 20;
+        percentualInput.required = podeGerenciarLimite;
+        percentualInput.disabled = !podeGerenciarLimite;
+      }
+
+      document.getElementById('fmDataSaida').value = frota?.dataPrevisaoSaida ? dataISOparaBR(frota.dataPrevisaoSaida) : '';
+
+      const nota = document.getElementById('fmNotaPermissao');
+      if (nota) {
+        nota.textContent = podeGerenciarLimite
+          ? 'A data é exibida e digitada no padrão brasileiro. O percentual de limite é um controle gerencial.'
+          : 'A data é exibida e digitada no padrão brasileiro. O percentual de limite não é definido pelo Encarregado; o cadastro inicia em 20% e somente Gerente/Admin podem alterá-lo.';
+      }
+
+      modal.classList.add('active');
+      setTimeout(()=>document.getElementById('fmNome')?.focus(),50);
+    }
+
     // =========== SEÇÃO FROTAS (ajustada para usar variável global e percentual) ===========
     function renderFrotas() {
       const perfil = perfilAtual;
@@ -1589,10 +1812,14 @@
       const podeEditar = ['gerente','admin'].includes(perfil);
 
       const destinosPadrao = DESTINOS_PADRAO.map(cfg => {
-        const existente = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(cfg.nome));
+        const existente = frotas.find(f =>
+          nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(cfg.nome) &&
+          getCentroCustoRegistro(f) === cfg.centroCusto
+        );
         return existente || {
           id: cfg.id,
           nome: cfg.nome,
+          centroCusto: cfg.centroCusto,
           tipoDestino: 'padrao',
           limiteFixo: cfg.limiteFixo,
           valorOrcamento: cfg.limiteFixo,
@@ -1601,8 +1828,7 @@
         };
       });
 
-      const idsPadrao = new Set(destinosPadrao.map(f => nomeNormalizadoDestino(f.nome)));
-      const frotasManutencao = frotas.filter(f => !idsPadrao.has(nomeNormalizadoDestino(f.nome)) && !isDestinoPadrao(f));
+      const frotasManutencao = frotas.filter(f => !isDestinoPadrao(f));
 
       const renderLinhaPadrao = f => {
         const limiteTotal = getLimiteTotalFrota(f);
@@ -1614,13 +1840,16 @@
 
         return `<tr>
           <td><strong>${f.nome}</strong></td>
+          <td>${getCentroCustoRegistro(f)}</td>
           <td><span class="badge badge-info">Conta padrão</span></td>
+          <td>${fmt.money(numeroSeguro(f.limiteFixo) || numeroSeguro(configuracaoDestinoPadrao(f, getCentroCustoRegistro(f))?.limiteFixo) || 50000)}</td>
+          <td>${getPercentualFrota(f)}%</td>
           <td>${fmt.money(limiteTotal)}</td>
           <td>${fmt.money(utilizado)}</td>
           <td style="color:${disponivel<=0?'var(--danger)':'var(--accent)'}">${fmt.money(Math.max(0,disponivel))}</td>
           <td>Não se aplica</td>
           <td>${status}</td>
-          <td>${podeEditar ? `<button class="btn btn-ghost btn-sm" data-editar-limite-padrao="${f.id}" data-nome-padrao="${f.nome}">Editar limite</button>` : '<span style="color:var(--text-muted);font-size:12px">Somente Gerente/Admin</span>'}</td>
+          <td>${podeEditar ? `<button class="btn btn-ghost btn-sm" data-editar-limite-padrao="${f.id}" data-nome-padrao="${f.nome}" data-centro-custo="${getCentroCustoRegistro(f)}">Editar limite / %</button>` : '<span style="color:var(--text-muted);font-size:12px">Somente Gerente/Admin</span>'}</td>
         </tr>`;
       };
 
@@ -1636,6 +1865,7 @@
 
         return `<tr>
           <td><strong>${f.nome}</strong></td>
+          <td>${getCentroCustoRegistro(f)}</td>
           <td>${fmt.money(numeroSeguro(f.valorOrcamento))}</td>
           <td>${getPercentualFrota(f)}%</td>
           <td>${fmt.money(limiteTotal)}</td>
@@ -1652,13 +1882,13 @@
           <div class="card-header">
             <div>
               <div class="card-title">Contas padrão de compras</div>
-              <div class="card-sub">Estoque, Oficina e Despesas Administrativas já fazem parte do sistema. Limite inicial: R$ 50.000,00 por conta.</div>
+              <div class="card-sub">Estoque, Oficina e Despesas Administrativas já fazem parte do sistema. Base inicial: R$ 50.000,00 por conta. Gerente/Admin podem liberar percentuais diferentes para cada destino.</div>
             </div>
           </div>
           <div style="overflow-x:auto;">
             <table>
               <thead><tr>
-                <th>Destino</th><th>Tipo</th><th>Limite</th><th>Utilizado</th><th>Disponível</th><th>Previsão de Saída</th><th>Status RC</th><th>Ações</th>
+                <th>Destino</th><th>Centro de custo</th><th>Tipo</th><th>Base disponível</th><th>% Liberado</th><th>Limite liberado</th><th>Utilizado</th><th>Disponível</th><th>Previsão de Saída</th><th>Status RC</th><th>Ações</th>
               </tr></thead>
               <tbody>${destinosPadrao.map(renderLinhaPadrao).join('')}</tbody>
             </table>
@@ -1777,6 +2007,7 @@
             <div class="field"><label>Status</label><select id="rcFiltroStatus"><option value="">Todos</option>${statusOptions.map(s => `<option value="${s}" ${state.rcFilters.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
             <div class="field"><label>Data Início</label><input type="date" id="rcFiltroDataIni" value="${state.rcFilters.dataIni}" /></div>
             <div class="field"><label>Data Fim</label><input type="date" id="rcFiltroDataFim" value="${state.rcFilters.dataFim}" /></div>
+            <div class="field"><label>Centro de custo</label><select id="rcFiltroCentroCusto"><option value="">Todos</option>${CENTROS_CUSTO.map(c => `<option value="${c}" ${state.rcFilters.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
             <div class="field"><label>Fornecedor</label><select id="rcFiltroFornecedor"><option value="">Todos</option>${fornecedoresList.map(f => `<option value="${f}" ${state.rcFilters.fornecedor===f?'selected':''}>${f}</option>`).join('')}</select></div>
             <div class="field"><label>Destino</label><select id="rcFiltroDestino"><option value="">Todos</option>${destinosList.map(d => `<option value="${d}" ${state.rcFilters.destino===d?'selected':''}>${d}</option>`).join('')}</select></div>
             <div class="field"><label>&nbsp;</label><button class="btn btn-accent" id="btnApplyRCFiltros" style="width:100%">Aplicar</button></div>
@@ -1912,7 +2143,7 @@
       const selectedFrota = data.aplicacao || '';
       let limiteDisponivel = 0;
       if (selectedFrota) {
-        const frotaSelecionada = data.frotaId ? frotas.find(f => f.id === data.frotaId) : getFrotaByNome(selectedFrota);
+        const frotaSelecionada = data.frotaId ? frotas.find(f => f.id === data.frotaId) : getFrotaByNome(selectedFrota, data.centroCusto || 'SANTOS');
         limiteDisponivel = getLimiteDisponivelFrota(frotaSelecionada, isEdit ? data.numero : '');
       }
 
@@ -1942,7 +2173,13 @@
               <div class="field"><label>Data Base *</label><input type="date" id="rcDataBase" value="${data.dataBase || today}" required /></div>
               <div class="field"><label>Vencimento (automático)</label><input type="date" id="rcVencimento" value="${data.vencimento || ''}" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
               <div class="field"><label>Solicitante *</label><input type="text" id="rcSolicitante" value="${data.solicitante || getUsuarioNome()}" required placeholder="Seu nome" /></div>
-              <div class="field"><label>Destino (Frota) *</label>
+              <div class="field"><label>Centro de custo *</label>
+                <select id="rcCentroCusto" required>
+                  <option value="SANTOS" ${(data.centroCusto || 'SANTOS')==='SANTOS'?'selected':''}>Santos</option>
+                  <option value="CAMAÇARI" ${data.centroCusto==='CAMAÇARI'?'selected':''}>Camaçari</option>
+                </select>
+              </div>
+              <div class="field"><label>Destino (Frota / Conta) *</label>
                 <select id="rcDestino" required>
                   <option value="">Selecione uma frota</option>
                   ${frotasList.map(f => {
@@ -1953,7 +2190,7 @@
                       ? ' | CONTA PADRÃO'
                       : (!f.dataPrevisaoSaida ? ' | SEM DATA DE SAÍDA' : (hojeISO() > f.dataPrevisaoSaida ? ' | PRAZO ENCERRADO' : ''));
                     const selected = (data.frotaId && data.frotaId===f.id) || (!data.frotaId && selectedFrota===f.nome);
-                    return `<option value="${f.nome}" data-frota-id="${f.id}" data-disponivel="${disponivel}" data-saida="${f.dataPrevisaoSaida || ''}" ${selected?'selected':''}>${f.nome} (Disponível: ${fmt.money(Math.max(0,disponivel))}${aviso})</option>`;
+                    return `<option value="${f.nome}" data-frota-id="${f.id}" data-centro-custo="${getCentroCustoRegistro(f)}" data-disponivel="${disponivel}" data-saida="${f.dataPrevisaoSaida || ''}" ${selected?'selected':''}>${f.nome} — ${getCentroCustoRegistro(f)} (Disponível: ${fmt.money(Math.max(0,disponivel))}${aviso})</option>`;
                   }).join('')}
                 </select>
               </div>
@@ -1992,64 +2229,67 @@
     function addItemRowRC(container, itemData = null) {
       const row = document.createElement('div');
       row.className = 'rc-item-row';
+      row.style.position = 'relative';
       row.innerHTML = `
-        <div class="field" style="flex:3"><label>Código/Descrição</label><input type="text" class="rc-item-busca" placeholder="Digite para buscar..." value="${itemData ? itemData.descricao || '' : ''}" /></div>
-        <div class="field" style="flex:1"><label>Quantidade</label><input type="number" class="rc-item-qtd" min="1" value="${itemData ? itemData.qtd : 1}" /></div>
+        <div class="field" style="flex:3;position:relative"><label>Código/Descrição</label>
+          <input type="text" class="rc-item-busca" autocomplete="off" placeholder="Digite uma letra, número ou parte da descrição..." value="${itemData ? itemData.descricao || '' : ''}" />
+          <div class="rc-sugestoes" style="display:none;position:absolute;top:66px;left:0;right:0;z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 12px 30px rgba(0,0,0,.35)"></div>
+        </div>
+        <div class="field" style="flex:1"><label>Quantidade</label><input type="number" class="rc-item-qtd" min="0.01" step="any" value="${itemData ? itemData.qtd : 1}" /></div>
         <div class="field" style="flex:1"><label>Valor Unit.</label><input type="text" class="rc-item-unit" placeholder="0,00" value="${itemData ? itemData.valorUnit || '' : ''}" /></div>
         <div class="field" style="flex:1"><label>Total</label><input type="text" class="rc-item-total" readonly style="background:#1a1f1a;" value="${itemData ? fmt.money(itemData.total || 0) : ''}" /></div>
         <button type="button" class="btn btn-danger" style="align-self:flex-end;margin-bottom:2px;" onclick="removerItemRC(this)">×</button>
       `;
       container.appendChild(row);
+
       const buscaInput = row.querySelector('.rc-item-busca');
       const qtdInput = row.querySelector('.rc-item-qtd');
       const unitInput = row.querySelector('.rc-item-unit');
       const totalInput = row.querySelector('.rc-item-total');
+      const sugestoes = row.querySelector('.rc-sugestoes');
 
       const updateTotal = () => {
-        const qtd = parseFloat(qtdInput.value) || 0;
+        const qtd = numeroSeguro(qtdInput.value);
         const unit = parseMoney(unitInput.value);
-        const total = qtd * unit;
-        totalInput.value = total ? fmt.money(total) : '';
+        totalInput.value = qtd && unit ? fmt.money(qtd * unit) : '';
         recalcularTotalRC();
       };
+
+      const selecionarMaterial = item => {
+        buscaInput.value = `${item.codigo || ''} - ${item.descricaoSimples || item.descricaoCurta || ''}`.replace(/^ - /,'');
+        const qtdCadastro = numeroSeguro(item.quantidade || item.qtd || item.estoqueMin);
+        qtdInput.value = qtdCadastro > 0 ? qtdCadastro : 1;
+        if (item.custoUnitario) unitInput.value = String(item.custoUnitario).replace('R$','').trim();
+        sugestoes.style.display = 'none';
+        updateTotal();
+      };
+
+      const renderSugestoes = termo => {
+        const t = normalize(termo);
+        if (!t) { sugestoes.style.display='none'; return; }
+        const matches = allItems.filter(item => {
+          const alvo = normalize([item.codigo,item.descricaoSimples,item.descricaoCurta,item.marca,item.modelo].filter(Boolean).join(' '));
+          return alvo.includes(t);
+        }).slice(0,10);
+
+        if (!matches.length) { sugestoes.style.display='none'; return; }
+        sugestoes.innerHTML = matches.map((m,i)=>`
+          <button type="button" data-sug="${i}" style="display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
+            <strong style="color:var(--accent)">${m.codigo || 'S/C'}</strong> — ${m.descricaoSimples || m.descricaoCurta || 'Sem descrição'}
+            <small style="display:block;color:var(--text-muted);margin-top:3px">Qtd. cadastro: ${numeroSeguro(m.quantidade || m.qtd || m.estoqueMin) || 1} · Unit.: ${m.custoUnitario || 'não informado'}</small>
+          </button>`).join('');
+        sugestoes.style.display='block';
+        sugestoes.querySelectorAll('[data-sug]').forEach(btn=>btn.addEventListener('mousedown',e=>{
+          e.preventDefault();
+          selecionarMaterial(matches[Number(btn.dataset.sug)]);
+        }));
+      };
+
       qtdInput.addEventListener('input', updateTotal);
       unitInput.addEventListener('input', updateTotal);
-
-      buscaInput.addEventListener('input', (e) => {
-        const term = e.target.value.trim().toLowerCase();
-        if (term.length < 2) return;
-        const matches = allItems.filter(item =>
-          item.codigo.toLowerCase().includes(term) ||
-          item.descricaoSimples.toLowerCase().includes(term) ||
-          (item.descricaoCurta && item.descricaoCurta.toLowerCase().includes(term))
-        ).slice(0, 5);
-        if (matches.length === 1) {
-          const item = matches[0];
-          buscaInput.value = item.codigo + ' - ' + item.descricaoSimples;
-          if (!unitInput.value) {
-            unitInput.value = item.custoUnitario ? item.custoUnitario.replace('R$ ', '').replace(',', '.') : '';
-            updateTotal();
-          }
-        } else if (matches.length > 1) {
-          const datalistId = 'rc-datalist-' + Date.now();
-          let datalist = document.getElementById(datalistId);
-          if (!datalist) {
-            datalist = document.createElement('datalist');
-            datalist.id = datalistId;
-            document.body.appendChild(datalist);
-          }
-          datalist.innerHTML = matches.map(m => `<option value="${m.codigo} - ${m.descricaoSimples}"></option>`).join('');
-          buscaInput.setAttribute('list', datalistId);
-          buscaInput.addEventListener('change', function() {
-            const val = this.value;
-            const found = matches.find(m => (m.codigo + ' - ' + m.descricaoSimples) === val);
-            if (found && !unitInput.value) {
-              unitInput.value = found.custoUnitario ? found.custoUnitario.replace('R$ ', '').replace(',', '.') : '';
-              updateTotal();
-            }
-          }, { once: false });
-        }
-      });
+      buscaInput.addEventListener('input', e => renderSugestoes(e.target.value));
+      buscaInput.addEventListener('focus', e => { if(e.target.value) renderSugestoes(e.target.value); });
+      buscaInput.addEventListener('blur', () => setTimeout(()=>sugestoes.style.display='none',150));
     }
 
     window.removerItemRC = function(btn) {
@@ -2137,6 +2377,25 @@
         const vencInput = document.getElementById('rcVencimento');
         if (vencInput) vencInput.value = venc;
       });
+      const filtrarDestinosPorCentro = () => {
+        const centro = centroCustoNormalizado(document.getElementById('rcCentroCusto')?.value) || 'SANTOS';
+        const select = document.getElementById('rcDestino');
+        if (!select) return;
+        Array.from(select.options).forEach(opt => {
+          if (!opt.value) { opt.hidden = false; return; }
+          opt.hidden = (centroCustoNormalizado(opt.dataset.centroCusto) || 'SANTOS') !== centro;
+        });
+        const atual = select.options[select.selectedIndex];
+        if (atual && atual.hidden) select.value = '';
+        const escolhido = select.options[select.selectedIndex];
+        const disponivel = escolhido && escolhido.value ? parseFloat(escolhido.dataset.disponivel) || 0 : 0;
+        const display = document.getElementById('rcLimiteDisplay');
+        if (display) display.value = fmt.money(disponivel);
+        recalcularTotalRC();
+      };
+      document.getElementById('rcCentroCusto')?.addEventListener('change', filtrarDestinosPorCentro);
+      filtrarDestinosPorCentro();
+
       document.getElementById('rcDestino')?.addEventListener('change', function() {
         const selected = this.options[this.selectedIndex];
         const disponivel = selected ? parseFloat(selected.dataset.disponivel) || 0 : 0;
@@ -2173,15 +2432,16 @@
       const numero=getVal('rcNumero'), data=getVal('rcData'), fornecedor=getVal('rcFornecedor'),
             prazoEntrega=getVal('rcPrazoEntrega'), condPag=getVal('rcCondPag'), dataBase=getVal('rcDataBase'),
             vencimento=getVal('rcVencimento'), solicitante=getVal('rcSolicitante'),
+            centroCusto=centroCustoNormalizado(getVal('rcCentroCusto')),
             aplicacao=getVal('rcDestino'), observacoes=getVal('rcObservacoes');
 
-      if (!fornecedor || !data || !prazoEntrega || !condPag || !dataBase || !solicitante || !aplicacao) {
+      if (!fornecedor || !data || !prazoEntrega || !condPag || !dataBase || !solicitante || !centroCusto || !aplicacao) {
         showToast('Preencha todos os campos obrigatórios.', true); return;
       }
 
       const destinoEl=document.getElementById('rcDestino');
       const opt=destinoEl?.options[destinoEl.selectedIndex];
-      const frota=opt?.dataset?.frotaId ? frotas.find(f=>f.id===opt.dataset.frotaId) : getFrotaByNome(aplicacao);
+      const frota=opt?.dataset?.frotaId ? frotas.find(f=>f.id===opt.dataset.frotaId) : getFrotaByNome(aplicacao, centroCusto);
       if(!frota){showToast('Frota selecionada não encontrada.',true);return;}
 
       const itens=[]; let total=0;
@@ -2202,7 +2462,7 @@
 
       const status=enviar?'em_aprovacao':'rascunho';
       const rcData={numero,data,fornecedor,prazoEntrega,condPag,dataBase,vencimento,solicitante,
-        aplicacao:frota.nome,frotaId:frota.id,observacoes,itens,total,status,
+        aplicacao:frota.nome,frotaId:frota.id,centroCusto,observacoes,itens,total,status,
         criadoPor:existing?.criadoPor||perfilAtual,
         criadoPorUid:existing?.criadoPorUid||getUsuarioUid(),
         criadoPorEmail:existing?.criadoPorEmail||getUsuarioEmail(),
@@ -2234,7 +2494,7 @@
           <p><strong>Condição de Pagamento:</strong> ${rcData.condPag}</p>
           <p><strong>Data Base:</strong> ${rcData.dataBase} | <strong>Vencimento:</strong> ${rcData.vencimento}</p>
           <p><strong>Solicitante:</strong> ${rcData.solicitante}</p>
-          <p><strong>Destino:</strong> ${rcData.aplicacao || '—'}</p>
+          <p><strong>Centro de custo:</strong> ${getCentroCustoRegistro(rcData)}</p><p><strong>Destino:</strong> ${rcData.aplicacao || '—'}</p>
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <thead><tr style="background:#eee;"><th style="border:1px solid #ccc;padding:6px;">Item</th><th style="border:1px solid #ccc;padding:6px;">Descrição</th><th style="border:1px solid #ccc;padding:6px;">Qtd</th><th style="border:1px solid #ccc;padding:6px;">Valor Unit.</th><th style="border:1px solid #ccc;padding:6px;">Total</th></tr></thead>
@@ -2293,7 +2553,7 @@
       mensagem += `Data: ${rcData.data}\n`;
       mensagem += `Solicitante: ${rcData.solicitante}\n`;
       mensagem += `Fornecedor: ${rcData.fornecedor}\n`;
-      mensagem += `Destino: ${rcData.aplicacao || '—'}\n`;
+      mensagem += `Centro de custo: ${getCentroCustoRegistro(rcData)}\nDestino: ${rcData.aplicacao || '—'}\n`;
       mensagem += `Total: ${fmt.money(rcData.total)}\n\n`;
       mensagem += `*Itens:*\n`;
       (rcData.itens || []).forEach((item, idx) => {
@@ -2403,7 +2663,7 @@
       let html = `
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
-            <div><div class="card-title">📝 Solicitar Material</div><div class="card-sub">Crie uma solicitação simplificada para converter em RC depois</div></div>
+            <div><div class="card-title">📝 Solicitar Material</div><div class="card-sub">Crie uma solicitação por filial e destino para converter em RC depois</div></div>
             ${podeCriar ? `<button class="btn btn-accent" id="btnNovaSolicitacao">+ Nova Solicitação</button>` : ''}
           </div>
           ${podeCriar ? `
@@ -2431,6 +2691,7 @@
           acoes.push(`<button class="btn btn-danger btn-sm" data-excluir-sol="${sol.id}">Excluir</button>`);
         }
         return `<tr>
+          <td>${getCentroCustoRegistro(sol)}</td>
           <td>${sol.destino || '—'}</td>
           <td>${fmt.date(sol.dataNecessidade)}</td>
           <td>${sol.itens ? sol.itens.length : 0} itens</td>
@@ -2439,7 +2700,7 @@
         </tr>`;
       }).join('');
       return `<div class="table-wrap"><table>
-        <thead><tr><th>Destino</th><th>Data Necessidade</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Filial</th><th>Destino</th><th>Data Necessidade</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
     }
@@ -2457,11 +2718,21 @@
             <button class="btn btn-ghost" id="btnCancelarSolicitacao">Cancelar</button>
           </div>
           <form id="formSolicitacao">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-              <div class="field"><label>Destino (Frota) *</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+              <div class="field"><label>Filial / Centro de custo *</label>
+                <select id="solCentroCusto" required>
+                  <option value="SANTOS" ${getCentroCustoRegistro(data)==='SANTOS'?'selected':''}>Santos</option>
+                  <option value="CAMAÇARI" ${getCentroCustoRegistro(data)==='CAMAÇARI'?'selected':''}>Camaçari</option>
+                </select>
+              </div>
+              <div class="field"><label>Destino *</label>
                 <select id="solDestino" required>
                   <option value="">Selecione</option>
-                  ${frotasList.map(f => `<option value="${f.nome}" ${data.destino===f.nome?'selected':''}>${f.nome}</option>`).join('')}
+                  ${(() => {
+                    const cc = getCentroCustoRegistro(data);
+                    const nomes = [...new Set(frotasList.filter(f => getCentroCustoRegistro(f) === cc).map(f => f.nome))];
+                    return nomes.map(nome => `<option value="${nome}" ${data.destino===nome?'selected':''}>${nome}</option>`).join('');
+                  })()}
                 </select>
               </div>
               <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${data.dataNecessidade || hoje}" required /></div>
@@ -2483,22 +2754,94 @@
     function addItemRowSol(container, itemData = null) {
       const row = document.createElement('div');
       row.className = 'rc-item-row';
+      row.style.position = 'relative';
       row.innerHTML = `
-        <div class="field" style="flex:3"><label>Material</label><input type="text" class="sol-item-busca" placeholder="Digite o nome do material..." value="${itemData ? itemData.descricao || '' : ''}" /></div>
-        <div class="field" style="flex:1"><label>Qtd</label><input type="number" class="sol-item-qtd" min="1" value="${itemData ? itemData.qtd : 1}" /></div>
+        <div class="field" style="flex:4;position:relative">
+          <label>Material</label>
+          <input type="text" class="sol-item-busca" autocomplete="off"
+                 placeholder="Digite código, número ou descrição..."
+                 value="${itemData ? itemData.descricao || '' : ''}" />
+          <input type="hidden" class="sol-item-codigo" value="${itemData?.codigo || ''}">
+          <input type="hidden" class="sol-item-id" value="${itemData?.materialId || ''}">
+          <div class="sol-sugestoes" style="display:none;position:absolute;top:66px;left:0;right:0;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:340px;overflow:auto;box-shadow:0 16px 38px rgba(0,0,0,.55)"></div>
+          <div class="sol-item-info" style="font-size:11px;color:var(--text-muted);margin-top:5px;min-height:15px;"></div>
+        </div>
+        <div class="field" style="flex:1"><label>Qtd</label><input type="number" class="sol-item-qtd" min="0.01" step="any" value="${itemData ? itemData.qtd : 1}" /></div>
         <div class="field" style="flex:1"><label>Unidade</label><input type="text" class="sol-item-unidade" placeholder="Ex: un, kg" value="${itemData ? itemData.unidade || '' : ''}" /></div>
         <button type="button" class="btn btn-danger" style="align-self:flex-end;margin-bottom:2px;" onclick="removerItemSol(this)">×</button>
       `;
       container.appendChild(row);
-      const busca = row.querySelector('.sol-item-busca');
-      busca.addEventListener('input', function() {
-        const term = this.value.trim().toLowerCase();
-        if (term.length < 2) return;
-        const matches = allItems.filter(i => i.descricaoSimples.toLowerCase().includes(term) || i.codigo.toLowerCase().includes(term)).slice(0,5);
-        if (matches.length === 1) {
-          this.value = matches[0].descricaoSimples;
+
+      const busca=row.querySelector('.sol-item-busca');
+      const codigo=row.querySelector('.sol-item-codigo');
+      const materialId=row.querySelector('.sol-item-id');
+      const unidade=row.querySelector('.sol-item-unidade');
+      const info=row.querySelector('.sol-item-info');
+      const box=row.querySelector('.sol-sugestoes');
+
+      const desc=m=>m.descricaoSimples||m.descricaoCurta||m.descricao||m.item||'Sem descrição';
+      const valor=m=>numeroSeguro(m.custoUnitario||m.valorUnitario||m.valorUnit||m.preco||m.precoUnitario);
+      const un=m=>m.unidade||m.un||m.um||'';
+
+      function selecionar(m){
+        const d=desc(m), v=valor(m);
+        busca.value=`${m.codigo||'S/C'} - ${d}`;
+        busca.dataset.descricao=d;
+        busca.dataset.valorUnit=String(v||0);
+        codigo.value=m.codigo||'';
+        materialId.value=m.id||'';
+        if(un(m)) unidade.value=un(m);
+        info.innerHTML=`<strong>${m.codigo||'S/C'}</strong> · ${d} · ${v>0?`Valor: <strong>${fmt.money(v)}</strong>`:'Valor não cadastrado'}`;
+        box.style.display='none';
+      }
+
+      function pesquisar(termo){
+        const t=normalize(termo).trim();
+        if(!t){box.style.display='none';return;}
+        const encontrados=allItems.filter(m=>{
+          const alvo=normalize([m.codigo,desc(m),m.marca,m.modelo,m.categoria,m.subcategoria].filter(Boolean).join(' '));
+          return alvo.includes(t);
+        }).sort((a,b)=>{
+          const ca=normalize(a.codigo||''), cb=normalize(b.codigo||'');
+          const sa=ca.startsWith(t)?0:ca.includes(t)?1:2;
+          const sb=cb.startsWith(t)?0:cb.includes(t)?1:2;
+          return sa-sb||ca.localeCompare(cb,'pt-BR',{numeric:true});
+        }).slice(0,50);
+
+        if(!encontrados.length){
+          box.innerHTML=`<div style="padding:12px;color:var(--text-muted)">Nenhum material encontrado para “${termo}”.</div>`;
+          box.style.display='block'; return;
+        }
+        box.innerHTML=encontrados.map((m,i)=>{
+          const v=valor(m);
+          return `<button type="button" data-i="${i}" style="display:grid;grid-template-columns:minmax(100px,.8fr) minmax(250px,2.4fr) minmax(110px,.8fr) 60px;gap:12px;width:100%;padding:10px 12px;text-align:left;align-items:center;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
+            <strong style="color:var(--accent)">${m.codigo||'S/C'}</strong>
+            <span>${desc(m)}</span>
+            <strong>${v>0?fmt.money(v):'Sem valor'}</strong>
+            <span style="color:var(--text-muted)">${un(m)||'—'}</span>
+          </button>`;
+        }).join('');
+        box.style.display='block';
+        box.querySelectorAll('[data-i]').forEach(btn=>btn.addEventListener('mousedown',e=>{
+          e.preventDefault(); selecionar(encontrados[Number(btn.dataset.i)]);
+        }));
+      }
+
+      busca.addEventListener('input',e=>{
+        codigo.value=''; materialId.value='';
+        busca.dataset.descricao=''; busca.dataset.valorUnit='';
+        info.textContent='';
+        pesquisar(e.target.value);
+      });
+      busca.addEventListener('focus',e=>{if(e.target.value) pesquisar(e.target.value)});
+      busca.addEventListener('keydown',e=>{
+        if(e.key==='Escape') box.style.display='none';
+        if(e.key==='Enter'){
+          const first=box.querySelector('[data-i]');
+          if(first&&box.style.display!=='none'){e.preventDefault();first.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))}
         }
       });
+      busca.addEventListener('blur',()=>setTimeout(()=>box.style.display='none',180));
     }
     window.removerItemSol = function(btn) {
       const row = btn.closest('.rc-item-row');
@@ -2513,6 +2856,8 @@
 
       const numero = getNextRCNumber();
       const hoje = new Date().toISOString().slice(0,10);
+      const centroCusto = getCentroCustoRegistro(sol);
+      const destinoRef = getFrotaByNome(sol.destino, centroCusto);
       const rcData = {
         numero,
         data: hoje,
@@ -2523,14 +2868,18 @@
         vencimento: hoje,
         solicitante: getUsuarioNome(),
         aplicacao: sol.destino,
+        frotaId: destinoRef?.id || '',
+        centroCusto,
         observacoes: `Solicitação convertida automaticamente (ID: ${sol.id})`,
         itens: sol.itens.map(item => ({
+          codigo: item.codigo || '',
+          materialId: item.materialId || '',
           descricao: item.descricao || 'Material',
           qtd: parseFloat(item.qtd) || 1,
-          valorUnit: 0,
-          total: 0
+          valorUnit: numeroSeguro(item.valorUnit),
+          total: numeroSeguro(item.total) || (numeroSeguro(item.valorUnit) * (parseFloat(item.qtd) || 1))
         })),
-        total: 0,
+        total: sol.itens.reduce((s,item)=>s+(numeroSeguro(item.total)||(numeroSeguro(item.valorUnit)*(parseFloat(item.qtd)||1))),0),
         status: 'rascunho',
         criadoPor: perfilAtual,
         criadoPorUid: getUsuarioUid(),
@@ -2552,26 +2901,33 @@
 
     function salvarSolicitacaoHandler() {
       const getVal = (id) => document.getElementById(id)?.value || '';
+      const centroCusto = centroCustoNormalizado(getVal('solCentroCusto'));
       const destino = getVal('solDestino');
       const dataNecessidade = getVal('solDataNecessidade');
-      if (!destino || !dataNecessidade) {
-        showToast('Preencha destino e data.', true);
+      if (!centroCusto || !destino || !dataNecessidade) {
+        showToast('Preencha filial, destino e data.', true);
         return;
       }
 
       const rows = document.querySelectorAll('#solItensContainer .rc-item-row');
       const itens = [];
       rows.forEach(row => {
-        const desc = row.querySelector('.sol-item-busca')?.value.trim();
+        const buscaEl = row.querySelector('.sol-item-busca');
+        const texto = buscaEl?.value.trim();
+        const descricao = buscaEl?.dataset?.descricao || texto;
+        const codigo = row.querySelector('.sol-item-codigo')?.value || '';
+        const materialId = row.querySelector('.sol-item-id')?.value || '';
+        const valorUnit = numeroSeguro(buscaEl?.dataset?.valorUnit);
         const qtd = parseFloat(row.querySelector('.sol-item-qtd')?.value) || 0;
         const unidade = row.querySelector('.sol-item-unidade')?.value.trim() || 'un';
-        if (desc && qtd > 0) {
-          itens.push({ descricao: desc, qtd, unidade });
+        if (descricao && qtd > 0) {
+          itens.push({ codigo, materialId, descricao, qtd, unidade, valorUnit, total: valorUnit * qtd });
         }
       });
       if (!itens.length) { showToast('Adicione pelo menos um item.', true); return; }
 
       const novaSol = {
+        centroCusto,
         destino,
         dataNecessidade,
         itens,
@@ -2641,6 +2997,18 @@
        BIND EVENTS (completo, incluindo nova seção)
     ============================================================ */
     function bindEvents() {
+      // ===== DASHBOARD =====
+      ['dashDataIni','dashDataFim','dashCentroCusto','dashFornecedor','dashDestino'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(!el)return;
+        const chave={dashDataIni:'dataIni',dashDataFim:'dataFim',dashCentroCusto:'centroCusto',dashFornecedor:'fornecedor',dashDestino:'destino'}[id];
+        el.addEventListener('change',e=>{state.dashboardFilters[chave]=e.target.value;render();});
+      });
+      document.getElementById('dashLimparFiltros')?.addEventListener('click',()=>{
+        state.dashboardFilters={dataIni:'',dataFim:'',fornecedor:'',destino:'',centroCusto:''};
+        render();
+      });
+
       // ===== MATERIAIS =====
       const busca = document.getElementById('fBusca');
       if (busca) busca.addEventListener('input', (e) => { state.filters.busca = e.target.value; state.page=1; render(); });
@@ -2822,55 +3190,93 @@
       // ===== FROTAS =====
       document.getElementById('btnAbrirModalFrota')?.addEventListener('click', () => {
         if(!['encarregado','gerente','admin'].includes(perfilAtual)){showToast('Seu perfil não pode cadastrar frotas.',true);return;}
-        const nome=prompt('Nome / número da frota:'); if(!nome||!nome.trim())return;
-        if(frotas.some(f=>normalize(f.nome)===normalize(nome.trim()))){showToast('Já existe uma frota com esse nome/número.',true);return;}
-        const valor=prompt('Valor total do orçamento da manutenção (ex: 100000):'); if(valor===null)return;
-        const valorNum=parseMoney(valor); if(valorNum<=0){showToast('Informe um orçamento maior que zero.',true);return;}
-        const dataSaida=prompt('Previsão de saída da frota (AAAA-MM-DD).\nPode deixar em branco; sem data a RC só poderá ficar em rascunho:','');
-        if(dataSaida===null)return;
-        const dataLimpa=dataSaida.trim();
-        if(dataLimpa&&!/^\d{4}-\d{2}-\d{2}$/.test(dataLimpa)){showToast('Data inválida. Use AAAA-MM-DD.',true);return;}
-        addFrota(nome.trim(),valorNum,20,dataLimpa);
+        abrirModalFrota();
+      });
+
+      document.getElementById('frotaModalClose')?.addEventListener('click',()=>document.getElementById('frotaModal')?.classList.remove('active'));
+      document.getElementById('frotaModalCancelar')?.addEventListener('click',()=>document.getElementById('frotaModal')?.classList.remove('active'));
+      document.getElementById('frotaModal')?.addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('active')});
+      document.getElementById('fmDataSaida')?.addEventListener('input',e=>{
+        let v=e.target.value.replace(/\D/g,'').slice(0,8);
+        if(v.length>4)v=v.slice(0,2)+'/'+v.slice(2,4)+'/'+v.slice(4);
+        else if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
+        e.target.value=v;
+      });
+
+      document.getElementById('formFrotaModal')?.addEventListener('submit', async e=>{
+        e.preventDefault();
+        const modal=document.getElementById('frotaModal');
+        const editId=modal?.dataset.editId || '';
+        const centroCusto=centroCustoNormalizado(document.getElementById('fmCentroCusto').value);
+        const nome=document.getElementById('fmNome').value.trim();
+        const orc=parseMoney(document.getElementById('fmOrcamento').value);
+        const podeGerenciarLimite = ['gerente','admin'].includes(perfilAtual);
+        const pct = podeGerenciarLimite
+          ? Number(String(document.getElementById('fmPercentual').value).replace(',','.'))
+          : 20;
+        const data=dataBRparaISO(document.getElementById('fmDataSaida').value);
+
+        if(!centroCusto){showToast('Selecione Santos ou Camaçari.',true);return;}
+        if(!nome){showToast('Informe o nome/número da frota.',true);return;}
+        if(orc<=0){showToast('Informe um orçamento maior que zero.',true);return;}
+        if(podeGerenciarLimite && (!Number.isFinite(pct)||pct<0)){showToast('Percentual inválido.',true);return;}
+        if(data===null){showToast('Data inválida. Use dd/mm/aaaa.',true);return;}
+
+        if(editId){
+          if(!['gerente','admin'].includes(perfilAtual)){showToast('Somente Gerente e Administrador podem editar os parâmetros.',true);return;}
+          await updateFrota(editId,{valorOrcamento:orc,percentualLimite:pct,dataPrevisaoSaida:data,
+            alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoPorNome:getUsuarioNome(),
+            alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
+          showToast('Parâmetros da frota atualizados.');
+        }else{
+          if(frotas.some(f=>normalize(f.nome)===normalize(nome) && getCentroCustoRegistro(f)===centroCusto)){showToast('Já existe uma frota com esse nome/número nesse centro de custo.',true);return;}
+          await addFrota(nome,orc,pct,data,centroCusto);
+          showToast(
+            podeGerenciarLimite
+              ? `Frota cadastrada com ${pct}% de limite liberado.`
+              : 'Frota cadastrada. O limite inicial foi definido automaticamente em 20% e só pode ser alterado por Gerente/Admin.'
+          );
+        }
+        modal.classList.remove('active');
       });
 
       document.querySelectorAll('[data-editar-limite-padrao]').forEach(btn=>btn.addEventListener('click', async ()=>{
         if(!['gerente','admin'].includes(perfilAtual)){
-          showToast('Somente Gerente e Administrador podem alterar o limite das contas padrão.',true);
+          showToast('Somente Gerente e Administrador podem alterar os limites.',true);
           return;
         }
-
         const nome = btn.dataset.nomePadrao;
-        const cfg = configuracaoDestinoPadrao(nome);
-        let destino = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(nome));
+        const centroCusto = centroCustoNormalizado(btn.dataset.centroCusto) || 'SANTOS';
+        const cfg = configuracaoDestinoPadrao(nome, centroCusto);
+        let destino = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(nome) && getCentroCustoRegistro(f) === centroCusto);
+        if (!destino) destino = { id: cfg.id, nome: cfg.nome, centroCusto:cfg.centroCusto, tipoDestino:'padrao', limiteFixo:cfg.limiteFixo, percentualLimite:100 };
 
-        if (!destino) {
-          destino = { id: cfg.id, nome: cfg.nome, tipoDestino:'padrao', limiteFixo:cfg.limiteFixo };
-        }
+        const baseAtual = numeroSeguro(destino.limiteFixo) || cfg.limiteFixo || 50000;
+        const baseTxt = prompt(`Base disponível para "${nome}" (R$):`, String(baseAtual));
+        if (baseTxt === null) return;
+        const novaBase = parseMoney(baseTxt);
+        if (novaBase <= 0) { showToast('Informe uma base maior que zero.', true); return; }
 
-        const atual = getLimiteTotalFrota(destino);
-        const valorTxt = prompt(`Novo limite para "${nome}" (R$):`, String(atual));
-        if (valorTxt === null) return;
-        const novoLimite = parseMoney(valorTxt);
-
-        if (novoLimite <= 0) {
-          showToast('Informe um limite maior que zero.', true);
-          return;
-        }
+        const pctTxt = prompt(`Percentual liberado para "${nome}" (%):`, String(getPercentualFrota(destino)));
+        if (pctTxt === null) return;
+        const pct = Number(String(pctTxt).replace(',','.'));
+        if(!Number.isFinite(pct)||pct<0){showToast('Percentual inválido.',true);return;}
 
         try {
           await db.collection('frotas').doc(destino.id || cfg.id).set({
             nome: cfg?.nome || nome,
+            centroCusto: cfg?.centroCusto || centroCusto,
             tipoDestino: 'padrao',
-            limiteFixo: novoLimite,
-            valorOrcamento: novoLimite,
-            percentualLimite: 100,
+            limiteFixo: novaBase,
+            valorOrcamento: novaBase,
+            percentualLimite: pct,
             dataPrevisaoSaida: '',
             alteradoPorUid: getUsuarioUid(),
             alteradoPorEmail: getUsuarioEmail(),
             alteradoPorNome: getUsuarioNome(),
             alteradoEm: firebase.firestore.FieldValue.serverTimestamp()
           }, { merge: true });
-          showToast(`Limite de "${nome}" atualizado para ${fmt.money(novoLimite)}.`);
+          showToast(`"${nome}": ${pct}% de ${fmt.money(novaBase)} = ${fmt.money(novaBase*(pct/100))} liberados.`);
         } catch (err) {
           showToast('Erro ao atualizar limite: ' + err.message, true);
         }
@@ -2879,15 +3285,7 @@
       document.querySelectorAll('[data-editar-frota]').forEach(btn=>btn.addEventListener('click',()=>{
         if(!['gerente','admin'].includes(perfilAtual)){showToast('Somente Gerente e Administrador podem alterar os parâmetros depois de salvar.',true);return;}
         const f=frotas.find(x=>x.id===btn.dataset.editarFrota); if(!f)return;
-        const orcTxt=prompt(`Orçamento da frota "${f.nome}":`,String(numeroSeguro(f.valorOrcamento))); if(orcTxt===null)return;
-        const orc=parseMoney(orcTxt); if(orc<=0){showToast('Orçamento inválido.',true);return;}
-        const pctTxt=prompt(`Percentual de limite da frota "${f.nome}":`,String(getPercentualFrota(f))); if(pctTxt===null)return;
-        const pct=Number(String(pctTxt).replace(',','.')); if(!Number.isFinite(pct)||pct<0){showToast('Percentual inválido.',true);return;}
-        const dt=prompt(`Previsão de saída da frota "${f.nome}" (AAAA-MM-DD):`,f.dataPrevisaoSaida||''); if(dt===null)return;
-        const data=dt.trim(); if(data&&!/^\d{4}-\d{2}-\d{2}$/.test(data)){showToast('Data inválida. Use AAAA-MM-DD.',true);return;}
-        updateFrota(f.id,{valorOrcamento:orc,percentualLimite:pct,dataPrevisaoSaida:data,
-          alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoPorNome:getUsuarioNome(),
-          alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
+        abrirModalFrota(f);
       }));
 
       document.querySelectorAll('[data-excluir-frota]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -2902,6 +3300,7 @@
 
       document.getElementById('rcFiltroStatus')?.addEventListener('change', (e) => { state.rcFilters.status = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroDataIni')?.addEventListener('change', (e) => { state.rcFilters.dataIni = e.target.value; state.rcPage=1; render(); });
+      document.getElementById('rcFiltroCentroCusto')?.addEventListener('change', (e) => { state.rcFilters.centroCusto = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroDataFim')?.addEventListener('change', (e) => { state.rcFilters.dataFim = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroFornecedor')?.addEventListener('change', (e) => { state.rcFilters.fornecedor = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroDestino')?.addEventListener('change', (e) => { state.rcFilters.destino = e.target.value; state.rcPage=1; render(); });
@@ -2986,12 +3385,12 @@
           if(confirm(`Enviar requisição ${numero} para aprovação?`)){
             const rc=rcs.find(r=>r.numero===numero);
             if(!rc){showToast('RC não encontrada.',true);return;}
-            const frota=rc.frotaId?frotas.find(f=>f.id===rc.frotaId):getFrotaByNome(rc.aplicacao);
+            const frota=rc.frotaId?frotas.find(f=>f.id===rc.frotaId):getFrotaByNome(rc.aplicacao,getCentroCustoRegistro(rc));
             const validacao=validarFrotaParaEnvio(frota,rc.total,numero);
             if(!validacao.ok){showToast(validacao.motivo,true);return;}
-            updateRC(numero,{status:'em_aprovacao',frotaId:frota.id,aplicacao:frota.nome});
+            updateRC(numero,{status:'em_aprovacao',frotaId:frota.id,aplicacao:frota.nome,centroCusto:getCentroCustoRegistro(rc)});
             showToast(`Requisição ${numero} enviada para aprovação!`);
-            enviarWhatsApp({...rc,frotaId:frota.id,aplicacao:frota.nome});
+            enviarWhatsApp({...rc,frotaId:frota.id,aplicacao:frota.nome,centroCusto:getCentroCustoRegistro(rc)});
             render();
           }
           return;
@@ -3032,6 +3431,26 @@
         const container = document.getElementById('formSolicitacaoContainer');
         if (!container) return;
         container.innerHTML = renderFormSolicitacao();
+        const atualizarDestinosSolicitacao = () => {
+          const cc = centroCustoNormalizado(document.getElementById('solCentroCusto')?.value) || 'SANTOS';
+          const destinoEl = document.getElementById('solDestino');
+          if (!destinoEl) return;
+          const atual = destinoEl.value;
+          const nomes = [...new Set(
+            frotas
+              .filter(f => getCentroCustoRegistro(f) === cc)
+              .map(f => f.nome)
+          )].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+          destinoEl.innerHTML = '<option value="">Selecione</option>' +
+            nomes.map(nome => `<option value="${nome}">${nome}</option>`).join('');
+
+          if (nomes.includes(atual)) destinoEl.value = atual;
+        };
+
+        document.getElementById('solCentroCusto')?.addEventListener('change', atualizarDestinosSolicitacao);
+        atualizarDestinosSolicitacao();
+
         const itensContainer = document.getElementById('solItensContainer');
         if (itensContainer) addItemRowSol(itensContainer);
         document.getElementById('btnAddItemSol')?.addEventListener('click', function() {
@@ -3331,6 +3750,7 @@
 
         if (!destinosPadraoVerificados) {
           destinosPadraoVerificados = true;
+          await migrarLegadoParaSantos();
           await garantirDestinosPadrao();
         }
 
