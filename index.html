@@ -432,6 +432,7 @@
           <input type="password" id="senhaConfirmar" minlength="8" autocomplete="new-password" required placeholder="Digite novamente" />
         </div>
         <div id="senhaModalNota" style="font-size:12px;color:var(--text-muted);margin:8px 0 4px;"></div>
+        <div id="senhaModalStatus" style="display:none;margin:10px 0;padding:10px 12px;border-radius:8px;font-size:13px;"></div>
         <div class="form-actions">
           <button type="submit" class="btn btn-accent">Salvar nova senha</button>
           <button type="button" class="btn btn-ghost" id="senhaModalCancelar">Cancelar</button>
@@ -759,6 +760,11 @@
 
       document.getElementById('senhaNova').value = '';
       document.getElementById('senhaConfirmar').value = '';
+      const status = document.getElementById('senhaModalStatus');
+      if (status) {
+        status.style.display = 'none';
+        status.textContent = '';
+      }
       modal.classList.add('active');
       setTimeout(() => document.getElementById('senhaNova')?.focus(), 60);
     }
@@ -906,26 +912,47 @@
 
       const nova = document.getElementById('senhaNova')?.value || '';
       const confirmar = document.getElementById('senhaConfirmar')?.value || '';
+      const status = document.getElementById('senhaModalStatus');
+      const submitBtn = e.currentTarget.querySelector('button[type="submit"]');
+
+      const mostrarStatus = (mensagem, erro = false) => {
+        if (!status) return;
+        status.style.display = 'block';
+        status.style.background = erro ? 'rgba(220,38,38,.12)' : 'rgba(132,204,22,.12)';
+        status.style.border = erro ? '1px solid rgba(220,38,38,.35)' : '1px solid rgba(132,204,22,.35)';
+        status.textContent = mensagem;
+      };
 
       if (nova.length < 8) {
-        showToast('A nova senha deve ter no mínimo 8 caracteres.', true);
+        mostrarStatus('A nova senha deve ter no mínimo 8 caracteres.', true);
         return;
       }
 
       if (nova !== confirmar) {
-        showToast('As senhas informadas não são iguais.', true);
+        mostrarStatus('As senhas informadas não são iguais.', true);
         return;
       }
 
       if (!auth.currentUser) {
-        showToast('Sua sessão expirou. Entre novamente.', true);
+        mostrarStatus('Sua sessão expirou. Entre novamente.', true);
         return;
       }
 
-      try {
-        await auth.currentUser.updatePassword(nova);
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Salvando...';
+      }
 
+      let senhaFirebaseAlterada = false;
+
+      try {
+        // ETAPA 1: altera a senha no Firebase Authentication.
+        await auth.currentUser.updatePassword(nova);
+        senhaFirebaseAlterada = true;
+
+        // ETAPA 2: conclui o primeiro acesso no Firestore.
         if (trocaSenhaObrigatoria) {
+          mostrarStatus('Senha alterada. Finalizando seu primeiro acesso...');
           await marcarPrimeiroAcessoConcluido();
         }
 
@@ -933,11 +960,25 @@
         document.getElementById('senhaModal')?.classList.remove('active');
         showToast('Senha alterada com sucesso.');
       } catch (err) {
-        console.error('Erro ao alterar senha:', err);
-        if (err.code === 'auth/requires-recent-login') {
-          showToast('Por segurança, saia e entre novamente antes de alterar a senha.', true);
+        console.error('Erro ao alterar/finalizar senha:', err);
+
+        if (senhaFirebaseAlterada) {
+          // A senha já foi efetivamente trocada, mas o Firestore recusou a
+          // finalização do primeiro acesso. Não induzimos o usuário a repetir
+          // a operação sem saber que a nova senha já está valendo.
+          mostrarStatus(
+            'Sua NOVA senha já foi salva no Firebase, mas o sistema não conseguiu finalizar o primeiro acesso por permissão do banco de dados. Use a nova senha no próximo login e avise o administrador.',
+            true
+          );
+        } else if (err.code === 'auth/requires-recent-login') {
+          mostrarStatus('Por segurança, saia e entre novamente antes de alterar a senha.', true);
         } else {
-          showToast('Não foi possível alterar a senha: ' + (err.message || err), true);
+          mostrarStatus('Não foi possível alterar a senha: ' + (err.message || err), true);
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Salvar nova senha';
         }
       }
     });
