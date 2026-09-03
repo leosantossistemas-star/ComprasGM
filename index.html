@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V8.3 — CORREÇÃO VISUAL: NF x Baixa + Lupas + Admin total + Mechatronics ===== -->
+  <!-- ===== V8.4 — Frotas/Projetos + conclusão + edição total + visualização única ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -554,16 +554,82 @@
       </div>
       <form id="formFrotaModal">
         <div class="form-grid">
-          <div class="field"><label>Centro de custo *</label><select id="fmCentroCusto" required><option value="SANTOS">Santos</option><option value="CAMAÇARI">Camaçari</option></select></div>
+          <div class="field"><label>Centro de custo *</label><select id="fmCentroCusto" required><option value="SANTOS">Santos</option><option value="CAMAÇARI">Camaçari</option><option value="MECHATRONICS">Mechatronics</option></select></div>
           <div class="field"><label>Nome / número da frota *</label><input type="text" id="fmNome" required placeholder="Ex.: FROTA 410"></div>
           <div class="field"><label>Orçamento total da manutenção (R$) *</label><input type="text" id="fmOrcamento" required placeholder="100.000,00"></div>
           <div class="field" id="fmPercentualWrap"><label>% limite liberado *</label><input type="number" id="fmPercentual" min="0" step="0.1" value="20" required></div>
           <div class="field"><label>Previsão de saída</label><input type="text" id="fmDataSaida" placeholder="dd/mm/aaaa" maxlength="10"></div>
+          <div class="field"><label>Status da manutenção *</label>
+            <select id="fmStatusOperacional" required>
+              <option value="EM_MANUTENCAO">Em manutenção</option>
+              <option value="PAUSADO">Pausado</option>
+              <option value="CONCLUIDO">Concluído</option>
+            </select>
+          </div>
+          <div class="field"><label>Data de conclusão real</label><input type="text" id="fmDataConclusao" readonly placeholder="Automática ao concluir"></div>
         </div>
         <div id="fmNotaPermissao" style="padding:10px 0;color:var(--text-muted);font-size:12px;">A data é exibida e digitada no padrão brasileiro. O sistema salva internamente no formato ISO para manter os cálculos corretos.</div>
         <div class="form-actions">
           <button type="submit" class="btn btn-accent">Salvar</button>
           <button type="button" class="btn btn-ghost" id="frotaModalCancelar">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <div class="modal-overlay" id="projetoModal">
+    <div class="modal" style="max-width:980px;">
+      <div class="modal-header">
+        <h3 id="projetoModalTitulo">Novo Projeto Mechatronics</h3>
+        <button class="modal-close" id="projetoModalClose">&times;</button>
+      </div>
+      <form id="formProjetoModal">
+        <input type="hidden" id="pmEditId">
+        <div class="card" style="padding:14px;margin-bottom:14px;background:var(--surface-2)">
+          <div class="card-title">Dados Básicos do Projeto</div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Nome do Projeto *</label><input id="pmNome" required placeholder="Ex.: Retrofit Linha 02"></div>
+          <div class="field"><label>Código/ID do Projeto</label><input id="pmCodigo" readonly></div>
+          <div class="field" style="grid-column:span 2"><label>Descrição / Objetivo *</label><textarea id="pmDescricao" rows="3" required placeholder="Escopo e objetivo do projeto"></textarea></div>
+          <div class="field"><label>Status *</label>
+            <select id="pmStatus" required>
+              <option value="PLANEJAMENTO">Em Planejamento</option>
+              <option value="EXECUCAO">Em Execução</option>
+              <option value="PAUSADO">Pausado</option>
+              <option value="CONCLUIDO">Concluído</option>
+            </select>
+          </div>
+          <div class="field"><label>Orçamento do Projeto (R$) *</label><input id="pmOrcamento" required placeholder="100.000,00"></div>
+          <div class="field"><label>% limite liberado</label><input type="number" id="pmPercentual" min="0" step="0.1" value="20"></div>
+        </div>
+
+        <div class="card" style="padding:14px;margin:18px 0 14px;background:var(--surface-2)">
+          <div class="card-title">👥 Responsáveis e Clientes</div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Cliente / Setor Solicitante *</label><input id="pmCliente" required></div>
+          <div class="field"><label>Gerente do Projeto / Responsável *</label><input id="pmGerente" required></div>
+          <div class="field" style="grid-column:span 2"><label>Equipe Vinculada</label><textarea id="pmEquipe" rows="2" placeholder="Nomes ou e-mails separados por vírgula"></textarea></div>
+        </div>
+
+        <div class="card" style="padding:14px;margin:18px 0 14px;background:var(--surface-2)">
+          <div class="card-title">📅 Prazos e Controle de Tempo</div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Data de Início *</label><input type="date" id="pmDataInicio" required></div>
+          <div class="field"><label>Data de Término Estimada *</label><input type="date" id="pmDataFimEstimada" required></div>
+          <div class="field"><label>Data de Conclusão Real</label><input type="date" id="pmDataConclusao" readonly></div>
+          <div class="field"><label>Empresa / Centro</label><input value="MECHATRONICS" readonly></div>
+        </div>
+
+        <div id="pmNotaPermissao" style="padding:12px 0;color:var(--text-muted);font-size:12px;">
+          A data de conclusão real é preenchida automaticamente quando o status muda para Concluído.
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-accent">Salvar Projeto</button>
+          <button type="button" class="btn btn-ghost" id="projetoModalCancelar">Cancelar</button>
         </div>
       </form>
     </div>
@@ -1394,6 +1460,10 @@
         valorOrcamento: Number.isFinite(valor) ? valor : 0,
         percentualLimite: Number.isFinite(percentual) ? percentual : 20,
         dataPrevisaoSaida: dataPrevisaoSaida || '',
+        statusOperacional: 'EM_MANUTENCAO',
+        concluido: false,
+        dataConclusaoReal: '',
+        tipoCadastro: 'FROTA',
         criadoPorUid: getUsuarioUid(),
         criadoPorEmail: getUsuarioEmail(),
         criadoPorNome: getUsuarioNome(),
@@ -2166,39 +2236,65 @@
       return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
     }
 
-    function abrirModalFrota(frota = null) {
+    function abrirModalFrota(frota = null, somenteStatus = false) {
       const modal = document.getElementById('frotaModal');
       if (!modal) return;
       modal.dataset.editId = frota?.id || '';
-      document.getElementById('frotaModalTitulo').textContent = frota ? `Editar ${frota.nome}` : 'Nova Frota em Manutenção';
-      document.getElementById('fmCentroCusto').value = frota ? getCentroCustoRegistro(frota) : 'SANTOS';
-      document.getElementById('fmCentroCusto').disabled = !!frota;
-      document.getElementById('fmNome').value = frota?.nome || '';
-      document.getElementById('fmNome').readOnly = !!frota;
-      document.getElementById('fmOrcamento').value = frota ? numeroSeguro(frota.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+      modal.dataset.somenteStatus = somenteStatus ? '1' : '0';
 
-      const podeGerenciarLimite = ['gerente','admin'].includes(getPerfil());
+      const podeEditarTudo = ['gerente','admin'].includes(getPerfil());
+      const podeAlterarStatus = ['encarregado','gerente','admin'].includes(getPerfil());
+
+      document.getElementById('frotaModalTitulo').textContent = frota
+        ? (somenteStatus ? `Status — ${frota.nome}` : `Editar ${frota.nome}`)
+        : 'Nova Frota em Manutenção';
+
+      const centroEl = document.getElementById('fmCentroCusto');
+      const nomeEl = document.getElementById('fmNome');
+      const orcEl = document.getElementById('fmOrcamento');
+      const dataEl = document.getElementById('fmDataSaida');
+
+      centroEl.value = frota ? getCentroCustoRegistro(frota) : 'SANTOS';
+      nomeEl.value = frota?.nome || '';
+      orcEl.value = frota ? numeroSeguro(frota.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+      dataEl.value = frota?.dataPrevisaoSaida ? dataISOparaBR(frota.dataPrevisaoSaida) : '';
+
+      // Em edição completa Gerente/Admin podem alterar nome e centro.
+      // Encarregado, ao editar status, vê os demais campos bloqueados.
+      const bloquearCampos = !!frota && (!podeEditarTudo || somenteStatus);
+      centroEl.disabled = bloquearCampos;
+      nomeEl.readOnly = bloquearCampos;
+      orcEl.readOnly = bloquearCampos;
+      dataEl.readOnly = bloquearCampos;
+
       const percentualWrap = document.getElementById('fmPercentualWrap');
       const percentualInput = document.getElementById('fmPercentual');
-
-      if (percentualWrap) percentualWrap.style.display = podeGerenciarLimite ? '' : 'none';
+      if (percentualWrap) percentualWrap.style.display = podeEditarTudo && !somenteStatus ? '' : 'none';
       if (percentualInput) {
         percentualInput.value = frota ? getPercentualFrota(frota) : 20;
-        percentualInput.required = podeGerenciarLimite;
-        percentualInput.disabled = !podeGerenciarLimite;
+        percentualInput.required = podeEditarTudo && !somenteStatus;
+        percentualInput.disabled = !(podeEditarTudo && !somenteStatus);
       }
 
-      document.getElementById('fmDataSaida').value = frota?.dataPrevisaoSaida ? dataISOparaBR(frota.dataPrevisaoSaida) : '';
+      const statusEl = document.getElementById('fmStatusOperacional');
+      if (statusEl) {
+        statusEl.value = frota?.statusOperacional || (frota?.concluido ? 'CONCLUIDO' : 'EM_MANUTENCAO');
+        statusEl.disabled = !podeAlterarStatus;
+      }
+      const conclusaoEl = document.getElementById('fmDataConclusao');
+      if (conclusaoEl) conclusaoEl.value = frota?.dataConclusaoReal ? dataISOparaBR(frota.dataConclusaoReal) : '';
 
       const nota = document.getElementById('fmNotaPermissao');
       if (nota) {
-        nota.textContent = podeGerenciarLimite
-          ? 'A data é exibida e digitada no padrão brasileiro. O percentual de limite é um controle gerencial.'
-          : 'A data é exibida e digitada no padrão brasileiro. O percentual de limite não é definido pelo Encarregado; o cadastro inicia em 20% e somente Gerente/Admin podem alterá-lo.';
+        nota.textContent = somenteStatus
+          ? 'Neste modo você pode atualizar o status. Ao selecionar Concluído, a data de conclusão real será preenchida automaticamente.'
+          : (podeEditarTudo
+              ? 'Gerente/Admin podem editar todos os campos. Ao marcar Concluído, o sistema encerra a contagem de duração.'
+              : 'Você pode cadastrar a frota e, depois, atualizar o status/conclusão. Limites e demais parâmetros ficam sob Gerência/Admin.');
       }
 
       modal.classList.add('active');
-      setTimeout(()=>document.getElementById('fmNome')?.focus(),50);
+      setTimeout(()=>document.getElementById(somenteStatus?'fmStatusOperacional':'fmNome')?.focus(),50);
     }
 
     // =========== SEÇÃO FROTAS (ajustada para usar variável global e percentual) ===========
@@ -2250,18 +2346,31 @@
     }
 
     function getMetricasCicloFrota(frota) {
-      const criada = dataJSRegistro(frota.criadoEm);
+      const criada = frota.tipoCadastro === 'PROJETO'
+        ? dataJSRegistro(frota.dataInicio)
+        : dataJSRegistro(frota.criadoEm);
       const hoje = inicioDoDia(new Date());
-      const saida = frota.dataPrevisaoSaida ? dataJSRegistro(frota.dataPrevisaoSaida) : null;
+      const concluida = frota.statusOperacional === 'CONCLUIDO'
+        || frota.statusProjeto === 'CONCLUIDO'
+        || frota.concluido === true;
+      const conclusao = concluida && frota.dataConclusaoReal
+        ? dataJSRegistro(frota.dataConclusaoReal)
+        : null;
+      const fimContagem = conclusao ? inicioDoDia(conclusao) : hoje;
+      const saida = frota.tipoCadastro === 'PROJETO'
+        ? (frota.dataTerminoEstimada ? dataJSRegistro(frota.dataTerminoEstimada) : null)
+        : (frota.dataPrevisaoSaida ? dataJSRegistro(frota.dataPrevisaoSaida) : null);
 
-      const diasEmAberto = criada ? Math.max(0, diasEntreDatas(criada, hoje)) : null;
+      const diasEmAberto = criada ? Math.max(0, diasEntreDatas(criada, fimContagem)) : null;
       const prazoTotal = criada && saida ? diasEntreDatas(criada, saida) : null;
-      const diasRestantes = saida ? diasEntreDatas(hoje, saida) : null;
+      const diasRestantes = concluida ? 0 : (saida ? diasEntreDatas(hoje, saida) : null);
 
       return {
         criada,
         hoje,
         saida,
+        conclusao,
+        concluida,
         diasEmAberto,
         prazoTotal,
         diasRestantes,
@@ -2275,10 +2384,78 @@
     }
 
     function renderPrazoCiclo(m) {
+      if (m.concluida) return `<span class="badge badge-ok">Concluído${m.conclusao ? ' em '+m.conclusao.toLocaleDateString('pt-BR') : ''}</span>`;
       if (!m.saida) return '<span class="badge badge-pending">Sem previsão de saída</span>';
       if (m.diasRestantes < 0) return `<span class="badge badge-danger">${Math.abs(m.diasRestantes)} dia(s) em atraso</span>`;
       if (m.diasRestantes === 0) return '<span class="badge badge-pending">Saída prevista para hoje</span>';
       return `<span class="badge badge-ok">${m.diasRestantes} dia(s) restante(s)</span>`;
+    }
+
+
+    function getNextProjetoCode() {
+      let max = 0;
+      frotas.filter(f=>f.tipoCadastro==='PROJETO').forEach(p=>{
+        const m = String(p.codigoProjeto||'').match(/MECHA-PROJ-(\d+)/i);
+        if (m) max = Math.max(max, Number(m[1])||0);
+      });
+      return `MECHA-PROJ-${String(max+1).padStart(4,'0')}`;
+    }
+
+    function abrirModalProjeto(projeto = null, somenteStatus = false) {
+      const modal = document.getElementById('projetoModal');
+      if (!modal) return;
+      const podeEditarTudo = ['gerente','admin'].includes(perfilAtual);
+      const podeAlterarStatus = ['encarregado','gerente','admin'].includes(perfilAtual);
+
+      modal.dataset.editId = projeto?.id || '';
+      modal.dataset.somenteStatus = somenteStatus ? '1' : '0';
+      document.getElementById('pmEditId').value = projeto?.id || '';
+      document.getElementById('projetoModalTitulo').textContent = projeto
+        ? (somenteStatus ? `Status — ${projeto.nome}` : `Editar Projeto — ${projeto.nome}`)
+        : 'Novo Projeto Mechatronics';
+
+      document.getElementById('pmNome').value = projeto?.nome || '';
+      document.getElementById('pmCodigo').value = projeto?.codigoProjeto || getNextProjetoCode();
+      document.getElementById('pmDescricao').value = projeto?.descricaoObjetivo || '';
+      document.getElementById('pmStatus').value = projeto?.statusProjeto || (projeto?.concluido?'CONCLUIDO':'PLANEJAMENTO');
+      document.getElementById('pmCliente').value = projeto?.cliente || '';
+      document.getElementById('pmGerente').value = projeto?.gerenteProjeto || getUsuarioNome();
+      document.getElementById('pmEquipe').value = Array.isArray(projeto?.equipeVinculada)
+        ? projeto.equipeVinculada.join(', ')
+        : (projeto?.equipeVinculada || '');
+      document.getElementById('pmDataInicio').value = projeto?.dataInicio || hojeISO();
+      document.getElementById('pmDataFimEstimada').value = projeto?.dataTerminoEstimada || '';
+      document.getElementById('pmDataConclusao').value = projeto?.dataConclusaoReal || '';
+      document.getElementById('pmOrcamento').value = projeto
+        ? numeroSeguro(projeto.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+        : '';
+      document.getElementById('pmPercentual').value = projeto ? getPercentualFrota(projeto) : 20;
+
+      const idsTudo = ['pmNome','pmDescricao','pmCliente','pmGerente','pmEquipe','pmDataInicio','pmDataFimEstimada','pmOrcamento','pmPercentual'];
+      const bloquearTudo = !!projeto && (!podeEditarTudo || somenteStatus);
+      idsTudo.forEach(id=>{
+        const el=document.getElementById(id);
+        if (!el) return;
+        el.disabled = bloquearTudo;
+      });
+      document.getElementById('pmStatus').disabled = !podeAlterarStatus;
+
+      const nota = document.getElementById('pmNotaPermissao');
+      if (nota) nota.textContent = somenteStatus
+        ? 'Você pode atualizar o status do projeto. Ao marcar Concluído, a data real será registrada automaticamente e a contagem de duração será encerrada.'
+        : 'Gerente/Admin podem editar todos os campos. Encarregado pode cadastrar e atualizar o status. Usuário/Compras não altera conclusão.';
+
+      modal.classList.add('active');
+    }
+
+    function statusProjetoLabel(p) {
+      const s = p.statusProjeto || (p.concluido?'CONCLUIDO':'PLANEJAMENTO');
+      return ({
+        PLANEJAMENTO:'Em Planejamento',
+        EXECUCAO:'Em Execução',
+        PAUSADO:'Pausado',
+        CONCLUIDO:'Concluído'
+      })[s] || s;
     }
 
     function renderFrotas() {
@@ -2303,7 +2480,9 @@
         };
       });
 
-      const frotasManutencao = frotas.filter(f => !isDestinoPadrao(f));
+      const frotasManutencao = frotas.filter(f => !isDestinoPadrao(f) && f.tipoCadastro !== 'PROJETO');
+      const projetosMecha = frotas.filter(f => !isDestinoPadrao(f) && f.tipoCadastro === 'PROJETO');
+      const podeAlterarStatus = ['encarregado','gerente','admin'].includes(perfil);
 
       const renderLinhaPadrao = f => {
         const limiteTotal = getLimiteTotalFrota(f);
@@ -2335,10 +2514,12 @@
         const ciclo = getMetricasCicloFrota(f);
 
         let status = '';
-        if (!f.dataPrevisaoSaida) status = `<span class="badge badge-pending">Aguardando data de saída</span>`;
+        if (ciclo.concluida) status = `<span class="badge badge-ok">Concluído</span>`;
+        else if (f.statusOperacional === 'PAUSADO') status = `<span class="badge badge-pending">Pausado</span>`;
+        else if (!f.dataPrevisaoSaida) status = `<span class="badge badge-pending">Aguardando data de saída</span>`;
         else if (hojeISO() > f.dataPrevisaoSaida) status = `<span class="badge badge-danger">Bloqueado por prazo</span>`;
         else if (disponivel <= 0) status = `<span class="badge badge-danger">Limite atingido</span>`;
-        else status = `<span class="badge badge-ok">Liberado</span>`;
+        else status = `<span class="badge badge-ok">Em manutenção</span>`;
 
         const pctSolicitado = ciclo.valorFrota > 0 ? (ciclo.solicitado / ciclo.valorFrota) * 100 : 0;
         const pctAprovado = ciclo.valorFrota > 0 ? (ciclo.aprovado / ciclo.valorFrota) * 100 : 0;
@@ -2375,7 +2556,11 @@
           <td>${fmt.money(limiteTotal)}</td>
           <td style="color:${disponivel<=0?'var(--danger)':'var(--accent)'}">${fmt.money(Math.max(0,disponivel))}</td>
           <td>${status}</td>
-          <td>${podeEditar ? `<button class="btn btn-ghost btn-sm" data-editar-frota="${f.id}">Editar parâmetros</button> <button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>` : '<span style="color:var(--text-muted);font-size:12px">Parâmetros bloqueados</span>'}</td>
+          <td>
+            ${podeAlterarStatus ? `<button class="btn btn-ghost btn-sm" data-status-frota="${f.id}">Status</button>` : ''}
+            ${podeEditar ? `<button class="btn btn-ghost btn-sm" data-editar-frota="${f.id}">Editar tudo</button> <button class="btn btn-danger btn-sm" data-excluir-frota="${f.id}">Excluir</button>` : ''}
+            ${!podeAlterarStatus && !podeEditar ? '<span style="color:var(--text-muted);font-size:12px">Somente consulta</span>' : ''}
+          </td>
         </tr>`;
       };
 
@@ -2417,7 +2602,7 @@
                 <th>Frota</th>
                 <th>Centro</th>
                 <th>Criada em</th>
-                <th>Dias em aberto</th>
+                <th>Duração / dias</th>
                 <th>Previsão de saída</th>
                 <th>Prazo</th>
                 <th>Valor da frota</th>
@@ -2436,6 +2621,46 @@
               <tbody>
                 ${frotasManutencao.length===0 ? `<tr><td colspan="18" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhuma frota de manutenção cadastrada.</td></tr>` : ''}
                 ${frotasManutencao.map(renderLinhaFrota).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Projetos MECHA</div>
+              <div class="card-sub">Controle de cliente, responsáveis, equipe, prazo e duração real do projeto.</div>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr>
+                <th>Código</th><th>Projeto</th><th>Cliente</th><th>Status</th>
+                <th>Responsável</th><th>Início</th><th>Fim estimado</th><th>Conclusão real</th>
+                <th>Duração</th><th>Orçamento</th><th>Gasto real</th><th>Ações</th>
+              </tr></thead>
+              <tbody>
+                ${projetosMecha.length ? projetosMecha.map(p=>{
+                  const ciclo=getMetricasCicloFrota(p);
+                  return `<tr>
+                    <td><span class="code">${p.codigoProjeto||'—'}</span></td>
+                    <td><strong>${p.nome||'—'}</strong><div style="font-size:11px;color:var(--text-muted)">${p.descricaoObjetivo||''}</div></td>
+                    <td>${p.cliente||'—'}</td>
+                    <td><span class="badge ${p.statusProjeto==='CONCLUIDO'?'badge-ok':'badge-pending'}">${statusProjetoLabel(p)}</span></td>
+                    <td>${p.gerenteProjeto||'—'}</td>
+                    <td>${p.dataInicio?fmt.date(p.dataInicio):'—'}</td>
+                    <td>${p.dataTerminoEstimada?fmt.date(p.dataTerminoEstimada):'—'}</td>
+                    <td>${p.dataConclusaoReal?fmt.date(p.dataConclusaoReal):'—'}</td>
+                    <td>${ciclo.diasEmAberto===null?'—':`${ciclo.diasEmAberto} dia(s)`}</td>
+                    <td>${fmt.money(p.valorOrcamento)}</td>
+                    <td>${fmt.money(ciclo.gastoReal)}</td>
+                    <td>
+                      ${podeAlterarStatus?`<button class="btn btn-ghost btn-sm" data-status-projeto="${p.id}">Status</button>`:''}
+                      ${podeEditar?`<button class="btn btn-ghost btn-sm" data-editar-projeto="${p.id}">Editar tudo</button> <button class="btn btn-danger btn-sm" data-excluir-frota="${p.id}">Excluir</button>`:''}
+                    </td>
+                  </tr>`;
+                }).join('') : '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum projeto Mechatronics cadastrado.</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -3587,6 +3812,7 @@
                 <select id="rcCentroCusto" required>
                   <option value="SANTOS" ${(data.centroCusto || 'SANTOS')==='SANTOS'?'selected':''}>Santos</option>
                   <option value="CAMAÇARI" ${data.centroCusto==='CAMAÇARI'?'selected':''}>Camaçari</option>
+                  <option value="MECHATRONICS" ${data.centroCusto==='MECHATRONICS'?'selected':''}>Mechatronics</option>
                 </select>
               </div>
               <div class="field"><label>Destino (Frota / Conta) *</label>
@@ -4274,6 +4500,7 @@ function gerarPDF(rcData) {
 
     
     function abrirVisualizacaoRC(numero) {
+      document.getElementById('modalVisualizacaoPublica')?.remove();
       const rc = rcs.find(r => r.numero === numero);
       if (!rc) return showToast('RC não encontrada.', true);
       const itens = Array.isArray(rc.itens) ? rc.itens : [];
@@ -4298,7 +4525,7 @@ function gerarPDF(rcData) {
               <div class="modal-title">🔍 ${rc.numero}</div>
               <div style="font-size:12px;color:var(--text-muted)">Visualização disponível para todos os perfis ativos</div>
             </div>
-            <button class="btn btn-ghost" data-fechar-visualizacao>Fechar</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalVisualizacaoPublica')?.remove()">Fechar</button>
           </div>
           <div class="form-grid" style="margin-bottom:16px">
             <div class="field"><label>Status</label><div>${rc.status || '—'}</div></div>
@@ -4319,6 +4546,7 @@ function gerarPDF(rcData) {
     }
 
     function abrirVisualizacaoSolicitacao(id) {
+      document.getElementById('modalVisualizacaoPublica')?.remove();
       const sol = solicitacoes.find(s => s.id === id);
       if (!sol) return showToast('Solicitação não encontrada.', true);
       const itens = Array.isArray(sol.itens) ? sol.itens : [];
@@ -4341,7 +4569,7 @@ function gerarPDF(rcData) {
               <div class="modal-title">🔍 Solicitação</div>
               <div style="font-size:12px;color:var(--text-muted)">Visualização disponível para todos os perfis ativos</div>
             </div>
-            <button class="btn btn-ghost" data-fechar-visualizacao>Fechar</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalVisualizacaoPublica')?.remove()">Fechar</button>
           </div>
           <div class="form-grid" style="margin-bottom:16px">
             <div class="field"><label>Centro</label><div>${getCentroCustoRegistro(sol)}</div></div>
@@ -4712,7 +4940,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V8.3';
+        if (versaoEl) versaoEl.textContent = 'V8.4';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -4766,16 +4994,6 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           state.recebimentoOperacao = btn.dataset.tipoOperacao;
           render();
         });
-      });
-
-      document.querySelectorAll('[data-ver-rc]').forEach(btn=>{
-        btn.addEventListener('click',()=>abrirVisualizacaoRC(btn.dataset.verRc));
-      });
-      document.querySelectorAll('[data-ver-sol]').forEach(btn=>{
-        btn.addEventListener('click',()=>abrirVisualizacaoSolicitacao(btn.dataset.verSol));
-      });
-      document.querySelectorAll('[data-fechar-visualizacao]').forEach(btn=>{
-        btn.addEventListener('click',()=>btn.closest('.modal')?.remove());
       });
 
       const atualizarBaixaTotal = ()=>{
@@ -5522,6 +5740,25 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         abrirModalFrota();
       });
 
+      document.getElementById('btnAbrirModalProjeto')?.addEventListener('click', () => {
+        if(!['encarregado','gerente','admin'].includes(perfilAtual)){showToast('Seu perfil não pode cadastrar projetos.',true);return;}
+        abrirModalProjeto();
+      });
+      document.getElementById('projetoModalClose')?.addEventListener('click',()=>document.getElementById('projetoModal')?.classList.remove('active'));
+      document.getElementById('projetoModalCancelar')?.addEventListener('click',()=>document.getElementById('projetoModal')?.classList.remove('active'));
+      document.getElementById('projetoModal')?.addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('active')});
+
+      document.getElementById('pmStatus')?.addEventListener('change',e=>{
+        const c=document.getElementById('pmDataConclusao');
+        if(!c)return;
+        c.value = e.target.value==='CONCLUIDO' ? (c.value || hojeISO()) : '';
+      });
+      document.getElementById('fmStatusOperacional')?.addEventListener('change',e=>{
+        const c=document.getElementById('fmDataConclusao');
+        if(!c)return;
+        c.value = e.target.value==='CONCLUIDO' ? (c.value || dataISOparaBR(hojeISO())) : '';
+      });
+
       document.getElementById('frotaModalClose')?.addEventListener('click',()=>document.getElementById('frotaModal')?.classList.remove('active'));
       document.getElementById('frotaModalCancelar')?.addEventListener('click',()=>document.getElementById('frotaModal')?.classList.remove('active'));
       document.getElementById('frotaModal')?.addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('active')});
@@ -5547,7 +5784,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           : 20;
         const data=dataBRparaISO(document.getElementById('fmDataSaida').value);
 
-        if(!centroCusto){showToast('Selecione Santos ou Camaçari.',true);return;}
+        if(!centroCusto){showToast('Selecione Santos, Camaçari ou Mechatronics.',true);return;}
         if(!nome){showToast('Informe o nome/número da frota.',true);return;}
         if(orc<=0){showToast('Informe um orçamento maior que zero.',true);return;}
         if(podeGerenciarLimite && (!Number.isFinite(pct)||pct<0)){showToast('Percentual inválido.',true);return;}
@@ -5563,14 +5800,44 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           }
 
         if(editId){
-          if(!['gerente','admin'].includes(perfilAtual)){showToast('Somente Gerente e Administrador podem editar os parâmetros.',true);return;}
-          await updateFrota(editId,{valorOrcamento:orc,percentualLimite:pct,dataPrevisaoSaida:data,
-            alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoPorNome:getUsuarioNome(),
-            alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
-          showToast('Parâmetros da frota atualizados.');
+          const somenteStatus = modal?.dataset.somenteStatus === '1';
+          const statusOperacional = document.getElementById('fmStatusOperacional')?.value || 'EM_MANUTENCAO';
+          const existente = frotas.find(f=>f.id===editId);
+          const dataConclusaoReal = statusOperacional === 'CONCLUIDO'
+            ? (existente?.dataConclusaoReal || hojeISO())
+            : '';
+
+          if (somenteStatus || perfilAtual === 'encarregado') {
+            if(!['encarregado','gerente','admin'].includes(perfilAtual)){showToast('Seu perfil não pode alterar o status.',true);return;}
+            await db.collection('frotas').doc(editId).update({
+              statusOperacional,
+              concluido: statusOperacional === 'CONCLUIDO',
+              dataConclusaoReal,
+              alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoPorNome:getUsuarioNome(),
+              alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+            });
+            showToast(statusOperacional==='CONCLUIDO'?'Manutenção concluída. A contagem de duração foi encerrada.':'Status da manutenção atualizado.');
+          } else {
+            if(!['gerente','admin'].includes(perfilAtual)){showToast('Somente Gerente e Administrador podem editar todos os campos.',true);return;}
+            await db.collection('frotas').doc(editId).update({
+              nome,
+              centroCusto,
+              valorOrcamento:orc,
+              percentualLimite:pct,
+              dataPrevisaoSaida:data,
+              statusOperacional,
+              concluido: statusOperacional === 'CONCLUIDO',
+              dataConclusaoReal,
+              alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoPorNome:getUsuarioNome(),
+              alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+            });
+            showToast('Frota atualizada, incluindo nome e centro de custo.');
+          }
         }else{
           if(frotas.some(f=>normalize(f.nome)===normalize(nome) && getCentroCustoRegistro(f)===centroCusto)){showToast('Já existe uma frota com esse nome/número nesse centro de custo.',true);return;}
-          await addFrota(nome,orc,pct,data,centroCusto);
+          const novaRef = await addFrota(nome,orc,pct,data,centroCusto);
+          // O listener atualizará a lista; a frota começa em manutenção.
+          
           showToast(
             podeGerenciarLimite
               ? `Frota cadastrada com ${pct}% de limite liberado.`
@@ -5589,6 +5856,111 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           }
         }
       }, 'submitFrota');
+
+
+      bindStaticOnce(document.getElementById('formProjetoModal'), 'submit', async e=>{
+        e.preventDefault();
+        const form=e.currentTarget;
+        if(form.dataset.saving==='1')return;
+        const editId=document.getElementById('pmEditId')?.value||'';
+        const modal=document.getElementById('projetoModal');
+        const somenteStatus=modal?.dataset.somenteStatus==='1';
+        const existente=editId?frotas.find(f=>f.id===editId):null;
+        const statusProjeto=document.getElementById('pmStatus')?.value||'PLANEJAMENTO';
+        const dataConclusaoReal=statusProjeto==='CONCLUIDO'
+          ? (existente?.dataConclusaoReal||hojeISO())
+          : '';
+
+        try{
+          form.dataset.saving='1';
+          const btn=form.querySelector('button[type="submit"]');
+          if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+
+          if(editId && (somenteStatus || perfilAtual==='encarregado')){
+            if(!['encarregado','gerente','admin'].includes(perfilAtual)) throw new Error('Perfil sem permissão para alterar status.');
+            await db.collection('frotas').doc(editId).update({
+              statusProjeto,
+              concluido:statusProjeto==='CONCLUIDO',
+              dataConclusaoReal,
+              alteradoPorUid:getUsuarioUid(),
+              alteradoPorEmail:getUsuarioEmail(),
+              alteradoPorNome:getUsuarioNome(),
+              alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }else{
+            if(editId && !['gerente','admin'].includes(perfilAtual)) throw new Error('Somente Gerente/Admin podem editar todos os campos de um projeto já cadastrado.');
+            if(!editId && !['encarregado','gerente','admin'].includes(perfilAtual)) throw new Error('Perfil sem permissão para cadastrar projeto.');
+
+            const nome=(document.getElementById('pmNome')?.value||'').trim();
+            const codigoProjeto=document.getElementById('pmCodigo')?.value||getNextProjetoCode();
+            const descricaoObjetivo=(document.getElementById('pmDescricao')?.value||'').trim();
+            const cliente=(document.getElementById('pmCliente')?.value||'').trim();
+            const gerenteProjeto=(document.getElementById('pmGerente')?.value||'').trim();
+            const equipeTxt=(document.getElementById('pmEquipe')?.value||'').trim();
+            const equipeVinculada=equipeTxt?equipeTxt.split(',').map(x=>x.trim()).filter(Boolean):[];
+            const dataInicio=document.getElementById('pmDataInicio')?.value||'';
+            const dataTerminoEstimada=document.getElementById('pmDataFimEstimada')?.value||'';
+            const valorOrcamento=parseMoney(document.getElementById('pmOrcamento')?.value||'0');
+            const percentualLimite=Number(String(document.getElementById('pmPercentual')?.value||20).replace(',','.'));
+
+            if(!nome||!descricaoObjetivo||!cliente||!gerenteProjeto||!dataInicio||!dataTerminoEstimada) throw new Error('Preencha todos os campos obrigatórios do projeto.');
+            if(valorOrcamento<=0) throw new Error('Informe um orçamento do projeto maior que zero.');
+
+            const payload={
+              tipoCadastro:'PROJETO',
+              empresaCodigo:'MECH',
+              nome,
+              codigoProjeto,
+              descricaoObjetivo,
+              statusProjeto,
+              cliente,
+              gerenteProjeto,
+              equipeVinculada,
+              dataInicio,
+              dataTerminoEstimada,
+              dataConclusaoReal,
+              concluido:statusProjeto==='CONCLUIDO',
+              centroCusto:'MECHATRONICS',
+              valorOrcamento,
+              percentualLimite:Number.isFinite(percentualLimite)?percentualLimite:20,
+              dataPrevisaoSaida:dataTerminoEstimada,
+              alteradoPorUid:getUsuarioUid(),
+              alteradoPorEmail:getUsuarioEmail(),
+              alteradoPorNome:getUsuarioNome(),
+              alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            if(editId){
+              await db.collection('frotas').doc(editId).update(payload);
+            }else{
+              payload.criadoPorUid=getUsuarioUid();
+              payload.criadoPorEmail=getUsuarioEmail();
+              payload.criadoPorNome=getUsuarioNome();
+              payload.criadoEm=firebase.firestore.FieldValue.serverTimestamp();
+              await db.collection('frotas').add(payload);
+            }
+          }
+
+          document.getElementById('projetoModal')?.classList.remove('active');
+          showToast(statusProjeto==='CONCLUIDO'?'Projeto concluído; duração encerrada.':'Projeto salvo com sucesso.');
+        }catch(err){
+          showToast('Erro ao salvar projeto: '+(err.message||err),true);
+        }finally{
+          form.dataset.saving='0';
+          const btn=form.querySelector('button[type="submit"]');
+          if(btn){btn.disabled=false;btn.textContent='Salvar Projeto';}
+        }
+      }, 'submitProjeto');
+
+      document.querySelectorAll('[data-status-frota]').forEach(btn=>btn.addEventListener('click',()=>{
+        const f=frotas.find(x=>x.id===btn.dataset.statusFrota); if(f) abrirModalFrota(f,true);
+      }));
+      document.querySelectorAll('[data-editar-projeto]').forEach(btn=>btn.addEventListener('click',()=>{
+        const p=frotas.find(x=>x.id===btn.dataset.editarProjeto); if(p) abrirModalProjeto(p,false);
+      }));
+      document.querySelectorAll('[data-status-projeto]').forEach(btn=>btn.addEventListener('click',()=>{
+        const p=frotas.find(x=>x.id===btn.dataset.statusProjeto); if(p) abrirModalProjeto(p,true);
+      }));
 
       document.querySelectorAll('[data-editar-limite-padrao]').forEach(btn=>btn.addEventListener('click', async ()=>{
         if(!['gerente','admin'].includes(perfilAtual)){
