@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V8.0 — histórico 60 dias + copiar solicitação + gestão de pagamento de NF ===== -->
+  <!-- ===== V8.0.1 — histórico 60 dias + copiar solicitação + todas as NFs no pagamento ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -2848,12 +2848,11 @@
     }
 
     function nfOperacionalParaPagamento(nf) {
+      // V8.0.1: a gestão de pagamentos deve carregar TODAS as NFs
+      // disponíveis no sistema, inclusive o histórico embutido.
+      // Baixas de estoque continuam fora porque não são Nota Fiscal.
       return !!nf
         && nf.tipoDocumento === 'NF'
-        && !nf.historicoLocal
-        && nf.origem !== 'historico_planilha_nf'
-        && nf.origem !== 'historico_planilha_nf_embutido'
-        && !!nf.id
         && !!nf.numeroNF;
     }
 
@@ -2929,8 +2928,8 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">💳 NFs liberadas para consulta de pagamento</div>
-              <div class="card-sub">Somente NFs registradas operacionalmente no sistema. Gerente e Administrador podem consultar e apontar como Paga ou Pendente.</div>
+              <div class="card-title">💳 Todas as NFs para consulta de pagamento</div>
+              <div class="card-sub">Todas as NFs disponíveis no sistema, incluindo o histórico já existente e as novas entradas. Gerente e Administrador podem consultar e apontar como Paga ou Pendente.</div>
             </div>
           </div>
           <div class="table-wrap"><table>
@@ -2951,7 +2950,7 @@
                   <button class="btn ${pago?'btn-warning':'btn-accent'} btn-sm" onclick="alternarPagamentoNF('${nf.id}')" title="${pago?'Voltar para Pendente':'Marcar como Paga'}">${pago?'↩ Pendente':'✓ Paga'}</button>
                 </td>
               </tr>`;
-            }).join('') : `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted);">Nenhuma NF operacional registrada para pagamento.</td></tr>`}</tbody>
+            }).join('') : `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted);">Nenhuma NF encontrada para pagamento.</td></tr>`}</tbody>
           </table></div>
         </div>
       `;
@@ -2962,11 +2961,13 @@
         showToast('Somente Gerente e Administrador podem alterar o status de pagamento.', true);
         return;
       }
-      const nf = recebimentosNF.find(n=>n.id===id);
+
+      const nf = recebimentosNF.find(n => n.id === id || n.historicoId === id);
       if (!nf || !nfOperacionalParaPagamento(nf)) {
-        showToast('NF operacional não encontrada.', true);
+        showToast('NF não encontrada.', true);
         return;
       }
+
       const atual = statusPagamentoNF(nf);
       const novo = atual === 'PAGO' ? 'PENDENTE' : 'PAGO';
 
@@ -2974,26 +2975,51 @@
       if (novo === 'PENDENTE' && !confirm(`Retornar a NF ${nf.numeroNF} para Pendente?`)) return;
 
       try {
-        const dados = {
+        const dadosPagamento = {
           statusPagamento: novo,
           pagamentoAlteradoPorUid: getUsuarioUid(),
           pagamentoAlteradoPorEmail: getUsuarioEmail(),
           pagamentoAlteradoPorNome: getUsuarioNome(),
           pagamentoAlteradoEm: firebase.firestore.FieldValue.serverTimestamp()
         };
+
         if (novo === 'PAGO') {
-          dados.pagoPorUid = getUsuarioUid();
-          dados.pagoPorEmail = getUsuarioEmail();
-          dados.pagoPorNome = getUsuarioNome();
-          dados.pagoEm = firebase.firestore.FieldValue.serverTimestamp();
+          dadosPagamento.pagoPorUid = getUsuarioUid();
+          dadosPagamento.pagoPorEmail = getUsuarioEmail();
+          dadosPagamento.pagoPorNome = getUsuarioNome();
+          dadosPagamento.pagoEm = firebase.firestore.FieldValue.serverTimestamp();
         } else {
-          dados.pagoPorUid = '';
-          dados.pagoPorEmail = '';
-          dados.pagoPorNome = '';
-          dados.pagoEm = null;
+          dadosPagamento.pagoPorUid = '';
+          dadosPagamento.pagoPorEmail = '';
+          dadosPagamento.pagoPorNome = '';
+          dadosPagamento.pagoEm = null;
         }
 
-        await db.collection('recebimentos_nf').doc(id).update(dados);
+        // NFs históricas são embutidas no HTML e podem ainda não possuir
+        // documento próprio no Firestore. Nesse caso criamos apenas um
+        // "override" no recebimentos_nf, mantendo o histórico original intacto.
+        if (nf.historicoLocal || nf.historicoId || String(nf.id || '').startsWith('hist_mcpro030_')) {
+          const historicoId = nf.historicoId || nf.id;
+          await db.collection('recebimentos_nf').doc(historicoId).set({
+            historicoId,
+            historicoOverride: true,
+            historicoLocal: false,
+            excluidoHistorico: false,
+            tipoDocumento: 'NF',
+            numeroNF: nf.numeroNF || '',
+            numeroNFOriginal: nf.numeroNFOriginal || nf.numeroNF || '',
+            dataDocumento: nf.dataDocumento || '',
+            fornecedor: nf.fornecedor || '',
+            destino: nf.destino || '',
+            centroCusto: getCentroCustoRegistro(nf),
+            rcNumero: nf.rcNumero || '',
+            valorTotal: numeroSeguro(nf.valorTotal),
+            ...dadosPagamento
+          }, { merge: true });
+        } else {
+          await db.collection('recebimentos_nf').doc(nf.id).update(dadosPagamento);
+        }
+
         showToast(novo === 'PAGO' ? 'NF marcada como paga.' : 'NF retornada para pendente.');
       } catch (err) {
         showToast('Erro ao atualizar pagamento: ' + (err.message || err), true);
