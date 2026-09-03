@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V8.0.1 — histórico 60 dias + copiar solicitação + todas as NFs no pagamento ===== -->
+  <!-- ===== V8.1 — baixas de almoxarifado/EPI + Mechatronics + projetos + filtros NF + correções ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -1021,12 +1021,15 @@
     /* ============================================================
        FUNÇÕES AUXILIARES (adaptadas para Firestore)
     ============================================================ */
-    function getNextCode() {
-      if (!allItems.length) return "CRY-0001";
-      const codes = allItems.map(i => i.codigo).filter(c => c && c.startsWith("CRY-"));
+    function getNextCode(prefixo = 'CRYO') {
+      const prefix = String(prefixo || 'CRYO').toUpperCase() === 'MECH' ? 'MECH' : 'CRYO';
+      const rx = new RegExp('^' + prefix + '-(\\d+)$', 'i');
       let max = 0;
-      codes.forEach(c => { const num = parseInt(c.replace("CRY-", ""), 10); if (!isNaN(num) && num > max) max = num; });
-      return "CRY-" + String(max + 1).padStart(4, "0");
+      allItems.forEach(i => {
+        const mt = String(i.codigo || '').match(rx);
+        if (mt) max = Math.max(max, Number(mt[1]) || 0);
+      });
+      return prefix + '-' + String(max + 1).padStart(4, '0');
     }
 
     // Adaptado para usar a variável global rcs (atualizada pelo listener)
@@ -1426,12 +1429,13 @@
     /* ============================================================
        CONTROLE FINANCEIRO E PRAZO POR FROTA
     ============================================================ */
-    const CENTROS_CUSTO = Object.freeze(['SANTOS', 'CAMAÇARI']);
+    const CENTROS_CUSTO = Object.freeze(['SANTOS', 'CAMAÇARI', 'MECHATRONICS']);
 
     function centroCustoNormalizado(valor) {
       const v = normalize(String(valor || '')).toUpperCase();
       if (v === 'CAMACARI') return 'CAMAÇARI';
       if (v === 'SANTOS') return 'SANTOS';
+      if (v === 'MECHATRONICS' || v === 'MECHA') return 'MECHATRONICS';
       return '';
     }
 
@@ -2401,8 +2405,8 @@
 
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
-            <div><div class="card-title">Frotas em manutenção — ciclo completo</div><div class="card-sub">Acompanhe criação, tempo em aberto, previsão de saída, valor da frota e todo o fluxo financeiro solicitado/aprovado.</div></div>
-            ${podeCadastrarFrota ? `<button class="btn btn-accent" id="btnAbrirModalFrota">+ Adicionar Frota</button>` : ''}
+            <div><div class="card-title">Frotas/Projetos</div><div class="card-sub">CRYO mantém o cadastro de carretas. MECHA permite cadastrar Projeto e Cliente.</div></div>
+            ${podeCadastrarFrota ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-accent" id="btnAbrirModalFrota">+ CRYO — Nova Frota</button><button class="btn btn-ghost" id="btnAbrirModalProjeto">+ MECHA — Novo Projeto</button></div>` : ''}
           </div>
           <div style="overflow-x:auto;">
             <table>
@@ -2908,10 +2912,20 @@
         return `<div class="card"><div class="card-title">Acesso restrito</div><p style="color:var(--text-muted);margin-top:8px;">Esta área é exclusiva para Gerente e Administrador.</p></div>`;
       }
 
-      const lista = recebimentosNF
+      const pf = state.pagamentoNFFilters || {};
+      let lista = recebimentosNF
         .filter(nfOperacionalParaPagamento)
-        .slice()
-        .sort((a,b)=>String(b.dataDocumento||'').localeCompare(String(a.dataDocumento||'')));
+        .slice();
+
+      if (pf.busca) {
+        const q = normalize(pf.busca);
+        lista = lista.filter(n => [n.numeroNF, n.rcNumero, n.fornecedor, n.destino]
+          .some(v => normalize(v || '').includes(q)));
+      }
+      if (pf.dataIni) lista = lista.filter(n => String(n.dataDocumento || '') >= pf.dataIni);
+      if (pf.dataFim) lista = lista.filter(n => String(n.dataDocumento || '') <= pf.dataFim);
+
+      lista.sort((a,b)=>String(b.dataDocumento||'').localeCompare(String(a.dataDocumento||'')));
 
       const pendentes = lista.filter(n=>statusPagamentoNF(n)==='PENDENTE');
       const pagos = lista.filter(n=>statusPagamentoNF(n)==='PAGO');
@@ -2924,6 +2938,20 @@
           <div class="card"><div class="card-sub">NFs pendentes</div><div style="font-size:28px;font-weight:900;margin-top:7px">${pendentes.length}</div></div>
           <div class="card"><div class="card-sub">Valor pendente</div><div style="font-size:28px;font-weight:900;margin-top:7px">${fmt.money(totalPendente)}</div></div>
           <div class="card"><div class="card-sub">NFs pagas</div><div style="font-size:28px;font-weight:900;margin-top:7px">${pagos.length}</div></div>
+        </div>
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Filtros de pagamento</div>
+              <div class="card-sub">Pesquise uma NF específica ou selecione livremente um período por data.</div>
+            </div>
+          </div>
+          <div class="filters-grid">
+            <div class="field"><label>Pesquisar NF / RC / fornecedor / destino</label><input id="pagFiltroBusca" value="${pf.busca||''}" placeholder="Ex.: NF 185079"></div>
+            <div class="field"><label>Data inicial</label><input type="date" id="pagFiltroDataIni" value="${pf.dataIni||''}"></div>
+            <div class="field"><label>Data final</label><input type="date" id="pagFiltroDataFim" value="${pf.dataFim||''}"></div>
+            <div class="field" style="align-self:end"><button class="btn btn-ghost" id="pagLimparFiltros">Limpar filtros</button></div>
+          </div>
         </div>
         <div class="card">
           <div class="card-header">
@@ -3080,8 +3108,8 @@
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
             <div>
-              <div class="card-title">Recebimento de Nota Fiscal por RC</div>
-              <div class="card-sub">Digite a RC aprovada e selecione se a NF corresponde a recebimento integral ou parcial. Integral recebe automaticamente todo o saldo pendente; parcial exige digitação manual das quantidades efetivamente entregues.</div>
+              <div class="card-title">Lançamento de Movimentação</div>
+              <div class="card-sub">Escolha primeiro se a operação é uma Nota Fiscal ou uma Baixa de Almoxarifado. Baixas de EPI também são registradas aqui e entram no custo real.</div>
             </div>
             <span class="badge badge-ok">${lista.length} lançamento(s) · ${fmt.money(total)}</span>
           </div>
@@ -3193,7 +3221,7 @@
     }
 
     function renderNovo() {
-      const nextCode = getNextCode();
+      const nextCode = getNextCode('CRYO');
       const today = new Date().toLocaleDateString("pt-BR");
       const categorias = getUniqueValues('categoria');
       const subcategorias = getUniqueValues('subcategoria');
@@ -3205,6 +3233,12 @@
           <div class="card-header"><div><div class="card-title">Novo Cadastro de Material</div><div class="card-sub">Preencha os campos. Código gerado automaticamente.</div></div></div>
           <form id="formNovo">
             <div class="form-grid">
+              <div class="field"><label>Empresa / Prefixo do código *</label>
+                <select id="novoEmpresaCodigo" required>
+                  <option value="CRYO">Cryotronics — CRYO</option>
+                  <option value="MECH">Mechatronics — MECH</option>
+                </select>
+              </div>
               <div class="field"><label>Código</label><input type="text" id="novoCodigo" value="${nextCode}" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
               <div class="field"><label>Data Cadastro</label><input type="text" id="novoData" value="${today}" readonly style="background:#1a1f1a;" /></div>
               <div class="field"><label>Usuário *</label><input type="text" id="novoUsuario" placeholder="Nome do responsável" /></div>
@@ -3801,7 +3835,8 @@
     /* ============================================================
        GERAR PDF E WHATSAPP (mantidos)
     ============================================================ */
-    function gerarPDF(rcData) {
+    let __pdfGerando = false;
+function gerarPDF(rcData) {
       const container = document.createElement('div');
       container.style.cssText = 'position:absolute;left:-9999px;top:0;width:800px;background:white;color:black;padding:30px;font-family:Arial,sans-serif;';
       container.innerHTML = `
@@ -4760,6 +4795,9 @@
             contaContabilOrientacao: c?.orientacao || '',
             origem: 'recebimento_por_rc',
             statusPagamento: ed?.statusPagamento || 'PENDENTE',
+        tipoOperacao: getVal('tipoOperacaoRecebimento') || 'NF',
+        tipoBaixa: getVal('tipoBaixaAlmox') || '',
+        colaboradorRetirada: getVal('colaboradorBaixa') || '',
             tipoRecebimento,
             conferenciaItens: tipoRecebimento === 'PARCIAL'
               ? 'RECEBIMENTO_PARCIAL_COM_SALDO_RESIDUAL'
@@ -4788,7 +4826,21 @@
           try {
             formNF.dataset.saving='1';
             if (btn) { btn.disabled=true; btn.textContent='Salvando...'; }
-            await salvarRecebimentoNF(registro);
+            if ((registro.tipoOperacao || 'NF') === 'BAIXA_ESTOQUE') {
+        if (!registro.colaboradorRetirada) throw new Error('Informe o nome do colaborador que retirou/recebeu o material.');
+        registro.tipoDocumento = 'BAIXA_ESTOQUE';
+        registro.numeroNF = 'Não Aplicado';
+        registro.numeroNFOriginal = 'Não Aplicado';
+        registro.statusPagamento = '';
+        if ((registro.tipoBaixa || 'MATERIAL') === 'EPI') {
+          registro.codigoContabil = '3.2.1.03';
+          registro.contaContabilDescricao = 'Custos EPI';
+        } else {
+          registro.codigoContabil = '3.2.1.05';
+          registro.contaContabilDescricao = 'Custos de Material em Estoque';
+        }
+      }
+      await salvarRecebimentoNF(registro);
             state.nfEditId = null;
             showToast(editId ? 'Recebimento atualizado.' : `NF recebida conforme ${rc.numero}. Materiais bloqueados conforme aprovação.`);
             render();
@@ -5575,7 +5627,8 @@
       const getVal = (id) => document.getElementById(id)?.value || '';
       const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
 
-      const codigo = getVal('novoCodigo');
+      const empresaCodigo = getVal('novoEmpresaCodigo') || 'CRYO';
+      const codigo = getNextCode(empresaCodigo);
       const dataCadastro = getVal('novoData') || new Date().toLocaleDateString('pt-BR');
       const usuario = getVal('novoUsuario') || 'Leonardo Santos';
       const cadastroCompleto = getVal('novoCompleto') || 'SIM';
@@ -5621,6 +5674,7 @@
         usuario,
         cadastroCompleto,
         codigo,
+        empresaCodigo,
         descricaoSimples,
         descricaoCurta,
         descricaoCompleta,
