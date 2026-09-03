@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V8.2 — operação NF/baixa + EPI + Mechatronics + lupas públicas + PDF corrigido + edição Admin ===== -->
+  <!-- ===== V8.3 — CORREÇÃO VISUAL: NF x Baixa + Lupas + Admin total + Mechatronics ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -3112,18 +3112,18 @@
       const total = lista.reduce((s,x)=>s+numeroSeguro(x.valorTotal),0);
 
       const seletorOperacao = `
-        <div style="padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2);margin-bottom:18px">
-          <div style="font-weight:800;margin-bottom:10px">O que você deseja lançar?</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <button type="button" class="btn ${operacao==='NF'?'btn-accent':'btn-ghost'}" data-tipo-operacao="NF" style="padding:16px">
-              🧾 Lançamento de Nota Fiscal
-            </button>
-            <button type="button" class="btn ${operacao==='BAIXA_ESTOQUE'?'btn-accent':'btn-ghost'}" data-tipo-operacao="BAIXA_ESTOQUE" style="padding:16px">
-              📦 Baixa de Almoxarifado / EPI
-            </button>
+        <div style="padding:18px;border:2px solid var(--accent);border-radius:12px;background:rgba(163,255,0,.05);margin-bottom:20px">
+          <div style="font-size:16px;font-weight:900;margin-bottom:10px">1. ESCOLHA O TIPO DE LANÇAMENTO *</div>
+          <div class="field" style="max-width:760px">
+            <label>TIPO DE OPERAÇÃO</label>
+            <select id="recebimentoModo" style="font-size:15px;font-weight:800;border:2px solid var(--accent)">
+              <option value="NF" ${operacao==='NF'?'selected':''}>🧾 LANÇAMENTO DE NOTA FISCAL</option>
+              <option value="BAIXA_ESTOQUE" ${operacao==='BAIXA_ESTOQUE'?'selected':''}>📦 BAIXA DE ALMOXARIFADO / ENTREGA DE EPI</option>
+            </select>
           </div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:10px">
-            Nota Fiscal segue o fluxo por RC aprovada. Baixa de Almoxarifado registra retirada de material ou entrega de EPI e entra diretamente no custo real.
+            <strong>NF:</strong> exige RC aprovada e segue o fluxo de recebimento integral/parcial.
+            <strong style="margin-left:12px">Baixa:</strong> não exige NF e registra Material/EPI, quantidade, valor, destino e colaborador.
           </div>
         </div>`;
 
@@ -3463,7 +3463,7 @@
         const totalVal = rc.total || 0;
 
         let acoes = [];
-        acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc="${rc.numero}" title="Visualizar conteúdo da RC">🔍</button>`);
+        acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc="${rc.numero}" title="Visualizar conteúdo da RC">🔍 Ver</button>`);
 
         // PDF e WhatsApp: disponíveis apenas se NÃO for rejeitado e NÃO for rascunho/arquivado
         if (rc.status !== 'rejeitado' && rc.status !== 'rascunho' && rc.status !== 'arquivado') {
@@ -4170,6 +4170,7 @@ function gerarPDF(rcData) {
           <td><span class="badge ${statusCls}">${status}</span></td>
           <td>${exp ? exp.toLocaleDateString('pt-BR') : '—'}</td>
           <td>
+            <button class="btn btn-ghost btn-sm" data-ver-sol="${sol.id}" title="Visualizar conteúdo">🔍 Ver</button>
             <button class="btn btn-accent btn-sm" data-copiar-sol="${sol.id}" title="Criar uma nova solicitação usando os itens desta como modelo">⧉ Copiar Solicitação</button>
           </td>
         </tr>`;
@@ -4365,7 +4366,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Pendente');
         const statusCls = sol.arquivada ? 'badge-danger' : (sol.convertida ? 'badge-ok' : 'badge-pending');
         const acoes = [];
-        acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-sol="${sol.id}" title="Visualizar conteúdo da solicitação">🔍</button>`);
+        acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-sol="${sol.id}" title="Visualizar conteúdo da solicitação">🔍 Ver</button>`);
 
         if (perfilAtual === 'admin') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-editar-sol="${sol.id}">Editar tudo</button>`);
@@ -4437,6 +4438,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
                 </select>
               </div>
               <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${dataNecessidadeValor}" required /></div>
+              ${perfilAtual==='admin' && isEdit ? `
+              <div class="field">
+                <label>Status da solicitação *</label>
+                <select id="solAdminStatus">
+                  <option value="PENDENTE" ${!data.convertida&&!data.arquivada?'selected':''}>Pendente</option>
+                  <option value="CONVERTIDA" ${data.convertida?'selected':''}>Convertida</option>
+                  <option value="ARQUIVADA" ${data.arquivada?'selected':''}>Arquivada</option>
+                </select>
+              </div>` : ''}
             </div>
             <div style="margin:16px 0;">
               <div class="card-header"><div class="card-title">Itens solicitados</div></div>
@@ -4649,14 +4659,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const expiraEm = existente?.expiraEm || firebase.firestore.Timestamp.fromDate(
         new Date(agora.getTime() + (60 * 24 * 60 * 60 * 1000))
       );
+      const adminStatus = perfilAtual === 'admin' && editId ? getVal('solAdminStatus') : '';
       const novaSol = {
         ...(editId ? {id:editId} : {}),
         centroCusto,
         destino,
         dataNecessidade,
         itens,
-        convertida: existente?.convertida || false,
-        arquivada: existente?.arquivada || false,
+        convertida: adminStatus ? adminStatus === 'CONVERTIDA' : (existente?.convertida || false),
+        arquivada: adminStatus ? adminStatus === 'ARQUIVADA' : (existente?.arquivada || false),
         origemCopiaId: existente?.origemCopiaId || origemCopiaId || '',
         criadoPor: existente?.criadoPor || perfilAtual,
         criadoPorUid: existente?.criadoPorUid || getUsuarioUid(),
@@ -4690,7 +4701,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           materiais: { title: 'Materiais', meta: 'Lista completa com ações de edição e exclusão' },
           categorias: { title: 'Categorias', meta: 'Distribuição por categoria e subcategoria' },
           fornecedores: { title: 'Fornecedores', meta: 'Gerenciamento de fornecedores' },
-          frotas: { title: 'Frotas', meta: 'Cadastro de frotas e orçamentos' },
+          frotas: { title: 'Frotas/Projetos', meta: 'CRYO: frotas/carretas · MECHA: projetos/clientes' },
           novo: { title: 'Novo Cadastro', meta: 'Adicione um novo material à base' },
           requisicoes: { title: 'Requisições de Compra', meta: 'Fluxo completo de aprovação' },
           recebimentoNFs: { title: 'Recebimento de NFs', meta: 'Gasto real efetivo, baixas de estoque e classificação contábil' },
@@ -4700,6 +4711,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const info = titleMap[sec] || titleMap.dashboard;
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
+        const versaoEl = document.getElementById('v83DiagnosticBadge');
+        if (versaoEl) versaoEl.textContent = 'V8.3';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -4742,6 +4755,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     function bindEvents() {
       // ===== SELETOR NF x BAIXA DE ALMOXARIFADO =====
+      document.getElementById('recebimentoModo')?.addEventListener('change', e=>{
+        state.nfEditId = null;
+        state.recebimentoOperacao = e.target.value;
+        render();
+      });
       document.querySelectorAll('[data-tipo-operacao]').forEach(btn=>{
         btn.addEventListener('click',()=>{
           state.nfEditId = null;
