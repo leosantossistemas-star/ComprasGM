@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V8.5 — códigos CRY/MECH corrigidos + filtros de Pagamentos corrigidos ===== -->
+  <!-- ===== V8.6 — pesquisa inteligente de Material/EPI na baixa de almoxarifado ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -3493,12 +3493,18 @@
                 </select>
               </div>
 
-              <div class="field" style="grid-column:span 2"><label>Material / EPI *</label>
-                <select id="baixaMaterial" required>
-                  <option value="">Selecione o material</option>
-                  ${allItems.slice().sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}))
-                    .map(i=>`<option value="${i.codigo}" data-custo="${numeroSeguro(i.custoUnitario)}" data-fornecedor="${String(i.fornecedor||'').replace(/"/g,'&quot;')}" ${baixaEd.itensRecebidos?.[0]?.codigo===i.codigo?'selected':''}>${i.codigo} — ${i.descricaoSimples||i.descricaoCurta||i.descricaoCompleta||'Material'}</option>`).join('')}
-                </select>
+              <div class="field" style="grid-column:span 2;position:relative"><label>Material / EPI *</label>
+                <input type="hidden" id="baixaMaterialCodigo" value="${baixaEd.itensRecebidos?.[0]?.codigo||''}">
+                <input id="baixaMaterialBusca"
+                       autocomplete="off"
+                       value="${baixaEd.itensRecebidos?.[0]?.codigo ? `${baixaEd.itensRecebidos[0].codigo} — ${baixaEd.itensRecebidos[0].descricao||''}` : ''}"
+                       placeholder="Digite código, número ou nome do material..."
+                       required>
+                <div id="baixaMaterialResultados"
+                     style="display:none;position:absolute;z-index:80;left:0;right:0;top:68px;max-height:330px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.45)"></div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:5px">
+                  Digite parte do código ou descrição. Ex.: <strong>0483</strong>, <strong>CRY-0483</strong>, <strong>luva</strong>, <strong>capacete</strong>.
+                </div>
               </div>
               <div class="field"><label>Quantidade *</label><input type="number" min="0.0001" step="0.0001" id="baixaQuantidade" required value="${baixaEd.quantidade||baixaEd.itensRecebidos?.[0]?.quantidade||1}"></div>
               <div class="field"><label>Valor unitário *</label><input type="number" min="0" step="0.01" id="baixaValorUnitario" required value="${numeroSeguro(baixaEd.valorUnitario||baixaEd.itensRecebidos?.[0]?.valorUnitario)||''}"></div>
@@ -4998,7 +5004,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V8.5';
+        if (versaoEl) versaoEl.textContent = 'V8.6';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -5098,15 +5104,141 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if (el) el.value = fmt.money(qtd * unit);
       };
 
-      document.getElementById('baixaMaterial')?.addEventListener('change',e=>{
-        const opt = e.target.options[e.target.selectedIndex];
-        const custo = numeroSeguro(opt?.dataset?.custo);
-        const forn = opt?.dataset?.fornecedor || '';
+
+      // ===== PESQUISA INTELIGENTE DE MATERIAL / EPI =====
+      const baixaBusca = document.getElementById('baixaMaterialBusca');
+      const baixaCodigo = document.getElementById('baixaMaterialCodigo');
+      const baixaResultados = document.getElementById('baixaMaterialResultados');
+
+      const textoMaterialBaixa = (item) => {
+        const desc = item.descricaoSimples || item.descricaoCurta || item.descricaoCompleta || 'Material';
+        return `${item.codigo || ''} — ${desc}`;
+      };
+
+      const aplicarMaterialBaixa = (codigo) => {
+        const material = allItems.find(i => String(i.codigo || '') === String(codigo || ''));
+        if (!material) return false;
+
+        if (baixaCodigo) baixaCodigo.value = material.codigo || '';
+        if (baixaBusca) baixaBusca.value = textoMaterialBaixa(material);
+
         const unit = document.getElementById('baixaValorUnitario');
         const fornecedor = document.getElementById('baixaFornecedor');
-        if (unit && !numeroSeguro(unit.value) && custo) unit.value = custo.toFixed(2);
-        if (fornecedor && !fornecedor.value && forn) fornecedor.value = forn;
+        const custo = numeroSeguro(material.custoUnitario);
+        if (unit && custo) unit.value = custo.toFixed(2);
+        if (fornecedor) fornecedor.value = material.fornecedor || '';
+
+        if (baixaResultados) baixaResultados.style.display = 'none';
         atualizarBaixaTotal();
+        return true;
+      };
+
+      const renderResultadosMaterialBaixa = (termo = '') => {
+        if (!baixaResultados) return;
+
+        const qTexto = normalize(termo || '');
+        const qDigitos = String(termo || '').replace(/\D/g, '');
+
+        let resultados = allItems.slice().filter(item => {
+          if (!qTexto && !qDigitos) return true;
+
+          const codigo = String(item.codigo || '');
+          const descricao = [
+            item.descricaoSimples,
+            item.descricaoCurta,
+            item.descricaoCompleta,
+            item.categoria,
+            item.subcategoria,
+            item.marca,
+            item.modelo,
+            item.fornecedor
+          ].filter(Boolean).join(' ');
+
+          const textoCompleto = normalize(`${codigo} ${descricao}`);
+          const codigoDigitos = codigo.replace(/\D/g, '');
+
+          return textoCompleto.includes(qTexto)
+            || (qDigitos && codigoDigitos.includes(qDigitos));
+        });
+
+        resultados.sort((a,b) => {
+          const ca = String(a.codigo || '');
+          const cb = String(b.codigo || '');
+
+          // resultados cujo código começa com a pesquisa aparecem primeiro
+          const qa = normalize(termo || '');
+          const aComeca = normalize(ca).startsWith(qa) ? 0 : 1;
+          const bComeca = normalize(cb).startsWith(qa) ? 0 : 1;
+          if (aComeca !== bComeca) return aComeca - bComeca;
+
+          return ca.localeCompare(cb, 'pt-BR', { numeric:true });
+        });
+
+        resultados = resultados.slice(0, 40);
+
+        if (!resultados.length) {
+          baixaResultados.innerHTML = `
+            <div style="padding:14px;color:var(--text-muted)">
+              Nenhum material encontrado para <strong>${termo || ''}</strong>.
+            </div>`;
+          baixaResultados.style.display = 'block';
+          return;
+        }
+
+        baixaResultados.innerHTML = resultados.map(item => {
+          const desc = item.descricaoSimples || item.descricaoCurta || item.descricaoCompleta || 'Material';
+          const categoria = item.categoria || '';
+          const fornecedor = item.fornecedor || '';
+          const custo = numeroSeguro(item.custoUnitario);
+
+          return `
+            <button type="button"
+                    data-baixa-material="${item.codigo}"
+                    style="display:block;width:100%;text-align:left;padding:11px 13px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">
+              <div style="font-weight:800"><span style="color:var(--accent)">${item.codigo}</span> — ${desc}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:3px">
+                ${categoria ? `Categoria: ${categoria}` : ''}
+                ${fornecedor ? `${categoria ? ' · ' : ''}Fornecedor: ${fornecedor}` : ''}
+                ${custo ? `${categoria || fornecedor ? ' · ' : ''}${fmt.money(custo)}` : ''}
+              </div>
+            </button>`;
+        }).join('');
+
+        baixaResultados.style.display = 'block';
+      };
+
+      baixaBusca?.addEventListener('focus', e => {
+        renderResultadosMaterialBaixa(e.target.value || '');
+      });
+
+      baixaBusca?.addEventListener('input', e => {
+        if (baixaCodigo) baixaCodigo.value = '';
+        renderResultadosMaterialBaixa(e.target.value || '');
+      });
+
+      baixaBusca?.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && baixaResultados) {
+          baixaResultados.style.display = 'none';
+        }
+        if (e.key === 'Enter') {
+          const primeiro = baixaResultados?.querySelector('[data-baixa-material]');
+          if (primeiro) {
+            e.preventDefault();
+            aplicarMaterialBaixa(primeiro.dataset.baixaMaterial);
+          }
+        }
+      });
+
+      baixaResultados?.addEventListener('click', e => {
+        const btn = e.target.closest('[data-baixa-material]');
+        if (!btn) return;
+        aplicarMaterialBaixa(btn.dataset.baixaMaterial);
+      });
+
+      document.addEventListener('click', e => {
+        if (!baixaResultados || !baixaBusca) return;
+        if (e.target === baixaBusca || baixaResultados.contains(e.target)) return;
+        baixaResultados.style.display = 'none';
       });
 
       document.getElementById('baixaQuantidade')?.addEventListener('input',atualizarBaixaTotal);
@@ -5134,8 +5266,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if (formBaixa.dataset.saving === '1') return;
 
         const editId = document.getElementById('baixaEditId')?.value || '';
-        const matCod = document.getElementById('baixaMaterial')?.value || '';
-        const material = allItems.find(i=>i.codigo===matCod);
+        const matCod = document.getElementById('baixaMaterialCodigo')?.value || '';
+        const material = allItems.find(i=>String(i.codigo||'')===String(matCod));
         const qtd = numeroSeguro(document.getElementById('baixaQuantidade')?.value);
         const unit = numeroSeguro(document.getElementById('baixaValorUnitario')?.value);
         const tipoBaixa = document.getElementById('baixaTipo')?.value || 'MATERIAL';
@@ -5144,7 +5276,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const destino = document.getElementById('baixaDestino')?.value || '';
         const fornecedor = (document.getElementById('baixaFornecedor')?.value || '').trim();
 
-        if (!material) return showToast('Selecione o material/EPI.', true);
+        if (!material) return showToast('Pesquise e selecione um material/EPI válido na lista de resultados.', true);
         if (qtd <= 0) return showToast('Informe uma quantidade válida.', true);
         if (unit < 0) return showToast('Informe um valor unitário válido.', true);
         if (!centro) return showToast('Selecione o centro/empresa.', true);
