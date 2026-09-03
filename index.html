@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V8.1 — baixas de almoxarifado/EPI + Mechatronics + projetos + filtros NF + correções ===== -->
+  <!-- ===== V8.2 — operação NF/baixa + EPI + Mechatronics + lupas públicas + PDF corrigido + edição Admin ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -1450,7 +1450,10 @@
       { id: 'padrao_despesas_administrativas', nome: 'DESPESAS ADMINISTRATIVAS', centroCusto: 'SANTOS', limiteFixo: 50000 },
       { id: 'padrao_estoque_camacari', nome: 'ESTOQUE', centroCusto: 'CAMAÇARI', limiteFixo: 50000 },
       { id: 'padrao_oficina_camacari', nome: 'OFICINA', centroCusto: 'CAMAÇARI', limiteFixo: 50000 },
-      { id: 'padrao_despesas_administrativas_camacari', nome: 'DESPESAS ADMINISTRATIVAS', centroCusto: 'CAMAÇARI', limiteFixo: 50000 }
+      { id: 'padrao_despesas_administrativas_camacari', nome: 'DESPESAS ADMINISTRATIVAS', centroCusto: 'CAMAÇARI', limiteFixo: 50000 },
+      { id: 'padrao_estoque_mechatronics', nome: 'ESTOQUE', centroCusto: 'MECHATRONICS', limiteFixo: 50000 },
+      { id: 'padrao_oficina_mechatronics', nome: 'OFICINA', centroCusto: 'MECHATRONICS', limiteFixo: 50000 },
+      { id: 'padrao_despesas_administrativas_mechatronics', nome: 'DESPESAS ADMINISTRATIVAS', centroCusto: 'MECHATRONICS', limiteFixo: 50000 }
     ]);
 
     const HISTORICO_IMPORT_BATCH = 'controle_compras_historico_v1';
@@ -3067,6 +3070,9 @@
       const podeGerenciar = podeGerenciarRecebimentoNF();
       const f = state.nfFilters || {};
       const ed = state.nfEditId ? recebimentosNF.find(x=>x.id===state.nfEditId) : null;
+      const operacao = ed?.tipoDocumento === 'BAIXA_ESTOQUE'
+        ? 'BAIXA_ESTOQUE'
+        : (ed ? 'NF' : (state.recebimentoOperacao || 'NF'));
       const rcEd = ed?.rcNumero ? getRCAprovadaPorNumero(ed.rcNumero) : null;
 
       const rcsAprovadas = rcs
@@ -3082,7 +3088,7 @@
       const destinos = [...new Set([
         ...frotas.map(x=>x.nome),
         ...recebimentosNF.map(x=>x.destino),
-        'ESTOQUE','OFICINA','DESPESAS ADMINISTRATIVAS','EPI'
+        'ESTOQUE','OFICINA','DESPESAS ADMINISTRATIVAS'
       ].filter(Boolean))].sort();
 
       let lista = recebimentosNF.slice();
@@ -3097,6 +3103,7 @@
         const q=normalize(f.busca);
         lista=lista.filter(x=>[
           x.numeroNF,x.descricao,x.fornecedor,x.rcNumero,x.osProjeto,x.codigoContabil,x.contaContabilDescricao,
+          x.colaboradorRetirada,x.tipoBaixa,
           ...(x.itensRecebidos||[]).map(i=>`${i.codigo||''} ${i.descricao||''}`)
         ].some(v=>normalize(v||'').includes(q)));
       }
@@ -3104,35 +3111,42 @@
 
       const total = lista.reduce((s,x)=>s+numeroSeguro(x.valorTotal),0);
 
-      return `
-        <div class="card" style="margin-bottom:20px;">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Lançamento de Movimentação</div>
-              <div class="card-sub">Escolha primeiro se a operação é uma Nota Fiscal ou uma Baixa de Almoxarifado. Baixas de EPI também são registradas aqui e entram no custo real.</div>
-            </div>
-            <span class="badge badge-ok">${lista.length} lançamento(s) · ${fmt.money(total)}</span>
+      const seletorOperacao = `
+        <div style="padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2);margin-bottom:18px">
+          <div style="font-weight:800;margin-bottom:10px">O que você deseja lançar?</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <button type="button" class="btn ${operacao==='NF'?'btn-accent':'btn-ghost'}" data-tipo-operacao="NF" style="padding:16px">
+              🧾 Lançamento de Nota Fiscal
+            </button>
+            <button type="button" class="btn ${operacao==='BAIXA_ESTOQUE'?'btn-accent':'btn-ghost'}" data-tipo-operacao="BAIXA_ESTOQUE" style="padding:16px">
+              📦 Baixa de Almoxarifado / EPI
+            </button>
           </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:10px">
+            Nota Fiscal segue o fluxo por RC aprovada. Baixa de Almoxarifado registra retirada de material ou entrega de EPI e entra diretamente no custo real.
+          </div>
+        </div>`;
 
+      let formulario = '';
+
+      if (operacao === 'NF') {
+        formulario = `
           <form id="formRecebimentoNF">
-            <input type="hidden" id="nfEditId" value="${ed?.id||''}">
+            <input type="hidden" id="nfEditId" value="${ed?.tipoDocumento==='NF' ? (ed?.id||'') : ''}">
             <input type="hidden" id="nfRCId" value="${rcEd?.id||ed?.rcId||''}">
-
             <div class="form-grid">
               <div class="field" style="grid-column:span 2">
                 <label>RC aprovada *</label>
                 <div style="display:flex;gap:8px">
-                  <input id="nfRC" list="nfListaRCs" required value="${ed?.rcNumero||''}" placeholder="Ex.: RC 0842" ${ed?'readonly':''}>
-                  <button type="button" class="btn btn-accent" id="btnCarregarRC" ${ed?'disabled':''}>Carregar RC</button>
+                  <input id="nfRC" list="nfListaRCs" required value="${ed?.tipoDocumento==='NF' ? (ed?.rcNumero||'') : ''}" placeholder="Ex.: RC 0842" ${ed?.tipoDocumento==='NF'?'readonly':''}>
+                  <button type="button" class="btn btn-accent" id="btnCarregarRC" ${ed?.tipoDocumento==='NF'?'disabled':''}>Carregar RC</button>
                 </div>
                 <datalist id="nfListaRCs">
                   ${rcsAprovadas.map(rc=>`<option value="${rc.numero}">${rc.fornecedor||''} · ${rc.aplicacao||''} · ${fmt.money(rc.total)}</option>`).join('')}
                 </datalist>
               </div>
-
-              <div class="field"><label>Nº da Nota Fiscal *</label><input id="nfNumero" required value="${ed?.numeroNF||''}" placeholder="Ex.: NF 185079"></div>
-              <div class="field"><label>Data da NF *</label><input type="date" id="nfDataDocumento" required value="${ed?.dataDocumento||hojeISO()}"></div>
-
+              <div class="field"><label>Nº da Nota Fiscal *</label><input id="nfNumero" required value="${ed?.tipoDocumento==='NF'?(ed?.numeroNF||''):''}" placeholder="Ex.: NF 185079"></div>
+              <div class="field"><label>Data da NF *</label><input type="date" id="nfDataDocumento" required value="${ed?.tipoDocumento==='NF'?(ed?.dataDocumento||hojeISO()):hojeISO()}"></div>
               <div class="field">
                 <label>Tipo de recebimento *</label>
                 <select id="nfTipoRecebimento" required>
@@ -3140,21 +3154,17 @@
                   <option value="PARCIAL" ${(ed?.tipoRecebimento || (ed?.recebimentoParcial?'PARCIAL':'INTEGRAL'))==='PARCIAL'?'selected':''}>Parcial - informar quantidades manualmente</option>
                 </select>
               </div>
-
-              <div class="field"><label>Fornecedor da RC</label><input id="nfFornecedor" readonly value="${ed?.fornecedor||rcEd?.fornecedor||''}"></div>
-              <div class="field"><label>Destino / Frota</label><input id="nfDestino" readonly value="${ed?.destino||rcEd?.aplicacao||''}"></div>
-              <div class="field"><label>Centro de custo</label><input id="nfCentroCusto" readonly value="${getCentroCustoRegistro(ed||rcEd||{})}"></div>
-              <div class="field"><label>Valor desta NF</label><input id="nfValorTotalVisual" readonly value="${fmt.money(ed?.valorTotal||numeroSeguro(rcEd?.total)||totalItensRC(rcEd))}"></div>
-
+              <div class="field"><label>Fornecedor da RC</label><input id="nfFornecedor" readonly value="${ed?.tipoDocumento==='NF'?(ed?.fornecedor||rcEd?.fornecedor||''):(rcEd?.fornecedor||'')}"></div>
+              <div class="field"><label>Destino / Frota / Projeto</label><input id="nfDestino" readonly value="${ed?.tipoDocumento==='NF'?(ed?.destino||rcEd?.aplicacao||''):(rcEd?.aplicacao||'')}"></div>
+              <div class="field"><label>Centro de custo</label><input id="nfCentroCusto" readonly value="${getCentroCustoRegistro(ed?.tipoDocumento==='NF'?ed:(rcEd||{}))}"></div>
+              <div class="field"><label>Valor desta NF</label><input id="nfValorTotalVisual" readonly value="${fmt.money(ed?.tipoDocumento==='NF'?(ed?.valorTotal||numeroSeguro(rcEd?.total)||totalItensRC(rcEd)):(numeroSeguro(rcEd?.total)||totalItensRC(rcEd)))}"></div>
               <div class="field" style="grid-column:span 4">
-                <div id="nfResumoRC">${renderResumoRCAprovada(rcEd, ed?.id||'', ed?.tipoRecebimento || (ed?.recebimentoParcial?'PARCIAL':'INTEGRAL'))}</div>
+                <div id="nfResumoRC">${renderResumoRCAprovada(rcEd, ed?.tipoDocumento==='NF'?(ed?.id||''):'', ed?.tipoRecebimento || (ed?.recebimentoParcial?'PARCIAL':'INTEGRAL'))}</div>
               </div>
-
-              ${renderCronogramaParcelasForm(ed || (rcEd ? {
+              ${renderCronogramaParcelasForm(ed?.tipoDocumento==='NF' ? ed : (rcEd ? {
                 condicaoPagamento: normalize(rcEd.condPag||'').includes('vista') ? 'A_VISTA' : 'PARCELADO',
                 numeroParcelas: Array.isArray(rcEd.vencimentos) && rcEd.vencimentos.length ? rcEd.vencimentos.length : undefined
               } : null))}
-
               <div class="field" style="grid-column:span 2"><label>Código / Conta contábil</label>
                 <select id="nfCodigoContabil" required>
                   <option value="">Selecione</option>
@@ -3163,24 +3173,103 @@
                 <div id="nfContaOrientacao" style="font-size:11px;color:var(--text-muted);margin-top:6px;"></div>
               </div>
             </div>
-
             <div class="form-actions">
-              <button type="submit" class="btn btn-accent">${ed?'Salvar alteração gerencial':'Confirmar recebimento da NF'}</button>
+              <button type="submit" class="btn btn-accent">${ed?.tipoDocumento==='NF'?'Salvar alteração gerencial':'Confirmar recebimento da NF'}</button>
               ${ed?`<button type="button" class="btn btn-ghost" id="btnCancelarEdicaoNF">Cancelar edição</button>`:''}
             </div>
-          </form>
+          </form>`;
+      } else {
+        const baixaEd = ed?.tipoDocumento === 'BAIXA_ESTOQUE' ? ed : {};
+        const centroBaixa = getCentroCustoRegistro(baixaEd);
+        const destinosBaixa = [...new Set(frotas
+          .filter(fr=>getCentroCustoRegistro(fr)===centroBaixa)
+          .map(fr=>fr.nome))].sort();
+        if (baixaEd.destino && !destinosBaixa.includes(baixaEd.destino)) destinosBaixa.unshift(baixaEd.destino);
+
+        formulario = `
+          <form id="formBaixaAlmox">
+            <input type="hidden" id="baixaEditId" value="${baixaEd.id||''}">
+            <div class="callout" style="margin-bottom:16px;border:1px solid var(--accent);background:rgba(163,255,0,.06);padding:12px;border-radius:10px">
+              <strong>Baixa de Almoxarifado:</strong> use para saída de material do estoque ou entrega de EPI. O valor lançado entra no Custo Real do destino escolhido.
+            </div>
+            <div class="form-grid">
+              <div class="field"><label>Tipo da baixa *</label>
+                <select id="baixaTipo" required>
+                  <option value="MATERIAL" ${(baixaEd.tipoBaixa||'MATERIAL')==='MATERIAL'?'selected':''}>Material de estoque</option>
+                  <option value="EPI" ${baixaEd.tipoBaixa==='EPI'?'selected':''}>EPI — entrega ao colaborador</option>
+                </select>
+              </div>
+              <div class="field"><label>Data da retirada / entrega *</label><input type="date" id="baixaData" required value="${baixaEd.dataDocumento||hojeISO()}"></div>
+              <div class="field"><label>Empresa / Centro *</label>
+                <select id="baixaCentro" required>
+                  ${CENTROS_CUSTO.map(c=>`<option value="${c}" ${centroBaixa===c?'selected':''}>${c}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field"><label>Destino / Local de uso *</label>
+                <select id="baixaDestino" required>
+                  <option value="">Selecione</option>
+                  ${destinosBaixa.map(x=>`<option value="${x}" ${baixaEd.destino===x?'selected':''}>${x}</option>`).join('')}
+                </select>
+              </div>
+
+              <div class="field" style="grid-column:span 2"><label>Material / EPI *</label>
+                <select id="baixaMaterial" required>
+                  <option value="">Selecione o material</option>
+                  ${allItems.slice().sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}))
+                    .map(i=>`<option value="${i.codigo}" data-custo="${numeroSeguro(i.custoUnitario)}" data-fornecedor="${String(i.fornecedor||'').replace(/"/g,'&quot;')}" ${baixaEd.itensRecebidos?.[0]?.codigo===i.codigo?'selected':''}>${i.codigo} — ${i.descricaoSimples||i.descricaoCurta||i.descricaoCompleta||'Material'}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field"><label>Quantidade *</label><input type="number" min="0.0001" step="0.0001" id="baixaQuantidade" required value="${baixaEd.quantidade||baixaEd.itensRecebidos?.[0]?.quantidade||1}"></div>
+              <div class="field"><label>Valor unitário *</label><input type="number" min="0" step="0.01" id="baixaValorUnitario" required value="${numeroSeguro(baixaEd.valorUnitario||baixaEd.itensRecebidos?.[0]?.valorUnitario)||''}"></div>
+
+              <div class="field"><label>Fornecedor original do material</label><input id="baixaFornecedor" value="${baixaEd.fornecedor||''}" placeholder="Fornecedor de origem"></div>
+              <div class="field" style="grid-column:span 2"><label>Colaborador que retirou / recebeu *</label>
+                <input id="baixaColaborador" required value="${baixaEd.colaboradorRetirada||''}" placeholder="Nome completo do colaborador">
+                <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Para EPI, este campo identifica obrigatoriamente quem recebeu o equipamento.</div>
+              </div>
+              <div class="field"><label>Valor total</label><input id="baixaValorTotalVisual" readonly value="${fmt.money(baixaEd.valorTotal||0)}"></div>
+
+              <div class="field" style="grid-column:span 4"><label>Observação</label>
+                <textarea id="baixaObservacao" rows="3" placeholder="Informações complementares">${baixaEd.observacoes||''}</textarea>
+              </div>
+              <div class="field" style="grid-column:span 4">
+                <div id="baixaContaInfo" style="padding:10px;border:1px solid var(--border);border-radius:8px">
+                  ${(baixaEd.tipoBaixa==='EPI')
+                    ? '<strong>Conta automática: 3.2.1.03 — Custos EPI</strong>'
+                    : '<strong>Conta automática: 3.2.1.05 — Custos de Material em Estoque</strong>'}
+                </div>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-accent">${baixaEd.id?'Salvar alteração da baixa':'Confirmar baixa de almoxarifado'}</button>
+              ${ed?`<button type="button" class="btn btn-ghost" id="btnCancelarEdicaoNF">Cancelar edição</button>`:''}
+            </div>
+          </form>`;
+      }
+
+      return `
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Lançamento de Movimentação</div>
+              <div class="card-sub">Selecione Nota Fiscal ou Baixa de Almoxarifado antes de preencher o lançamento.</div>
+            </div>
+            <span class="badge badge-ok">${lista.length} lançamento(s) · ${fmt.money(total)}</span>
+          </div>
+          ${seletorOperacao}
+          ${formulario}
         </div>
 
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header"><div><div class="card-title">Filtros</div><div class="card-sub">Histórico MC-PRO-030 já incorporado ao sistema: 1217 lançamentos (345 NFs e 872 baixas/lançamentos sem NF).</div></div></div>
           <div class="filters-grid">
-            <div class="field"><label>Busca</label><input id="nfFiltroBusca" value="${f.busca||''}" placeholder="NF, RC, material, fornecedor..."></div>
+            <div class="field"><label>Busca</label><input id="nfFiltroBusca" value="${f.busca||''}" placeholder="NF, RC, material, fornecedor, colaborador..."></div>
             <div class="field"><label>Data inicial</label><input type="date" id="nfFiltroDataIni" value="${f.dataIni||''}"></div>
             <div class="field"><label>Data final</label><input type="date" id="nfFiltroDataFim" value="${f.dataFim||''}"></div>
             <div class="field"><label>Centro</label><select id="nfFiltroCentro"><option value="">Todos</option>${CENTROS_CUSTO.map(c=>`<option value="${c}" ${f.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
             <div class="field"><label>Fornecedor</label><select id="nfFiltroFornecedor"><option value="">Todos</option>${fornecedoresList.map(x=>`<option value="${x}" ${f.fornecedor===x?'selected':''}>${x}</option>`).join('')}</select></div>
-            <div class="field"><label>Destino/Frota</label><select id="nfFiltroDestino"><option value="">Todos</option>${destinos.map(x=>`<option value="${x}" ${f.destino===x?'selected':''}>${x}</option>`).join('')}</select></div>
-            <div class="field"><label>Tipo</label><select id="nfFiltroTipo"><option value="">Todos</option><option value="NF" ${f.tipoDocumento==='NF'?'selected':''}>NF</option><option value="BAIXA_ESTOQUE" ${f.tipoDocumento==='BAIXA_ESTOQUE'?'selected':''}>Baixa Estoque</option></select></div>
+            <div class="field"><label>Destino</label><select id="nfFiltroDestino"><option value="">Todos</option>${destinos.map(x=>`<option value="${x}" ${f.destino===x?'selected':''}>${x}</option>`).join('')}</select></div>
+            <div class="field"><label>Tipo</label><select id="nfFiltroTipo"><option value="">Todos</option><option value="NF" ${f.tipoDocumento==='NF'?'selected':''}>NF</option><option value="BAIXA_ESTOQUE" ${f.tipoDocumento==='BAIXA_ESTOQUE'?'selected':''}>Baixa Almoxarifado</option></select></div>
             <div class="field"><label>Conta contábil</label><select id="nfFiltroConta"><option value="">Todas</option>${PLANO_CONTAS.map(c=>`<option value="${c.codigo}" ${f.codigoContabil===c.codigo?'selected':''}>${c.codigo} — ${c.descricao}</option>`).join('')}</select></div>
           </div>
         </div>
@@ -3189,8 +3278,8 @@
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>Data</th><th>NF/Documento</th><th>RC</th><th>Centro</th><th>Fornecedor</th><th>Destino/Frota</th>
-                <th>Materiais</th><th>Valor Total</th><th>Conta</th><th>Pagamento</th><th>Vencimento(s)</th><th>Lançado por</th><th>Ações</th>
+                <th>Data</th><th>NF/Documento</th><th>RC</th><th>Centro</th><th>Fornecedor</th><th>Destino</th>
+                <th>Materiais</th><th>Colaborador</th><th>Valor Total</th><th>Conta</th><th>Pagamento</th><th>Lançado por</th><th>Ações</th>
               </tr></thead>
               <tbody>
                 ${lista.length?lista.map(n=>{
@@ -3198,18 +3287,23 @@
                   const materiais=itens.length
                     ? itens.map(i=>`${i.codigo?`<strong>${i.codigo}</strong> — `:''}${i.descricao} (${i.quantidade} ${i.unidade||''})`).join('<br>')
                     : (n.descricao||'—');
+                  const tipoLabel = n.tipoDocumento==='BAIXA_ESTOQUE'
+                    ? (n.tipoBaixa==='EPI'?'Baixa EPI':'Baixa Material')
+                    : 'NF';
                   return `<tr>
                     <td>${fmt.date(n.dataDocumento)}</td>
-                    <td><strong>${n.numeroNF||'—'}</strong><div style="font-size:11px;color:var(--text-muted)">${n.tipoDocumento==='BAIXA_ESTOQUE'?'Baixa Estoque':'NF'}</div></td>
+                    <td><strong>${n.numeroNF||'—'}</strong><div style="font-size:11px;color:var(--text-muted)">${tipoLabel}</div></td>
                     <td><strong>${n.rcNumero||'—'}</strong></td>
                     <td>${getCentroCustoRegistro(n)}</td>
                     <td>${n.fornecedor||'—'}</td>
                     <td><strong>${n.destino||'—'}</strong></td>
                     <td style="min-width:260px">${materiais}</td>
+                    <td>${n.colaboradorRetirada||'—'}</td>
                     <td><strong>${fmt.money(n.valorTotal)}</strong></td>
                     <td title="${n.contaContabilDescricao||''}"><strong>${n.codigoContabil||'—'}</strong></td>
-                    <td>${n.condicaoPagamento==='PARCELADO' ? `${n.numeroParcelas||n.parcelas?.length||1}x` : (n.condicaoPagamento==='A_VISTA'?'À vista':(n.condicaoCompra||'Legado'))}</td>
-                    <td>${getParcelasLancamentoNF(n).map(p=>`<div style="white-space:nowrap">${p.parcela}ª: ${p.vencimento?fmt.date(p.vencimento):'—'} · ${fmt.money(p.valor)}</div>`).join('')}</td>
+                    <td>${n.tipoDocumento==='NF'
+                      ? (n.condicaoPagamento==='PARCELADO' ? `${n.numeroParcelas||n.parcelas?.length||1}x` : (n.condicaoPagamento==='A_VISTA'?'À vista':(n.condicaoCompra||'Legado')))
+                      : 'Não se aplica'}</td>
                     <td>${n.criadoPorNome||n.criadoPorEmail||'Importação histórica'}</td>
                     <td>${podeGerenciar?`<button class="btn btn-ghost btn-sm" data-editar-nf="${n.id}">Editar</button> <button class="btn btn-danger btn-sm" data-excluir-nf="${n.id}">Excluir</button>`:'<span style="font-size:11px;color:var(--text-muted)">Bloqueado</span>'}</td>
                   </tr>`;
@@ -3369,6 +3463,7 @@
         const totalVal = rc.total || 0;
 
         let acoes = [];
+        acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc="${rc.numero}" title="Visualizar conteúdo da RC">🔍</button>`);
 
         // PDF e WhatsApp: disponíveis apenas se NÃO for rejeitado e NÃO for rascunho/arquivado
         if (rc.status !== 'rejeitado' && rc.status !== 'rascunho' && rc.status !== 'arquivado') {
@@ -3376,9 +3471,13 @@
           acoes.push(`<button class="btn btn-ghost btn-sm" data-whats-rc="${rc.numero}">Whats</button>`);
         }
 
+        if (perfil === 'admin') {
+          acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar tudo</button>`);
+        }
+
         if (perfil === 'usuario' || perfil === 'gerente' || perfil === 'admin') {
           if (rc.status === 'rascunho') {
-            acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
+            if (perfil !== 'admin') acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
             acoes.unshift(`<button class="btn btn-warning btn-sm" data-arquivar-rc="${rc.numero}">Arquivar</button>`);
             acoes.unshift(`<button class="btn btn-accent btn-sm" data-enviar-rc="${rc.numero}">Enviar</button>`);
           }
@@ -3837,6 +3936,11 @@
     ============================================================ */
     let __pdfGerando = false;
 function gerarPDF(rcData) {
+      if (__pdfGerando) {
+        showToast('Já existe um PDF sendo gerado. Aguarde a conclusão.');
+        return;
+      }
+      __pdfGerando = true;
       const container = document.createElement('div');
       container.style.cssText = 'position:absolute;left:-9999px;top:0;width:800px;background:white;color:black;padding:30px;font-family:Arial,sans-serif;';
       container.innerHTML = `
@@ -3890,12 +3994,14 @@ function gerarPDF(rcData) {
         }
 
         pdf.save(`RC_${rcData.numero}.pdf`);
-        document.body.removeChild(container);
+        if (container.parentNode) document.body.removeChild(container);
+        __pdfGerando = false;
         showToast(`PDF da ${rcData.numero} gerado!`);
       }).catch(err => {
         console.error(err);
         showToast('Erro ao gerar PDF.', true);
-        document.body.removeChild(container);
+        if (container.parentNode) document.body.removeChild(container);
+        __pdfGerando = false;
       });
     }
 
@@ -3928,7 +4034,6 @@ function gerarPDF(rcData) {
           window.open(url, '_blank');
         }, index * 300);
       });
-      gerarPDF(rcData);
     }
 
     /* ============================================================
@@ -4166,14 +4271,105 @@ function gerarPDF(rcData) {
       return html;
     }
 
-    function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) {
+    
+    function abrirVisualizacaoRC(numero) {
+      const rc = rcs.find(r => r.numero === numero);
+      if (!rc) return showToast('RC não encontrada.', true);
+      const itens = Array.isArray(rc.itens) ? rc.itens : [];
+      const linhas = itens.map((i, idx) => `
+        <tr>
+          <td>${idx+1}</td>
+          <td>${i.codigo || '—'}</td>
+          <td>${i.descricao || '—'}</td>
+          <td>${i.qtd ?? i.quantidade ?? 0}</td>
+          <td>${i.unidade || i.un || '—'}</td>
+          <td>${fmt.money(i.valorUnit ?? i.valorUnitario ?? 0)}</td>
+          <td>${fmt.money(i.total ?? ((i.qtd ?? i.quantidade ?? 0) * (i.valorUnit ?? i.valorUnitario ?? 0)))}</td>
+        </tr>`).join('');
+
+      const modal = document.createElement('div');
+      modal.className = 'modal active';
+      modal.id = 'modalVisualizacaoPublica';
+      modal.innerHTML = `
+        <div class="modal-card" style="max-width:980px;width:min(96vw,980px)">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">🔍 ${rc.numero}</div>
+              <div style="font-size:12px;color:var(--text-muted)">Visualização disponível para todos os perfis ativos</div>
+            </div>
+            <button class="btn btn-ghost" data-fechar-visualizacao>Fechar</button>
+          </div>
+          <div class="form-grid" style="margin-bottom:16px">
+            <div class="field"><label>Status</label><div>${rc.status || '—'}</div></div>
+            <div class="field"><label>Centro</label><div>${getCentroCustoRegistro(rc)}</div></div>
+            <div class="field"><label>Destino</label><div>${rc.aplicacao || '—'}</div></div>
+            <div class="field"><label>Fornecedor</label><div>${rc.fornecedor || '—'}</div></div>
+            <div class="field"><label>Data</label><div>${fmt.date(rc.data)}</div></div>
+            <div class="field"><label>Total</label><div><strong>${fmt.money(rc.total)}</strong></div></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Código</th><th>Material</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th></tr></thead>
+              <tbody>${linhas || '<tr><td colspan="7" style="text-align:center">Nenhum item.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+
+    function abrirVisualizacaoSolicitacao(id) {
+      const sol = solicitacoes.find(s => s.id === id);
+      if (!sol) return showToast('Solicitação não encontrada.', true);
+      const itens = Array.isArray(sol.itens) ? sol.itens : [];
+      const linhas = itens.map((i, idx) => `
+        <tr>
+          <td>${idx+1}</td>
+          <td>${i.codigo || '—'}</td>
+          <td>${i.descricao || '—'}</td>
+          <td>${i.qtd ?? i.quantidade ?? 0}</td>
+          <td>${i.unidade || i.un || '—'}</td>
+        </tr>`).join('');
+
+      const modal = document.createElement('div');
+      modal.className = 'modal active';
+      modal.id = 'modalVisualizacaoPublica';
+      modal.innerHTML = `
+        <div class="modal-card" style="max-width:900px;width:min(96vw,900px)">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">🔍 Solicitação</div>
+              <div style="font-size:12px;color:var(--text-muted)">Visualização disponível para todos os perfis ativos</div>
+            </div>
+            <button class="btn btn-ghost" data-fechar-visualizacao>Fechar</button>
+          </div>
+          <div class="form-grid" style="margin-bottom:16px">
+            <div class="field"><label>Centro</label><div>${getCentroCustoRegistro(sol)}</div></div>
+            <div class="field"><label>Destino</label><div>${sol.destino || '—'}</div></div>
+            <div class="field"><label>Data necessidade</label><div>${fmt.date(sol.dataNecessidade)}</div></div>
+            <div class="field"><label>Status</label><div>${sol.arquivada?'Arquivada':(sol.convertida?'Convertida':'Pendente')}</div></div>
+            <div class="field"><label>Criado por</label><div>${sol.criadoPorNome || sol.criadoPorEmail || '—'}</div></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Código</th><th>Material</th><th>Qtd.</th><th>Un.</th></tr></thead>
+              <tbody>${linhas || '<tr><td colspan="5" style="text-align:center">Nenhum item.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+
+function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) {
       if (!lista.length) return `<p style="color:var(--text-muted);padding:20px;">Nenhuma solicitação encontrada.</p>`;
       const rows = lista.map(sol => {
         const status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Pendente');
         const statusCls = sol.arquivada ? 'badge-danger' : (sol.convertida ? 'badge-ok' : 'badge-pending');
         const acoes = [];
+        acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-sol="${sol.id}" title="Visualizar conteúdo da solicitação">🔍</button>`);
 
-        if (!sol.convertida && !sol.arquivada && podeOperarSolicitacoes) {
+        if (perfilAtual === 'admin') {
+          acoes.push(`<button class="btn btn-ghost btn-sm" data-editar-sol="${sol.id}">Editar tudo</button>`);
+        } else if (!sol.convertida && !sol.arquivada && podeOperarSolicitacoes) {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-editar-sol="${sol.id}">Editar / Materiais</button>`);
           acoes.push(`<button class="btn btn-warning btn-sm" data-arquivar-sol="${sol.id}">Arquivar</button>`);
         }
@@ -4226,6 +4422,7 @@ function gerarPDF(rcData) {
                 <select id="solCentroCusto" required>
                   <option value="SANTOS" ${getCentroCustoRegistro(data)==='SANTOS'?'selected':''}>Santos</option>
                   <option value="CAMAÇARI" ${getCentroCustoRegistro(data)==='CAMAÇARI'?'selected':''}>Camaçari</option>
+                  <option value="MECHATRONICS" ${getCentroCustoRegistro(data)==='MECHATRONICS'?'selected':''}>Mechatronics</option>
                 </select>
               </div>
               <div class="field"><label>Destino *</label>
@@ -4234,6 +4431,7 @@ function gerarPDF(rcData) {
                   ${(() => {
                     const cc = getCentroCustoRegistro(data);
                     const nomes = [...new Set(frotasList.filter(f => getCentroCustoRegistro(f) === cc).map(f => f.nome))];
+                    if (data.destino && !nomes.includes(data.destino)) nomes.unshift(data.destino);
                     return nomes.map(nome => `<option value="${nome}" ${data.destino===nome?'selected':''}>${nome}</option>`).join('');
                   })()}
                 </select>
@@ -4543,6 +4741,153 @@ function gerarPDF(rcData) {
     }
 
     function bindEvents() {
+      // ===== SELETOR NF x BAIXA DE ALMOXARIFADO =====
+      document.querySelectorAll('[data-tipo-operacao]').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          state.nfEditId = null;
+          state.recebimentoOperacao = btn.dataset.tipoOperacao;
+          render();
+        });
+      });
+
+      document.querySelectorAll('[data-ver-rc]').forEach(btn=>{
+        btn.addEventListener('click',()=>abrirVisualizacaoRC(btn.dataset.verRc));
+      });
+      document.querySelectorAll('[data-ver-sol]').forEach(btn=>{
+        btn.addEventListener('click',()=>abrirVisualizacaoSolicitacao(btn.dataset.verSol));
+      });
+      document.querySelectorAll('[data-fechar-visualizacao]').forEach(btn=>{
+        btn.addEventListener('click',()=>btn.closest('.modal')?.remove());
+      });
+
+      const atualizarBaixaTotal = ()=>{
+        const qtd = numeroSeguro(document.getElementById('baixaQuantidade')?.value);
+        const unit = numeroSeguro(document.getElementById('baixaValorUnitario')?.value);
+        const el = document.getElementById('baixaValorTotalVisual');
+        if (el) el.value = fmt.money(qtd * unit);
+      };
+
+      document.getElementById('baixaMaterial')?.addEventListener('change',e=>{
+        const opt = e.target.options[e.target.selectedIndex];
+        const custo = numeroSeguro(opt?.dataset?.custo);
+        const forn = opt?.dataset?.fornecedor || '';
+        const unit = document.getElementById('baixaValorUnitario');
+        const fornecedor = document.getElementById('baixaFornecedor');
+        if (unit && !numeroSeguro(unit.value) && custo) unit.value = custo.toFixed(2);
+        if (fornecedor && !fornecedor.value && forn) fornecedor.value = forn;
+        atualizarBaixaTotal();
+      });
+
+      document.getElementById('baixaQuantidade')?.addEventListener('input',atualizarBaixaTotal);
+      document.getElementById('baixaValorUnitario')?.addEventListener('input',atualizarBaixaTotal);
+
+      document.getElementById('baixaTipo')?.addEventListener('change',e=>{
+        const info = document.getElementById('baixaContaInfo');
+        if (info) info.innerHTML = e.target.value==='EPI'
+          ? '<strong>Conta automática: 3.2.1.03 — Custos EPI</strong>'
+          : '<strong>Conta automática: 3.2.1.05 — Custos de Material em Estoque</strong>';
+      });
+
+      document.getElementById('baixaCentro')?.addEventListener('change',e=>{
+        const cc = centroCustoNormalizado(e.target.value);
+        const destino = document.getElementById('baixaDestino');
+        if (!destino) return;
+        const nomes = [...new Set(frotas.filter(fr=>getCentroCustoRegistro(fr)===cc).map(fr=>fr.nome))]
+          .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+        destino.innerHTML = '<option value="">Selecione</option>' + nomes.map(n=>`<option value="${n}">${n}</option>`).join('');
+      });
+
+      const formBaixa = document.getElementById('formBaixaAlmox');
+      if (formBaixa) formBaixa.addEventListener('submit', async e=>{
+        e.preventDefault();
+        if (formBaixa.dataset.saving === '1') return;
+
+        const editId = document.getElementById('baixaEditId')?.value || '';
+        const matCod = document.getElementById('baixaMaterial')?.value || '';
+        const material = allItems.find(i=>i.codigo===matCod);
+        const qtd = numeroSeguro(document.getElementById('baixaQuantidade')?.value);
+        const unit = numeroSeguro(document.getElementById('baixaValorUnitario')?.value);
+        const tipoBaixa = document.getElementById('baixaTipo')?.value || 'MATERIAL';
+        const colaborador = (document.getElementById('baixaColaborador')?.value || '').trim();
+        const centro = centroCustoNormalizado(document.getElementById('baixaCentro')?.value);
+        const destino = document.getElementById('baixaDestino')?.value || '';
+        const fornecedor = (document.getElementById('baixaFornecedor')?.value || '').trim();
+
+        if (!material) return showToast('Selecione o material/EPI.', true);
+        if (qtd <= 0) return showToast('Informe uma quantidade válida.', true);
+        if (unit < 0) return showToast('Informe um valor unitário válido.', true);
+        if (!centro) return showToast('Selecione o centro/empresa.', true);
+        if (!destino) return showToast('Selecione o local de uso/destino.', true);
+        if (!colaborador) return showToast('Informe o colaborador que retirou/recebeu o item.', true);
+
+        const codigoContabil = tipoBaixa === 'EPI' ? '3.2.1.03' : '3.2.1.05';
+        const conta = PLANO_CONTAS.find(c=>c.codigo===codigoContabil);
+        const total = qtd * unit;
+        const desc = material.descricaoSimples || material.descricaoCurta || material.descricaoCompleta || matCod;
+
+        const registro = {
+          id: editId || undefined,
+          tipoDocumento: 'BAIXA_ESTOQUE',
+          tipoOperacao: 'BAIXA_ESTOQUE',
+          tipoBaixa,
+          numeroNF: 'Não Aplicado',
+          numeroNFOriginal: 'Não Aplicado',
+          rcNumero: '',
+          dataDocumento: document.getElementById('baixaData')?.value || hojeISO(),
+          centroCusto: centro,
+          fornecedor,
+          destino,
+          descricao: desc,
+          quantidade: qtd,
+          valorUnitario: unit,
+          valorTotal: total,
+          colaboradorRetirada: colaborador,
+          observacoes: document.getElementById('baixaObservacao')?.value || '',
+          itensRecebidos: [{
+            codigo: matCod,
+            descricao: desc,
+            quantidade: qtd,
+            unidade: material.unid || material.unidade || 'UN',
+            valorUnitario: unit,
+            total
+          }],
+          codigoContabil,
+          contaContabilDescricao: conta?.descricao || (tipoBaixa==='EPI'?'Custos EPI':'Custos de Material em Estoque'),
+          contaContabilOrientacao: conta?.orientacao || '',
+          statusPagamento: '',
+          condicaoPagamento: '',
+          condicaoCompra: 'BAIXA DE ALMOXARIFADO',
+          origem: 'baixa_almoxarifado_v8_2'
+        };
+
+        if (!editId) {
+          registro.criadoPorUid = getUsuarioUid();
+          registro.criadoPorEmail = getUsuarioEmail();
+          registro.criadoPorNome = getUsuarioNome();
+          registro.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+        } else {
+          registro.alteradoPorUid = getUsuarioUid();
+          registro.alteradoPorEmail = getUsuarioEmail();
+          registro.alteradoEm = firebase.firestore.FieldValue.serverTimestamp();
+        }
+
+        const btn = formBaixa.querySelector('button[type="submit"]');
+        try {
+          formBaixa.dataset.saving='1';
+          if (btn) { btn.disabled=true; btn.textContent='Salvando...'; }
+          await salvarRecebimentoNF(registro);
+          state.nfEditId = null;
+          state.recebimentoOperacao = 'BAIXA_ESTOQUE';
+          showToast(tipoBaixa==='EPI' ? 'Entrega de EPI registrada no custo real.' : 'Baixa de almoxarifado registrada no custo real.');
+          render();
+        } catch(err) {
+          showToast('Erro ao salvar baixa: '+(err.message||err), true);
+        } finally {
+          formBaixa.dataset.saving='0';
+          if (btn) { btn.disabled=false; btn.textContent='Confirmar baixa de almoxarifado'; }
+        }
+      });
+
       // ===== DASHBOARD CUSTOS =====
       const custoMap={
         custoDataIni:'dataIni',
@@ -4860,6 +5205,8 @@ function gerarPDF(rcData) {
       document.querySelectorAll('[data-editar-nf]').forEach(btn=>btn.addEventListener('click',()=>{
         if (!podeGerenciarRecebimentoNF()) return;
         state.nfEditId=btn.dataset.editarNf;
+        const reg = recebimentosNF.find(x=>x.id===state.nfEditId);
+        state.recebimentoOperacao = reg?.tipoDocumento==='BAIXA_ESTOQUE' ? 'BAIXA_ESTOQUE' : 'NF';
         window.scrollTo({top:0,behavior:'smooth'});
         render();
       }));
@@ -5304,9 +5651,22 @@ function gerarPDF(rcData) {
       document.getElementById('rcFiltroDestino')?.addEventListener('change', (e) => { state.rcFilters.destino = e.target.value; state.rcPage=1; render(); });
       document.getElementById('btnApplyRCFiltros')?.addEventListener('click', () => { state.rcPage=1; render(); });
 
-      document.querySelector('#appContent')?.addEventListener('click', async (e) => {
+      bindStaticOnce(document.querySelector('#appContent'), 'click', async (e) => {
         const target = e.target.closest('button');
         if (!target) return;
+
+        if (target.dataset.verRc) {
+          abrirVisualizacaoRC(target.dataset.verRc);
+          return;
+        }
+        if (target.dataset.verSol) {
+          abrirVisualizacaoSolicitacao(target.dataset.verSol);
+          return;
+        }
+        if (target.dataset.fecharVisualizacao !== undefined) {
+          target.closest('.modal')?.remove();
+          return;
+        }
 
         if (target.dataset.editarRc) {
           const numero = target.dataset.editarRc;
@@ -5426,7 +5786,7 @@ function gerarPDF(rcData) {
           if (rc) enviarWhatsApp(rc);
           return;
         }
-      });
+      }, 'clickAppContentPrincipal');
 
       // ===== SOLICITAÇÕES =====
       const montarFormularioSolicitacao = (dados = null) => {
@@ -5441,9 +5801,10 @@ function gerarPDF(rcData) {
           const atual = destinoEl.value;
           const nomes = [...new Set(frotas.filter(f=>getCentroCustoRegistro(f)===cc).map(f=>f.nome))]
             .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+          if (dados?.destino && !nomes.includes(dados.destino)) nomes.unshift(dados.destino);
           destinoEl.innerHTML='<option value="">Selecione</option>'+nomes.map(nome=>`<option value="${nome}">${nome}</option>`).join('');
           if (nomes.includes(atual)) destinoEl.value=atual;
-          else if (dados?.destino && nomes.includes(dados.destino)) destinoEl.value=dados.destino;
+          else if (dados?.destino) destinoEl.value=dados.destino;
         };
 
         document.getElementById('solCentroCusto')?.addEventListener('change', atualizarDestinosSolicitacao);
