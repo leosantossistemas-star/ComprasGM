@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V8.4 — Frotas/Projetos + conclusão + edição total + visualização única ===== -->
+  <!-- ===== V8.5 — códigos CRY/MECH corrigidos + filtros de Pagamentos corrigidos ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -1087,15 +1087,46 @@
     /* ============================================================
        FUNÇÕES AUXILIARES (adaptadas para Firestore)
     ============================================================ */
-    function getNextCode(prefixo = 'CRYO') {
-      const prefix = String(prefixo || 'CRYO').toUpperCase() === 'MECH' ? 'MECH' : 'CRYO';
-      const rx = new RegExp('^' + prefix + '-(\\d+)$', 'i');
-      let max = 0;
+    function getNextCode(empresa = 'CRYO') {
+      const empresaNorm = String(empresa || 'CRYO').trim().toUpperCase();
+
+      // Mechatronics possui sequência própria e independente.
+      if (empresaNorm === 'MECH' || empresaNorm === 'MECHATRONICS') {
+        let maxMech = 0;
+        allItems.forEach(i => {
+          const mt = String(i.codigo || '').trim().match(/^MECH[-_\s]?(\d+)$/i);
+          if (mt) maxMech = Math.max(maxMech, Number(mt[1]) || 0);
+        });
+        return 'MECH-' + String(maxMech + 1).padStart(4, '0');
+      }
+
+      // Cryotronics: não reinicia a sequência.
+      // O banco histórico desta aplicação utiliza principalmente CRY-xxxx.
+      // Também reconhece CRYO-xxxx caso existam registros novos nesse padrão.
+      let maxCry = 0;
+      let qtdCry = 0;
+      let qtdCryo = 0;
+
       allItems.forEach(i => {
-        const mt = String(i.codigo || '').match(rx);
-        if (mt) max = Math.max(max, Number(mt[1]) || 0);
+        const codigo = String(i.codigo || '').trim();
+
+        let mt = codigo.match(/^CRY[-_\s]?(\d+)$/i);
+        if (mt) {
+          qtdCry++;
+          maxCry = Math.max(maxCry, Number(mt[1]) || 0);
+          return;
+        }
+
+        mt = codigo.match(/^CRYO[-_\s]?(\d+)$/i);
+        if (mt) {
+          qtdCryo++;
+          maxCry = Math.max(maxCry, Number(mt[1]) || 0);
+        }
       });
-      return prefix + '-' + String(max + 1).padStart(4, '0');
+
+      // Preserva o padrão já usado no cadastro existente.
+      const prefixoSaida = qtdCry >= qtdCryo && qtdCry > 0 ? 'CRY' : 'CRYO';
+      return prefixoSaida + '-' + String(maxCry + 1).padStart(4, '0');
     }
 
     // Adaptado para usar a variável global rcs (atualizada pelo listener)
@@ -3146,12 +3177,30 @@
         .slice();
 
       if (pf.busca) {
-        const q = normalize(pf.busca);
-        lista = lista.filter(n => [n.numeroNF, n.rcNumero, n.fornecedor, n.destino]
-          .some(v => normalize(v || '').includes(q)));
+        const qTexto = normalize(pf.busca);
+        const qDigitos = String(pf.busca).replace(/\D/g, '');
+        lista = lista.filter(n => {
+          const campos = [n.numeroNF, n.numeroNFOriginal, n.rcNumero, n.fornecedor, n.destino];
+          const bateTexto = campos.some(v => normalize(v || '').includes(qTexto));
+          const bateNumero = qDigitos
+            ? campos.some(v => String(v || '').replace(/\D/g, '').includes(qDigitos))
+            : false;
+          return bateTexto || bateNumero;
+        });
       }
-      if (pf.dataIni) lista = lista.filter(n => String(n.dataDocumento || '') >= pf.dataIni);
-      if (pf.dataFim) lista = lista.filter(n => String(n.dataDocumento || '') <= pf.dataFim);
+
+      if (pf.dataIni) {
+        lista = lista.filter(n => {
+          const d = String(n.dataDocumento || '').slice(0,10);
+          return d && d >= pf.dataIni;
+        });
+      }
+      if (pf.dataFim) {
+        lista = lista.filter(n => {
+          const d = String(n.dataDocumento || '').slice(0,10);
+          return d && d <= pf.dataFim;
+        });
+      }
 
       lista.sort((a,b)=>String(b.dataDocumento||'').localeCompare(String(a.dataDocumento||'')));
 
@@ -3175,10 +3224,17 @@
             </div>
           </div>
           <div class="filters-grid">
-            <div class="field"><label>Pesquisar NF / RC / fornecedor / destino</label><input id="pagFiltroBusca" value="${pf.busca||''}" placeholder="Ex.: NF 185079"></div>
+            <div class="field"><label>Pesquisar NF / RC / fornecedor / destino</label><input id="pagFiltroBusca" value="${pf.busca||''}" placeholder="Ex.: NF 972153 ou 972153"></div>
             <div class="field"><label>Data inicial</label><input type="date" id="pagFiltroDataIni" value="${pf.dataIni||''}"></div>
             <div class="field"><label>Data final</label><input type="date" id="pagFiltroDataFim" value="${pf.dataFim||''}"></div>
-            <div class="field" style="align-self:end"><button class="btn btn-ghost" id="pagLimparFiltros">Limpar filtros</button></div>
+            <div class="field" style="align-self:end;display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn-accent" id="pagAplicarFiltros">Aplicar filtros</button>
+              <button type="button" class="btn btn-ghost" id="pagLimparFiltros">Limpar filtros</button>
+            </div>
+            <div style="grid-column:1/-1;font-size:12px;color:var(--text-muted)">
+              Resultado atual: <strong style="color:var(--accent)">${lista.length}</strong> NF(s).
+              ${pf.busca||pf.dataIni||pf.dataFim ? ' Filtros ativos.' : ' Sem filtros ativos.'}
+            </div>
           </div>
         </div>
         <div class="card">
@@ -3540,7 +3596,7 @@
     }
 
     function renderNovo() {
-      const nextCode = getNextCode('CRYO');
+      const nextCode = getNextCode(state.novoMaterialEmpresa || 'CRYO');
       const today = new Date().toLocaleDateString("pt-BR");
       const categorias = getUniqueValues('categoria');
       const subcategorias = getUniqueValues('subcategoria');
@@ -3554,11 +3610,13 @@
             <div class="form-grid">
               <div class="field"><label>Empresa / Prefixo do código *</label>
                 <select id="novoEmpresaCodigo" required>
-                  <option value="CRYO">Cryotronics — CRYO</option>
-                  <option value="MECH">Mechatronics — MECH</option>
+                  <option value="CRYO" ${(state.novoMaterialEmpresa||'CRYO')==='CRYO'?'selected':''}>Cryotronics — CRYO</option>
+                  <option value="MECH" ${state.novoMaterialEmpresa==='MECH'?'selected':''}>Mechatronics — MECH</option>
                 </select>
               </div>
-              <div class="field"><label>Código</label><input type="text" id="novoCodigo" value="${nextCode}" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" /></div>
+              <div class="field"><label>Código</label><input type="text" id="novoCodigo" value="${nextCode}" readonly style="background:#1a1f1a;color:var(--accent);font-weight:600;" />
+                <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Atualiza automaticamente ao trocar Cryotronics/Mechatronics. MECH possui sequência própria iniciando em MECH-0001.</div>
+              </div>
               <div class="field"><label>Data Cadastro</label><input type="text" id="novoData" value="${today}" readonly style="background:#1a1f1a;" /></div>
               <div class="field"><label>Usuário *</label><input type="text" id="novoUsuario" placeholder="Nome do responsável" /></div>
               <div class="field"><label>Cadastro Completo?</label><select id="novoCompleto"><option value="SIM">SIM</option><option value="NAO">NÃO</option></select></div>
@@ -4940,7 +4998,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V8.4';
+        if (versaoEl) versaoEl.textContent = 'V8.5';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -4982,6 +5040,43 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     }
 
     function bindEvents() {
+      // ===== FILTROS PAGAMENTOS DE NF =====
+      const aplicarFiltrosPagamento = () => {
+        state.pagamentoNFFilters = {
+          busca: (document.getElementById('pagFiltroBusca')?.value || '').trim(),
+          dataIni: document.getElementById('pagFiltroDataIni')?.value || '',
+          dataFim: document.getElementById('pagFiltroDataFim')?.value || ''
+        };
+
+        if (state.pagamentoNFFilters.dataIni &&
+            state.pagamentoNFFilters.dataFim &&
+            state.pagamentoNFFilters.dataIni > state.pagamentoNFFilters.dataFim) {
+          showToast('A data inicial não pode ser maior que a data final.', true);
+          return;
+        }
+
+        state.pagamentoNFDetalheId = null;
+        render();
+      };
+
+      document.getElementById('pagAplicarFiltros')?.addEventListener('click', aplicarFiltrosPagamento);
+
+      document.getElementById('pagFiltroBusca')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          aplicarFiltrosPagamento();
+        }
+      });
+
+      document.getElementById('pagFiltroDataIni')?.addEventListener('change', aplicarFiltrosPagamento);
+      document.getElementById('pagFiltroDataFim')?.addEventListener('change', aplicarFiltrosPagamento);
+
+      document.getElementById('pagLimparFiltros')?.addEventListener('click', () => {
+        state.pagamentoNFFilters = { busca:'', dataIni:'', dataFim:'' };
+        state.pagamentoNFDetalheId = null;
+        render();
+      });
+
       // ===== SELETOR NF x BAIXA DE ALMOXARIFADO =====
       document.getElementById('recebimentoModo')?.addEventListener('change', e=>{
         state.nfEditId = null;
@@ -5576,6 +5671,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       const formNovo = document.getElementById('formNovo');
       if (formNovo) formNovo.addEventListener('submit', (e) => { e.preventDefault(); handleFormNovo(); });
+
+      // Atualiza imediatamente o código ao trocar a empresa do material.
+      document.getElementById('novoEmpresaCodigo')?.addEventListener('change', e => {
+        const empresa = e.target.value || 'CRYO';
+        state.novoMaterialEmpresa = empresa;
+        const codigoEl = document.getElementById('novoCodigo');
+        if (codigoEl) codigoEl.value = getNextCode(empresa);
+      });
 
       document.querySelectorAll('[data-edit]').forEach(btn => {
         btn.addEventListener('click', () => abrirModalEdicao(btn.dataset.edit));
