@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V7.9 — cadastros abertos + recebimento integral/parcial controlado ===== -->
+  <!-- ===== V8.0 — histórico 60 dias + copiar solicitação + gestão de pagamento de NF ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -405,6 +405,7 @@
       <li><button class="nav-btn" data-section="novo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Novo Cadastro</button></li>
       <li><button class="nav-btn" data-section="requisicoes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h18M3 14h18M3 18h12"/><rect x="3" y="4" width="18" height="16" rx="1"/></svg>Requisições</button></li>
       <li><button class="nav-btn" data-section="recebimentoNFs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Recebimento NFs</button></li>
+      <li id="navPagamentosNF" style="display:none"><button class="nav-btn" data-section="pagamentosNF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>Pagamentos de NF</button></li>
       <!-- NOVA ABA: SOLICITAR RC -->
       <li><button class="nav-btn" data-section="solicitar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v8M8 12h8"/><rect x="3" y="4" width="18" height="16" rx="1"/></svg>Solicitar RC</button></li>
     </ul>
@@ -761,6 +762,7 @@
         };
         label.textContent = `${nomes[perfilAtual] || perfilAtual} — ${getUsuarioNome()}`;
       }
+      if (typeof atualizarMenuPorPerfil === 'function') atualizarMenuPorPerfil();
     }
 
     async function logout() {
@@ -2840,6 +2842,173 @@
       </div>`;
     }
 
+
+    function podeVisualizarPagamentosNF() {
+      return ['gerente','admin'].includes(perfilAtual);
+    }
+
+    function nfOperacionalParaPagamento(nf) {
+      return !!nf
+        && nf.tipoDocumento === 'NF'
+        && !nf.historicoLocal
+        && nf.origem !== 'historico_planilha_nf'
+        && nf.origem !== 'historico_planilha_nf_embutido'
+        && !!nf.id
+        && !!nf.numeroNF;
+    }
+
+    function statusPagamentoNF(nf) {
+      return nf?.statusPagamento === 'PAGO' ? 'PAGO' : 'PENDENTE';
+    }
+
+    function vencimentosTextoNF(nf) {
+      const parcelas = Array.isArray(nf?.parcelas) ? nf.parcelas : [];
+      if (parcelas.length) {
+        return parcelas.map(p => {
+          const valor = numeroSeguro(p.valor);
+          return `${p.vencimento ? fmt.date(p.vencimento) : '—'}${valor ? ` · ${fmt.money(valor)}` : ''}`;
+        }).join('<br>');
+      }
+      return nf?.vencimento ? fmt.date(nf.vencimento) : '—';
+    }
+
+    function renderDetalhePagamentoNF(nf) {
+      const itens = nf?.itensRecebidos || [];
+      return `
+        <div class="card" style="border:2px solid var(--accent);margin-bottom:18px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">NF ${nf.numeroNF || '—'} · ${nf.fornecedor || '—'}</div>
+              <div class="card-sub">RC ${nf.rcNumero || '—'} · ${nf.destino || '—'} · ${getCentroCustoRegistro(nf)}</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="state.pagamentoNFDetalheId=null;render()">Fechar</button>
+          </div>
+          <div class="grid-4" style="margin-bottom:14px;">
+            <div><div style="font-size:11px;color:var(--text-muted)">Data da NF</div><strong>${fmt.date(nf.dataDocumento)}</strong></div>
+            <div><div style="font-size:11px;color:var(--text-muted)">Valor</div><strong>${fmt.money(nf.valorTotal)}</strong></div>
+            <div><div style="font-size:11px;color:var(--text-muted)">Pagamento</div><strong>${statusPagamentoNF(nf)==='PAGO'?'✅ Pago':'⏳ Pendente'}</strong></div>
+            <div><div style="font-size:11px;color:var(--text-muted)">Vencimento(s)</div><strong>${vencimentosTextoNF(nf)}</strong></div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Código</th><th>Material</th><th>Quantidade</th><th>Unidade</th><th>Valor unit.</th><th>Total</th></tr></thead>
+            <tbody>${itens.length ? itens.map(i=>`<tr>
+              <td>${i.codigo||'—'}</td>
+              <td>${i.descricao||'—'}</td>
+              <td>${i.quantidade||0}</td>
+              <td>${i.unidade||'—'}</td>
+              <td>${fmt.money(i.valorUnitario)}</td>
+              <td>${fmt.money(i.valorTotal)}</td>
+            </tr>`).join('') : `<tr><td colspan="6">${nf.descricao || 'Sem detalhamento de itens.'}</td></tr>`}</tbody>
+          </table></div>
+          ${nf.statusPagamento==='PAGO' ? `<div style="margin-top:12px;font-size:12px;color:var(--text-muted)">Pago por <strong>${nf.pagoPorNome||nf.pagoPorEmail||'—'}</strong>${nf.pagoEm?` em ${dataJSRegistro(nf.pagoEm)?.toLocaleString('pt-BR')||'—'}`:''}.</div>` : ''}
+        </div>`;
+    }
+
+    function renderPagamentosNF() {
+      if (!podeVisualizarPagamentosNF()) {
+        return `<div class="card"><div class="card-title">Acesso restrito</div><p style="color:var(--text-muted);margin-top:8px;">Esta área é exclusiva para Gerente e Administrador.</p></div>`;
+      }
+
+      const lista = recebimentosNF
+        .filter(nfOperacionalParaPagamento)
+        .slice()
+        .sort((a,b)=>String(b.dataDocumento||'').localeCompare(String(a.dataDocumento||'')));
+
+      const pendentes = lista.filter(n=>statusPagamentoNF(n)==='PENDENTE');
+      const pagos = lista.filter(n=>statusPagamentoNF(n)==='PAGO');
+      const totalPendente = pendentes.reduce((s,n)=>s+numeroSeguro(n.valorTotal),0);
+      const detalhe = state.pagamentoNFDetalheId ? lista.find(n=>n.id===state.pagamentoNFDetalheId) : null;
+
+      return `
+        ${detalhe ? renderDetalhePagamentoNF(detalhe) : ''}
+        <div class="grid-3" style="margin-bottom:20px;">
+          <div class="card"><div class="card-sub">NFs pendentes</div><div style="font-size:28px;font-weight:900;margin-top:7px">${pendentes.length}</div></div>
+          <div class="card"><div class="card-sub">Valor pendente</div><div style="font-size:28px;font-weight:900;margin-top:7px">${fmt.money(totalPendente)}</div></div>
+          <div class="card"><div class="card-sub">NFs pagas</div><div style="font-size:28px;font-weight:900;margin-top:7px">${pagos.length}</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">💳 NFs liberadas para consulta de pagamento</div>
+              <div class="card-sub">Somente NFs registradas operacionalmente no sistema. Gerente e Administrador podem consultar e apontar como Paga ou Pendente.</div>
+            </div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Data</th><th>NF</th><th>RC</th><th>Fornecedor</th><th>Destino</th><th>Valor</th><th>Vencimento(s)</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody>${lista.length ? lista.map(nf=>{
+              const pago=statusPagamentoNF(nf)==='PAGO';
+              return `<tr>
+                <td>${fmt.date(nf.dataDocumento)}</td>
+                <td><strong>${nf.numeroNF}</strong></td>
+                <td>${nf.rcNumero||'—'}</td>
+                <td>${nf.fornecedor||'—'}</td>
+                <td>${nf.destino||'—'}</td>
+                <td><strong>${fmt.money(nf.valorTotal)}</strong></td>
+                <td>${vencimentosTextoNF(nf)}</td>
+                <td><span class="badge ${pago?'badge-ok':'badge-pending'}">${pago?'✅ PAGA':'⏳ PENDENTE'}</span></td>
+                <td style="white-space:nowrap">
+                  <button class="btn btn-ghost btn-sm" onclick="state.pagamentoNFDetalheId='${nf.id}';render()" title="Visualizar a NF registrada">👁 Ver</button>
+                  <button class="btn ${pago?'btn-warning':'btn-accent'} btn-sm" onclick="alternarPagamentoNF('${nf.id}')" title="${pago?'Voltar para Pendente':'Marcar como Paga'}">${pago?'↩ Pendente':'✓ Paga'}</button>
+                </td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted);">Nenhuma NF operacional registrada para pagamento.</td></tr>`}</tbody>
+          </table></div>
+        </div>
+      `;
+    }
+
+    async function alternarPagamentoNF(id) {
+      if (!podeVisualizarPagamentosNF()) {
+        showToast('Somente Gerente e Administrador podem alterar o status de pagamento.', true);
+        return;
+      }
+      const nf = recebimentosNF.find(n=>n.id===id);
+      if (!nf || !nfOperacionalParaPagamento(nf)) {
+        showToast('NF operacional não encontrada.', true);
+        return;
+      }
+      const atual = statusPagamentoNF(nf);
+      const novo = atual === 'PAGO' ? 'PENDENTE' : 'PAGO';
+
+      if (novo === 'PAGO' && !confirm(`Confirmar que a NF ${nf.numeroNF} foi paga?`)) return;
+      if (novo === 'PENDENTE' && !confirm(`Retornar a NF ${nf.numeroNF} para Pendente?`)) return;
+
+      try {
+        const dados = {
+          statusPagamento: novo,
+          pagamentoAlteradoPorUid: getUsuarioUid(),
+          pagamentoAlteradoPorEmail: getUsuarioEmail(),
+          pagamentoAlteradoPorNome: getUsuarioNome(),
+          pagamentoAlteradoEm: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        if (novo === 'PAGO') {
+          dados.pagoPorUid = getUsuarioUid();
+          dados.pagoPorEmail = getUsuarioEmail();
+          dados.pagoPorNome = getUsuarioNome();
+          dados.pagoEm = firebase.firestore.FieldValue.serverTimestamp();
+        } else {
+          dados.pagoPorUid = '';
+          dados.pagoPorEmail = '';
+          dados.pagoPorNome = '';
+          dados.pagoEm = null;
+        }
+
+        await db.collection('recebimentos_nf').doc(id).update(dados);
+        showToast(novo === 'PAGO' ? 'NF marcada como paga.' : 'NF retornada para pendente.');
+      } catch (err) {
+        showToast('Erro ao atualizar pagamento: ' + (err.message || err), true);
+      }
+    }
+
+    function atualizarMenuPorPerfil() {
+      const nav = document.getElementById('navPagamentosNF');
+      if (nav) nav.style.display = podeVisualizarPagamentosNF() ? '' : 'none';
+
+      if (!podeVisualizarPagamentosNF() && state.section === 'pagamentosNF') {
+        state.section = 'dashboard';
+      }
+    }
+
     function renderRecebimentoNFs() {
       const podeGerenciar = podeGerenciarRecebimentoNF();
       const f = state.nfFilters || {};
@@ -3782,6 +3951,135 @@
     /* ============================================================
        SEÇÃO SOLICITAR RC (NOVA)
     ============================================================ */
+
+    function dataBaseSolicitacao(sol) {
+      return dataJSRegistro(sol?.dataCriacao || sol?.criadoEm || sol?.data || sol?.alteradoEm);
+    }
+
+    function dataExpiracaoSolicitacao(sol) {
+      const base = dataBaseSolicitacao(sol) || new Date();
+      return new Date(base.getTime() + (60 * 24 * 60 * 60 * 1000));
+    }
+
+    function solicitacaoDentroDos60Dias(sol) {
+      const exp = sol?.expiraEm ? dataJSRegistro(sol.expiraEm) : dataExpiracaoSolicitacao(sol);
+      return !exp || exp.getTime() > Date.now();
+    }
+
+    function solicitacaoCriadaPeloUsuarioAtual(sol) {
+      const uid = getUsuarioUid();
+      if (sol?.criadoPorUid && uid) return sol.criadoPorUid === uid;
+      const email = normalize(getUsuarioEmail());
+      if (sol?.criadoPorEmail && email) return normalize(sol.criadoPorEmail) === email;
+      return normalize(sol?.criadoPorNome || '') === normalize(getUsuarioNome() || '');
+    }
+
+    function renderHistoricoSolicitacoesDoCriador() {
+      if (!['encarregado','admin'].includes(perfilAtual)) return '';
+
+      const minhas = solicitacoes
+        .filter(s => solicitacaoCriadaPeloUsuarioAtual(s))
+        .filter(s => solicitacaoDentroDos60Dias(s))
+        .slice()
+        .sort((a,b) => {
+          const da = dataBaseSolicitacao(a)?.getTime() || 0;
+          const dbb = dataBaseSolicitacao(b)?.getTime() || 0;
+          return dbb - da;
+        });
+
+      const linhas = minhas.map(sol => {
+        const status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Pendente');
+        const statusCls = sol.arquivada ? 'badge-danger' : (sol.convertida ? 'badge-ok' : 'badge-pending');
+        const criado = dataBaseSolicitacao(sol);
+        const exp = sol?.expiraEm ? dataJSRegistro(sol.expiraEm) : dataExpiracaoSolicitacao(sol);
+        const itensResumo = (sol.itens || []).slice(0,3).map(i =>
+          `${i.codigo ? `<strong>${i.codigo}</strong> — ` : ''}${i.descricao || 'Item'} (${i.qtd || 0} ${i.unidade || ''})`
+        ).join('<br>');
+
+        return `<tr>
+          <td>${criado ? criado.toLocaleDateString('pt-BR') : '—'}</td>
+          <td>${getCentroCustoRegistro(sol)}</td>
+          <td><strong>${sol.destino || '—'}</strong></td>
+          <td style="min-width:280px">${itensResumo || '—'}${(sol.itens||[]).length>3?`<div style="font-size:11px;color:var(--text-muted)">+ ${(sol.itens||[]).length-3} item(ns)</div>`:''}</td>
+          <td><span class="badge ${statusCls}">${status}</span></td>
+          <td>${exp ? exp.toLocaleDateString('pt-BR') : '—'}</td>
+          <td>
+            <button class="btn btn-accent btn-sm" data-copiar-sol="${sol.id}" title="Criar uma nova solicitação usando os itens desta como modelo">⧉ Copiar Solicitação</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      return `
+        <div class="card" style="margin-top:20px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🕘 Meu Histórico de Solicitações</div>
+              <div class="card-sub">Somente solicitações criadas por você nos últimos 60 dias. Use “Copiar Solicitação” para repetir uma compra sem redigitar os itens.</div>
+            </div>
+            <span class="badge badge-ok">${minhas.length} registro(s)</span>
+          </div>
+          <div style="padding:10px 12px;border:1px solid var(--warning);border-radius:8px;margin-bottom:14px;font-size:12px;">
+            <strong>Retenção:</strong> as solicitações permanecem no banco por 60 dias. Após esse prazo, serão eliminadas automaticamente pelo TTL do Firestore.
+          </div>
+          ${minhas.length ? `<div class="table-wrap"><table>
+            <thead><tr><th>Criada em</th><th>Filial</th><th>Destino original</th><th>Itens</th><th>Status</th><th>Expira em</th><th>Ação</th></tr></thead>
+            <tbody>${linhas}</tbody>
+          </table></div>` : `<p style="color:var(--text-muted);padding:18px;">Você ainda não possui solicitações dentro do período de 60 dias.</p>`}
+        </div>
+      `;
+    }
+
+    async function prepararTTLDasSolicitacoes() {
+      if (!['encarregado','admin'].includes(perfilAtual)) return;
+      const candidatos = solicitacoes.filter(sol => {
+        if (sol.expiraEm) return false;
+        if (perfilAtual === 'encarregado' && !solicitacaoCriadaPeloUsuarioAtual(sol)) return false;
+        return !!sol.id;
+      }).slice(0,350);
+
+      if (!candidatos.length) return;
+
+      try {
+        const batch = db.batch();
+        candidatos.forEach(sol => {
+          const expira = dataExpiracaoSolicitacao(sol);
+          batch.update(db.collection('solicitacoes').doc(sol.id), {
+            expiraEm: firebase.firestore.Timestamp.fromDate(expira)
+          });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Não foi possível preparar expiração TTL das solicitações:', err);
+      }
+    }
+
+    function copiarSolicitacaoComoNova(id) {
+      if (!['encarregado','admin'].includes(perfilAtual)) {
+        showToast('Somente Encarregado e Administrador podem copiar uma solicitação a partir do histórico.', true);
+        return null;
+      }
+      const original = solicitacoes.find(s => s.id === id);
+      if (!original) {
+        showToast('Solicitação original não encontrada.', true);
+        return null;
+      }
+      if (!solicitacaoCriadaPeloUsuarioAtual(original) && perfilAtual !== 'admin') {
+        showToast('Você só pode copiar solicitações criadas por você.', true);
+        return null;
+      }
+
+      return {
+        centroCusto: getCentroCustoRegistro(original),
+        destino: '',
+        dataNecessidade: '',
+        itens: (original.itens || []).map(i => ({...i})),
+        copiaOrigemId: original.id,
+        copiaOrigemDestino: original.destino || '',
+        convertida: false,
+        arquivada: false
+      };
+    }
+
     function renderSolicitar() {
       const perfil = perfilAtual;
       const podeCriar = ['encarregado', 'gerente', 'admin'].includes(perfil);
@@ -3800,8 +4098,9 @@
         </div>
         <div class="card">
           <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">A solicitação pode ser preparada/arquivada por Compras; conversão em RC por Encarregado, Gerente ou Administrador</div></div></div>
-          ${renderTabelaSolicitacoes(solicitacoes, podeConverter, podeOperarSolicitacoes)}
+          ${renderTabelaSolicitacoes(solicitacoes.filter(s=>solicitacaoDentroDos60Dias(s)), podeConverter, podeOperarSolicitacoes)}
         </div>
+        ${renderHistoricoSolicitacoesDoCriador()}
       `;
       return html;
     }
@@ -3845,16 +4144,22 @@
       const hoje = new Date().toISOString().slice(0,10);
       const frotasList = frotas;
       const isEdit = !!editData;
-      const data = isEdit ? editData : {};
+      const data = editData || {};
+      const isCopy = !!data.copiaOrigemId;
+      const dataNecessidadeValor = isCopy ? '' : (data.dataNecessidade || hoje);
 
       return `
         <div class="card" style="border:2px solid var(--accent);margin-top:8px;">
           <div class="card-header">
-            <div><div class="card-title">${isEdit ? 'Editar Solicitação' : 'Nova Solicitação'}</div></div>
+            <div><div class="card-title">${isEdit ? 'Editar Solicitação' : (isCopy ? 'Copiar Solicitação' : 'Nova Solicitação')}</div></div>
             <button class="btn btn-ghost" id="btnCancelarSolicitacao">Cancelar</button>
           </div>
+          ${isCopy ? `<div style="padding:10px 12px;margin-bottom:14px;border:1px solid var(--warning);border-radius:8px;background:rgba(255,184,0,.08);font-size:12px;">
+            <strong>Cópia de solicitação antiga.</strong> Os itens foram reaproveitados, mas você deve informar novamente o destino e a data de necessidade. Destino original: <strong>${data.copiaOrigemDestino || '—'}</strong>.
+          </div>` : ''}
           <form id="formSolicitacao">
             <input type="hidden" id="solEditId" value="${data.id || ''}">
+            <input type="hidden" id="solOrigemCopiaId" value="${data.copiaOrigemId || ''}">
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
               <div class="field"><label>Filial / Centro de custo *</label>
                 <select id="solCentroCusto" required>
@@ -3872,7 +4177,7 @@
                   })()}
                 </select>
               </div>
-              <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${data.dataNecessidade || hoje}" required /></div>
+              <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${dataNecessidadeValor}" required /></div>
             </div>
             <div style="margin:16px 0;">
               <div class="card-header"><div class="card-title">Itens solicitados</div></div>
@@ -4079,7 +4384,12 @@
       if (!itens.length) { showToast('Adicione pelo menos um item.', true); return; }
 
       const editId = getVal('solEditId');
+      const origemCopiaId = getVal('solOrigemCopiaId');
       const existente = editId ? solicitacoes.find(s=>s.id===editId) : null;
+      const agora = new Date();
+      const expiraEm = existente?.expiraEm || firebase.firestore.Timestamp.fromDate(
+        new Date(agora.getTime() + (60 * 24 * 60 * 60 * 1000))
+      );
       const novaSol = {
         ...(editId ? {id:editId} : {}),
         centroCusto,
@@ -4088,14 +4398,16 @@
         itens,
         convertida: existente?.convertida || false,
         arquivada: existente?.arquivada || false,
+        origemCopiaId: existente?.origemCopiaId || origemCopiaId || '',
         criadoPor: existente?.criadoPor || perfilAtual,
         criadoPorUid: existente?.criadoPorUid || getUsuarioUid(),
         criadoPorEmail: existente?.criadoPorEmail || getUsuarioEmail(),
         criadoPorNome: existente?.criadoPorNome || getUsuarioNome(),
-        dataCriacao: existente?.dataCriacao || new Date().toISOString(),
+        dataCriacao: existente?.dataCriacao || agora.toISOString(),
+        expiraEm,
         alteradoPorUid: editId ? getUsuarioUid() : '',
         alteradoPorEmail: editId ? getUsuarioEmail() : '',
-        alteradoEm: editId ? new Date().toISOString() : ''
+        alteradoEm: editId ? agora.toISOString() : ''
       };
 
       salvarSolicitacao(novaSol)
@@ -4123,6 +4435,7 @@
           novo: { title: 'Novo Cadastro', meta: 'Adicione um novo material à base' },
           requisicoes: { title: 'Requisições de Compra', meta: 'Fluxo completo de aprovação' },
           recebimentoNFs: { title: 'Recebimento de NFs', meta: 'Gasto real efetivo, baixas de estoque e classificação contábil' },
+          pagamentosNF: { title: 'Pagamentos de NF', meta: 'Consulta gerencial das NFs recebidas e controle de Paga/Pendente' },
           solicitar: { title: 'Solicitar RC', meta: 'Solicitações simplificadas para conversão' },
         };
         const info = titleMap[sec] || titleMap.dashboard;
@@ -4139,6 +4452,7 @@
         else if (sec === 'novo') html = renderNovo();
         else if (sec === 'requisicoes') html = renderRequisicoes();
         else if (sec === 'recebimentoNFs') html = renderRecebimentoNFs();
+        else if (sec === 'pagamentosNF') html = renderPagamentosNF();
         else if (sec === 'solicitar') html = renderSolicitar();
         else html = '<div class="loading"><span>Carregando…</span></div>';
 
@@ -4419,6 +4733,7 @@
             contaContabilDescricao: c?.descricao || '',
             contaContabilOrientacao: c?.orientacao || '',
             origem: 'recebimento_por_rc',
+            statusPagamento: ed?.statusPagamento || 'PENDENTE',
             tipoRecebimento,
             conferenciaItens: tipoRecebimento === 'PARCIAL'
               ? 'RECEBIMENTO_PARCIAL_COM_SALDO_RESIDUAL'
@@ -5080,6 +5395,16 @@
         });
       });
 
+      document.querySelectorAll('[data-copiar-sol]').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          const dados = copiarSolicitacaoComoNova(btn.dataset.copiarSol);
+          if (dados) {
+            montarFormularioSolicitacao(dados);
+            showToast('Itens copiados. Informe o novo destino e a nova data de necessidade.');
+          }
+        });
+      });
+
       document.querySelectorAll('[data-arquivar-sol]').forEach(btn=>{
         btn.addEventListener('click',async()=>{
           if(!confirm('Arquivar esta solicitação?')) return;
@@ -5416,7 +5741,7 @@
         const list = [];
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         recebimentosNF = mesclarHistoricoComFirestore(list);
-        if (state.section === 'recebimentoNFs' || state.section === 'frotas' || state.section === 'dashboard' || state.section === 'dashboardCustos') render();
+        if (state.section === 'recebimentoNFs' || state.section === 'pagamentosNF' || state.section === 'frotas' || state.section === 'dashboard' || state.section === 'dashboardCustos') render();
       }, error => { console.error('Erro no listener de recebimentos NF:', error); showToast('Erro ao carregar recebimentos de NF: ' + error.message, true); });
 
       // NOVO: Solicitações
@@ -5425,9 +5750,11 @@
         snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
         solicitacoes = list;
         if (state.section === 'solicitar') render();
+        prepararTTLDasSolicitacoes();
       }, error => { console.error('Erro no listener de solicitações:', error); showToast('Erro ao carregar solicitações: ' + error.message, true); });
 
       perfilAtual = getPerfil();
+      atualizarMenuPorPerfil();
       document.getElementById("sidebarSource").textContent = "Dados em tempo real - Firebase Firestore";
 
       // Vincular botão Sair
