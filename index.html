@@ -363,11 +363,13 @@
         padding-bottom: 16px;
       }
     }
-</style>
+
+    .selected-row td{background:rgba(163,255,0,.08)!important}
+    </style>
 </head>
 <body>
 
-  <!-- ===== V8.6 — pesquisa inteligente de Material/EPI na baixa de almoxarifado ===== -->
+  <!-- ===== V8.7 — filtro Material/EPI igual à aba Materiais ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -3493,18 +3495,23 @@
                 </select>
               </div>
 
-              <div class="field" style="grid-column:span 2;position:relative"><label>Material / EPI *</label>
+              <div class="field" style="grid-column:span 4">
+                <label>Material / EPI *</label>
                 <input type="hidden" id="baixaMaterialCodigo" value="${baixaEd.itensRecebidos?.[0]?.codigo||''}">
-                <input id="baixaMaterialBusca"
-                       autocomplete="off"
-                       value="${baixaEd.itensRecebidos?.[0]?.codigo ? `${baixaEd.itensRecebidos[0].codigo} — ${baixaEd.itensRecebidos[0].descricao||''}` : ''}"
-                       placeholder="Digite código, número ou nome do material..."
-                       required>
-                <div id="baixaMaterialResultados"
-                     style="display:none;position:absolute;z-index:80;left:0;right:0;top:68px;max-height:330px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.45)"></div>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:5px">
-                  Digite parte do código ou descrição. Ex.: <strong>0483</strong>, <strong>CRY-0483</strong>, <strong>luva</strong>, <strong>capacete</strong>.
+                <div style="display:grid;grid-template-columns:minmax(280px,1fr) auto;gap:10px;align-items:end">
+                  <div>
+                    <input id="baixaMaterialBusca"
+                           autocomplete="off"
+                           value="${baixaEd.itensRecebidos?.[0]?.codigo ? `${baixaEd.itensRecebidos[0].codigo} — ${baixaEd.itensRecebidos[0].descricao||''}` : ''}"
+                           placeholder="BUSCAR: código, número, descrição, marca ou fornecedor..."
+                           required>
+                  </div>
+                  <button type="button" class="btn btn-ghost" id="baixaMaterialLimpar">Limpar busca</button>
                 </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:5px">
+                  Funciona como o filtro da aba Materiais: digite e a lista abaixo é reduzida imediatamente.
+                </div>
+                <div id="baixaMaterialResultados" style="margin-top:10px;max-height:310px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)"></div>
               </div>
               <div class="field"><label>Quantidade *</label><input type="number" min="0.0001" step="0.0001" id="baixaQuantidade" required value="${baixaEd.quantidade||baixaEd.itensRecebidos?.[0]?.quantidade||1}"></div>
               <div class="field"><label>Valor unitário *</label><input type="number" min="0" step="0.01" id="baixaValorUnitario" required value="${numeroSeguro(baixaEd.valorUnitario||baixaEd.itensRecebidos?.[0]?.valorUnitario)||''}"></div>
@@ -5004,7 +5011,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V8.6';
+        if (versaoEl) versaoEl.textContent = 'V8.7';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -5105,121 +5112,99 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       };
 
 
-      // ===== PESQUISA INTELIGENTE DE MATERIAL / EPI =====
+      // ===== FILTRO MATERIAL / EPI — MESMO COMPORTAMENTO DA ABA MATERIAIS =====
       const baixaBusca = document.getElementById('baixaMaterialBusca');
       const baixaCodigo = document.getElementById('baixaMaterialCodigo');
       const baixaResultados = document.getElementById('baixaMaterialResultados');
 
-      const textoMaterialBaixa = (item) => {
-        const desc = item.descricaoSimples || item.descricaoCurta || item.descricaoCompleta || 'Material';
-        return `${item.codigo || ''} — ${desc}`;
-      };
+      const descricaoMaterialBaixa = (item) =>
+        item.descricaoSimples || item.descricaoCurta || item.descricaoCompleta || 'Material';
 
       const aplicarMaterialBaixa = (codigo) => {
         const material = allItems.find(i => String(i.codigo || '') === String(codigo || ''));
         if (!material) return false;
 
         if (baixaCodigo) baixaCodigo.value = material.codigo || '';
-        if (baixaBusca) baixaBusca.value = textoMaterialBaixa(material);
+        if (baixaBusca) baixaBusca.value = `${material.codigo || ''} — ${descricaoMaterialBaixa(material)}`;
 
         const unit = document.getElementById('baixaValorUnitario');
         const fornecedor = document.getElementById('baixaFornecedor');
         const custo = numeroSeguro(material.custoUnitario);
         if (unit && custo) unit.value = custo.toFixed(2);
         if (fornecedor) fornecedor.value = material.fornecedor || '';
-
-        if (baixaResultados) baixaResultados.style.display = 'none';
         atualizarBaixaTotal();
+
+        renderFiltroMaterialBaixa(baixaBusca?.value || '');
         return true;
       };
 
-      const renderResultadosMaterialBaixa = (termo = '') => {
-        if (!baixaResultados) return;
-
-        const qTexto = normalize(termo || '');
+      const filtrarMateriaisBaixa = (termo = '') => {
+        const q = normalize(termo || '');
         const qDigitos = String(termo || '').replace(/\D/g, '');
 
-        let resultados = allItems.slice().filter(item => {
-          if (!qTexto && !qDigitos) return true;
+        return allItems.filter(item => {
+          if (!q && !qDigitos) return true;
 
-          const codigo = String(item.codigo || '');
-          const descricao = [
+          const hay = normalize([
+            item.codigo,
             item.descricaoSimples,
             item.descricaoCurta,
             item.descricaoCompleta,
-            item.categoria,
-            item.subcategoria,
             item.marca,
             item.modelo,
-            item.fornecedor
-          ].filter(Boolean).join(' ');
+            item.fornecedor,
+            item.categoria,
+            item.subcategoria
+          ].join(' '));
 
-          const textoCompleto = normalize(`${codigo} ${descricao}`);
-          const codigoDigitos = codigo.replace(/\D/g, '');
+          const codigoDigitos = String(item.codigo || '').replace(/\D/g, '');
 
-          return textoCompleto.includes(qTexto)
-            || (qDigitos && codigoDigitos.includes(qDigitos));
+          return hay.includes(q) || (!!qDigitos && codigoDigitos.includes(qDigitos));
         });
-
-        resultados.sort((a,b) => {
-          const ca = String(a.codigo || '');
-          const cb = String(b.codigo || '');
-
-          // resultados cujo código começa com a pesquisa aparecem primeiro
-          const qa = normalize(termo || '');
-          const aComeca = normalize(ca).startsWith(qa) ? 0 : 1;
-          const bComeca = normalize(cb).startsWith(qa) ? 0 : 1;
-          if (aComeca !== bComeca) return aComeca - bComeca;
-
-          return ca.localeCompare(cb, 'pt-BR', { numeric:true });
-        });
-
-        resultados = resultados.slice(0, 40);
-
-        if (!resultados.length) {
-          baixaResultados.innerHTML = `
-            <div style="padding:14px;color:var(--text-muted)">
-              Nenhum material encontrado para <strong>${termo || ''}</strong>.
-            </div>`;
-          baixaResultados.style.display = 'block';
-          return;
-        }
-
-        baixaResultados.innerHTML = resultados.map(item => {
-          const desc = item.descricaoSimples || item.descricaoCurta || item.descricaoCompleta || 'Material';
-          const categoria = item.categoria || '';
-          const fornecedor = item.fornecedor || '';
-          const custo = numeroSeguro(item.custoUnitario);
-
-          return `
-            <button type="button"
-                    data-baixa-material="${item.codigo}"
-                    style="display:block;width:100%;text-align:left;padding:11px 13px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">
-              <div style="font-weight:800"><span style="color:var(--accent)">${item.codigo}</span> — ${desc}</div>
-              <div style="font-size:11px;color:var(--text-muted);margin-top:3px">
-                ${categoria ? `Categoria: ${categoria}` : ''}
-                ${fornecedor ? `${categoria ? ' · ' : ''}Fornecedor: ${fornecedor}` : ''}
-                ${custo ? `${categoria || fornecedor ? ' · ' : ''}${fmt.money(custo)}` : ''}
-              </div>
-            </button>`;
-        }).join('');
-
-        baixaResultados.style.display = 'block';
       };
 
-      baixaBusca?.addEventListener('focus', e => {
-        renderResultadosMaterialBaixa(e.target.value || '');
-      });
+      const renderFiltroMaterialBaixa = (termo = '') => {
+        if (!baixaResultados) return;
+
+        const filtrados = filtrarMateriaisBaixa(termo)
+          .sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}));
+
+        const limite = 60;
+        const exibidos = filtrados.slice(0, limite);
+
+        baixaResultados.innerHTML = `
+          <div style="padding:8px 10px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+            Exibindo <strong style="color:var(--accent)">${filtrados.length}</strong> de <strong>${allItems.length}</strong> materiais
+            ${filtrados.length > limite ? ` · mostrando os primeiros ${limite}` : ''}
+          </div>
+          <div class="table-wrap" style="max-height:260px;overflow:auto">
+            <table style="margin:0">
+              <thead>
+                <tr><th>Código</th><th>Descrição</th><th>Categoria</th><th>UN</th><th>Custo Unit.</th><th>Fornecedor</th><th>Ação</th></tr>
+              </thead>
+              <tbody>
+                ${exibidos.length ? exibidos.map(item => `
+                  <tr class="${String(baixaCodigo?.value||'')===String(item.codigo||'')?'selected-row':''}">
+                    <td><span class="code">${item.codigo||'—'}</span></td>
+                    <td>${descricaoMaterialBaixa(item)}</td>
+                    <td>${item.categoria||'—'}</td>
+                    <td>${item.unid||item.unidade||'—'}</td>
+                    <td>${item.custoUnitario || (numeroSeguro(item.custoUnitario)?fmt.money(numeroSeguro(item.custoUnitario)):'—')}</td>
+                    <td>${item.fornecedor||'—'}</td>
+                    <td><button type="button" class="btn btn-accent btn-sm" data-baixa-material="${item.codigo}">Selecionar</button></td>
+                  </tr>`).join('')
+                : `<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--text-muted)">Nenhum material encontrado.</td></tr>`}
+              </tbody>
+            </table>
+          </div>`;
+      };
 
       baixaBusca?.addEventListener('input', e => {
         if (baixaCodigo) baixaCodigo.value = '';
-        renderResultadosMaterialBaixa(e.target.value || '');
+        renderFiltroMaterialBaixa(e.target.value || '');
       });
 
       baixaBusca?.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && baixaResultados) {
-          baixaResultados.style.display = 'none';
-        }
         if (e.key === 'Enter') {
           const primeiro = baixaResultados?.querySelector('[data-baixa-material]');
           if (primeiro) {
@@ -5235,11 +5220,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         aplicarMaterialBaixa(btn.dataset.baixaMaterial);
       });
 
-      document.addEventListener('click', e => {
-        if (!baixaResultados || !baixaBusca) return;
-        if (e.target === baixaBusca || baixaResultados.contains(e.target)) return;
-        baixaResultados.style.display = 'none';
+      document.getElementById('baixaMaterialLimpar')?.addEventListener('click', () => {
+        if (baixaBusca) baixaBusca.value = '';
+        if (baixaCodigo) baixaCodigo.value = '';
+        renderFiltroMaterialBaixa('');
+        baixaBusca?.focus();
       });
+
+      // Mostra a tabela imediatamente, igual à aba Materiais.
+      renderFiltroMaterialBaixa(baixaBusca?.value || '');
 
       document.getElementById('baixaQuantidade')?.addEventListener('input',atualizarBaixaTotal);
       document.getElementById('baixaValorUnitario')?.addEventListener('input',atualizarBaixaTotal);
