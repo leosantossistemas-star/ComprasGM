@@ -367,7 +367,7 @@
 </head>
 <body>
 
-  <!-- ===== V7.8 FINAL — correções RC, parcelas, materiais e recebimento parcial ===== -->
+  <!-- ===== V7.9 — cadastros abertos + recebimento integral/parcial controlado ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -2787,16 +2787,57 @@
       );
     }
 
-    function renderResumoRCAprovada(rc, editId='') {
-      if(!rc) return `<div class="card" style="padding:14px;background:var(--surface-2);border-style:dashed"><div style="font-weight:800">Informe uma RC aprovada</div><div style="font-size:12px;color:var(--text-muted);margin-top:5px">O sistema carregará fornecedor, destino, materiais, quantidades e valores.</div></div>`;
+    function renderResumoRCAprovada(rc, editId='', tipoRecebimento='INTEGRAL') {
+      if(!rc) return `<div class="card" style="padding:14px;background:var(--surface-2);border-style:dashed"><div style="font-weight:800">Informe uma RC aprovada</div><div style="font-size:12px;color:var(--text-muted);margin-top:5px">O sistema carregará fornecedor, destino, materiais, saldo pendente e valores.</div></div>`;
+
       const itens=itensPendentesRC(rc,editId);
       const anteriores=recebimentosDaRC(rc.numero).filter(n=>n.id!==editId);
+      const parcial = tipoRecebimento === 'PARCIAL';
+
       return `<div class="card" style="padding:14px;background:var(--surface-2)">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px"><div><div style="font-weight:900;font-size:16px">${rc.numero}</div><div style="font-size:12px;color:var(--text-muted)">Fornecedor: <strong>${rc.fornecedor||'—'}</strong> · Destino: <strong>${rc.aplicacao||'—'}</strong> · Centro: <strong>${getCentroCustoRegistro(rc)}</strong></div></div><div style="text-align:right"><div style="font-size:11px;color:var(--text-muted)">Total aprovado</div><div style="font-size:18px;font-weight:900">${fmt.money(numeroSeguro(rc.total)||totalItensRC(rc))}</div></div></div>
-        ${anteriores.length?`<div style="padding:9px 10px;margin-bottom:10px;border:1px solid var(--warning);border-radius:8px;font-size:12px">Já existem ${anteriores.length} recebimento(s). O saldo pendente já desconta as entregas anteriores.</div>`:''}
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:10px"><input type="checkbox" id="nfRecebimentoParcial" ${anteriores.length?'checked':''}> Recebimento parcial</label>
-        <div class="table-wrap"><table><thead><tr><th>#</th><th>Código</th><th>Material</th><th>Aprovado</th><th>Já recebido</th><th>Pendente</th><th>Receber nesta NF</th><th>Un.</th><th>Valor unit.</th></tr></thead><tbody>${itens.map(i=>`<tr><td>${i.ordem}</td><td>${i.codigo||'—'}</td><td><strong>${i.descricao||'—'}</strong></td><td>${i.quantidade}</td><td>${i.quantidadeRecebidaAnterior}</td><td><strong>${i.quantidadePendente}</strong></td><td><input type="number" min="0" max="${i.quantidadePendente}" step="0.001" class="nfQtdReceberItem" data-ordem="${i.ordem}" value="${i.quantidadePendente}"></td><td>${i.unidade||'—'}</td><td>${fmt.money(i.valorUnitario)}</td></tr>`).join('')}</tbody></table></div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:10px">Materiais e preços permanecem conforme a RC. Apenas a quantidade desta entrega pode ser reduzida até o saldo pendente.</div></div>`;
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <div>
+            <div style="font-weight:900;font-size:16px">${rc.numero}</div>
+            <div style="font-size:12px;color:var(--text-muted)">Fornecedor: <strong>${rc.fornecedor||'—'}</strong> · Destino: <strong>${rc.aplicacao||'—'}</strong> · Centro: <strong>${getCentroCustoRegistro(rc)}</strong></div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:var(--text-muted)">Total aprovado da RC</div>
+            <div style="font-size:18px;font-weight:900">${fmt.money(numeroSeguro(rc.total)||totalItensRC(rc))}</div>
+          </div>
+        </div>
+
+        ${anteriores.length?`<div style="padding:9px 10px;margin-bottom:10px;border:1px solid var(--warning);border-radius:8px;font-size:12px">Já existem ${anteriores.length} recebimento(s) vinculado(s) a esta RC. O saldo pendente abaixo já desconta as entradas anteriores.</div>`:''}
+
+        <div style="padding:10px 12px;margin-bottom:10px;border-radius:8px;background:${parcial?'rgba(255,184,0,.10)':'rgba(163,255,0,.08)'};border:1px solid ${parcial?'var(--warning)':'var(--accent)'};font-size:12px;">
+          ${parcial
+            ? '<strong>Recebimento PARCIAL:</strong> informe manualmente somente as quantidades que constam nesta NF. O saldo restante continuará pendente para uma próxima NF.'
+            : '<strong>Recebimento INTEGRAL:</strong> o sistema considera automaticamente todo o saldo pendente da RC nesta NF. As quantidades não precisam ser digitadas.'}
+        </div>
+
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Código</th><th>Material</th><th>Aprovado</th><th>Já recebido</th><th>Saldo pendente</th><th>Receber nesta NF</th><th>Un.</th><th>Valor unit.</th></tr></thead>
+          <tbody>${itens.map(i=>{
+            const valor = parcial ? '' : i.quantidadePendente;
+            const ro = parcial ? '' : 'readonly';
+            const ph = parcial ? 'placeholder="Digite a quantidade"' : '';
+            return `<tr>
+              <td>${i.ordem}</td>
+              <td>${i.codigo||'—'}</td>
+              <td><strong>${i.descricao||'—'}</strong></td>
+              <td>${i.quantidade}</td>
+              <td>${i.quantidadeRecebidaAnterior}</td>
+              <td><strong>${i.quantidadePendente}</strong></td>
+              <td><input type="number" min="0" max="${i.quantidadePendente}" step="0.001" class="nfQtdReceberItem" data-ordem="${i.ordem}" value="${valor}" ${ro} ${ph}></td>
+              <td>${i.unidade||'—'}</td>
+              <td>${fmt.money(i.valorUnitario)}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>
+
+        <div style="font-size:12px;color:var(--text-muted);margin-top:10px">
+          Materiais e preços permanecem vinculados à RC aprovada. No parcial, somente as quantidades efetivamente recebidas nesta NF são informadas manualmente.
+        </div>
+      </div>`;
     }
 
     function renderRecebimentoNFs() {
@@ -2845,7 +2886,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Recebimento de Nota Fiscal por RC</div>
-              <div class="card-sub">Digite a RC aprovada. O sistema carrega fornecedor, destino, materiais, quantidades e valores exatamente como foram aprovados.</div>
+              <div class="card-sub">Digite a RC aprovada e selecione se a NF corresponde a recebimento integral ou parcial. Integral recebe automaticamente todo o saldo pendente; parcial exige digitação manual das quantidades efetivamente entregues.</div>
             </div>
             <span class="badge badge-ok">${lista.length} lançamento(s) · ${fmt.money(total)}</span>
           </div>
@@ -2869,13 +2910,21 @@
               <div class="field"><label>Nº da Nota Fiscal *</label><input id="nfNumero" required value="${ed?.numeroNF||''}" placeholder="Ex.: NF 185079"></div>
               <div class="field"><label>Data da NF *</label><input type="date" id="nfDataDocumento" required value="${ed?.dataDocumento||hojeISO()}"></div>
 
+              <div class="field">
+                <label>Tipo de recebimento *</label>
+                <select id="nfTipoRecebimento" required>
+                  <option value="INTEGRAL" ${(ed?.tipoRecebimento || (ed?.recebimentoParcial?'PARCIAL':'INTEGRAL'))==='INTEGRAL'?'selected':''}>Integral - receber todo o saldo da RC</option>
+                  <option value="PARCIAL" ${(ed?.tipoRecebimento || (ed?.recebimentoParcial?'PARCIAL':'INTEGRAL'))==='PARCIAL'?'selected':''}>Parcial - informar quantidades manualmente</option>
+                </select>
+              </div>
+
               <div class="field"><label>Fornecedor da RC</label><input id="nfFornecedor" readonly value="${ed?.fornecedor||rcEd?.fornecedor||''}"></div>
               <div class="field"><label>Destino / Frota</label><input id="nfDestino" readonly value="${ed?.destino||rcEd?.aplicacao||''}"></div>
               <div class="field"><label>Centro de custo</label><input id="nfCentroCusto" readonly value="${getCentroCustoRegistro(ed||rcEd||{})}"></div>
-              <div class="field"><label>Valor aprovado / NF</label><input id="nfValorTotalVisual" readonly value="${fmt.money(ed?.valorTotal||numeroSeguro(rcEd?.total)||totalItensRC(rcEd))}"></div>
+              <div class="field"><label>Valor desta NF</label><input id="nfValorTotalVisual" readonly value="${fmt.money(ed?.valorTotal||numeroSeguro(rcEd?.total)||totalItensRC(rcEd))}"></div>
 
               <div class="field" style="grid-column:span 4">
-                <div id="nfResumoRC">${renderResumoRCAprovada(rcEd, ed?.id||'')}</div>
+                <div id="nfResumoRC">${renderResumoRCAprovada(rcEd, ed?.id||'', ed?.tipoRecebimento || (ed?.recebimentoParcial?'PARCIAL':'INTEGRAL'))}</div>
               </div>
 
               ${renderCronogramaParcelasForm(ed || (rcEd ? {
@@ -4187,43 +4236,61 @@
           document.getElementById('nfFornecedor').value = rc.fornecedor || '';
           document.getElementById('nfDestino').value = rc.aplicacao || '';
           document.getElementById('nfCentroCusto').value = getCentroCustoRegistro(rc);
-          const pendentesRC = itensPendentesRC(rc, editIdAtual);
-          const totalPendenteRC = pendentesRC.reduce((s,i)=>s + (numeroSeguro(i.quantidadePendente) * numeroSeguro(i.valorUnitario)),0);
-          document.getElementById('nfValorTotalVisual').value = fmt.money(totalPendenteRC);
-          document.getElementById('nfResumoRC').innerHTML = renderResumoRCAprovada(rc, editIdAtual);
-
-          const atualizarValorNFParcial = () => {
+          const aplicarTipoRecebimento = () => {
+            const tipo = document.getElementById('nfTipoRecebimento')?.value || 'INTEGRAL';
             const pendentes = itensPendentesRC(rc, editIdAtual);
-            let totalAtual = 0;
-            document.querySelectorAll('.nfQtdReceberItem').forEach(inp => {
-              const ordem = Number(inp.dataset.ordem);
-              const item = pendentes.find(x => Number(x.ordem) === ordem);
-              if (!item) return;
-              let qtd = numeroSeguro(inp.value);
-              const max = numeroSeguro(item.quantidadePendente);
-              if (qtd > max) {
-                qtd = max;
-                inp.value = String(max);
-              }
-              if (qtd < 0) {
-                qtd = 0;
-                inp.value = '0';
-              }
-              totalAtual += qtd * numeroSeguro(item.valorUnitario);
-            });
-            document.getElementById('nfValorTotalVisual').value = fmt.money(totalAtual);
 
-            const dadosParcelas = {
-              condicaoPagamento: document.getElementById('nfCondicaoPagamento')?.value || rc.condicaoPagamento || 'A_VISTA',
-              numeroParcelas: Number(document.getElementById('nfNumeroParcelas')?.value || rc.numeroParcelas || 1),
-              parcelas: Array.isArray(rc.parcelasPagamento) ? rc.parcelasPagamento : []
+            document.getElementById('nfResumoRC').innerHTML = renderResumoRCAprovada(rc, editIdAtual, tipo);
+
+            const atualizarValorNF = () => {
+              let totalAtual = 0;
+
+              document.querySelectorAll('.nfQtdReceberItem').forEach(inp => {
+                const ordem = Number(inp.dataset.ordem);
+                const item = pendentes.find(x => Number(x.ordem) === ordem);
+                if (!item) return;
+
+                let qtd;
+                if (tipo === 'INTEGRAL') {
+                  qtd = numeroSeguro(item.quantidadePendente);
+                  inp.value = String(qtd);
+                  inp.readOnly = true;
+                } else {
+                  inp.readOnly = false;
+                  qtd = numeroSeguro(inp.value);
+                  const max = numeroSeguro(item.quantidadePendente);
+                  if (qtd > max) {
+                    qtd = max;
+                    inp.value = String(max);
+                  }
+                  if (qtd < 0) {
+                    qtd = 0;
+                    inp.value = '0';
+                  }
+                }
+
+                totalAtual += qtd * numeroSeguro(item.valorUnitario);
+              });
+
+              document.getElementById('nfValorTotalVisual').value = fmt.money(totalAtual);
+
+              const dadosParcelas = {
+                condicaoPagamento: document.getElementById('nfCondicaoPagamento')?.value || rc.condicaoPagamento || 'A_VISTA',
+                numeroParcelas: Number(document.getElementById('nfNumeroParcelas')?.value || rc.numeroParcelas || 1),
+                parcelas: Array.isArray(rc.parcelasPagamento) ? rc.parcelasPagamento : []
+              };
+              montarCamposParcelasNF(dadosParcelas);
             };
-            montarCamposParcelasNF(dadosParcelas);
+
+            document.querySelectorAll('.nfQtdReceberItem').forEach(inp => {
+              if (tipo === 'PARCIAL') inp.addEventListener('input', atualizarValorNF);
+            });
+
+            atualizarValorNF();
           };
 
-          document.querySelectorAll('.nfQtdReceberItem').forEach(inp => {
-            inp.addEventListener('input', atualizarValorNFParcial);
-          });
+          document.getElementById('nfTipoRecebimento')?.addEventListener('change', aplicarTipoRecebimento);
+          aplicarTipoRecebimento();
 
           const contaSugerida = contaContabilSugeridaPorRC(rc);
           if (conta && !conta.value) {
@@ -4270,11 +4337,39 @@
             return;
           }
 
+          const tipoRecebimento = document.getElementById('nfTipoRecebimento')?.value || 'INTEGRAL';
           const itensBase=itensPendentesRC(rc,editId);
           const campos=[...document.querySelectorAll('.nfQtdReceberItem')];
-          const itens=itensBase.map(i=>{const inp=campos.find(x=>Number(x.dataset.ordem)===i.ordem);const qtd=numeroSeguro(inp?.value);if(qtd<0 || qtd>i.quantidadePendente+0.000001) throw new Error(`Quantidade inválida para ${i.descricao}`);return {...i,quantidadeAprovada:i.quantidade,quantidadeRecebidaAnterior:i.quantidadeRecebidaAnterior,quantidadePendenteAntes:i.quantidadePendente,quantidadeRecebida:qtd,quantidade:qtd,valorTotal:Math.round(qtd*numeroSeguro(i.valorUnitario)*100)/100};}).filter(i=>i.quantidadeRecebida>0);
+
+          const itens=itensBase.map(i=>{
+            const inp=campos.find(x=>Number(x.dataset.ordem)===i.ordem);
+            const qtd = tipoRecebimento === 'INTEGRAL'
+              ? numeroSeguro(i.quantidadePendente)
+              : numeroSeguro(inp?.value);
+
+            if(qtd<0 || qtd>i.quantidadePendente+0.000001) {
+              throw new Error(`Quantidade inválida para ${i.descricao}`);
+            }
+
+            return {
+              ...i,
+              quantidadeAprovada:i.quantidade,
+              quantidadeRecebidaAnterior:i.quantidadeRecebidaAnterior,
+              quantidadePendenteAntes:i.quantidadePendente,
+              quantidadeRecebida:qtd,
+              quantidade:qtd,
+              valorTotal:Math.round(qtd*numeroSeguro(i.valorUnitario)*100)/100
+            };
+          }).filter(i=>i.quantidadeRecebida>0);
+
           const totalRC=itens.reduce((s,i)=>s+numeroSeguro(i.valorTotal),0);
-          if(!itens.length || totalRC<=0){showToast('Informe ao menos um item/quantidade para esta NF.',true);return;}
+
+          if(!itens.length || totalRC<=0){
+            showToast(tipoRecebimento==='PARCIAL'
+              ? 'No recebimento parcial, informe ao menos uma quantidade recebida nesta NF.'
+              : 'A RC não possui saldo pendente para recebimento.', true);
+            return;
+          }
 
           if (rcTotalmenteRecebida(rc, editId)) {
             showToast(`A ${rc.numero} já foi recebida integralmente. Não há saldo pendente.`, true);
@@ -4324,10 +4419,17 @@
             contaContabilDescricao: c?.descricao || '',
             contaContabilOrientacao: c?.orientacao || '',
             origem: 'recebimento_por_rc',
-            conferenciaItens: 'ITENS_CONFORME_RC_COM_SALDO_PARCIAL',
-            recebimentoParcial: document.getElementById('nfRecebimentoParcial')?.checked || itens.some(i=>i.quantidadeRecebida < i.quantidadePendenteAntes),
+            tipoRecebimento,
+            conferenciaItens: tipoRecebimento === 'PARCIAL'
+              ? 'RECEBIMENTO_PARCIAL_COM_SALDO_RESIDUAL'
+              : 'RECEBIMENTO_INTEGRAL_DO_SALDO_DA_RC',
+            recebimentoParcial: tipoRecebimento === 'PARCIAL',
             valorAprovadoRC: numeroSeguro(rc.total) || totalItensRC(rc),
-            valorRecebidoNestaNF: totalRC
+            valorRecebidoNestaNF: totalRC,
+            saldoResidualAposNF: itensBase.reduce((s,i)=>{
+              const recebidoAgora = numeroSeguro(itens.find(x=>x.ordem===i.ordem)?.quantidadeRecebida);
+              return s + Math.max(0, numeroSeguro(i.quantidadePendente)-recebidoAgora) * numeroSeguro(i.valorUnitario);
+            },0)
           };
 
           if (!editId) {
