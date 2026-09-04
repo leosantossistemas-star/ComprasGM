@@ -467,7 +467,7 @@
 </head>
 <body>
 
-  <!-- ===== V10.0 — Custos Históricos + Estadia + Centro Mechatronics ===== -->
+  <!-- ===== V10.1 — Férias Restauradas + Ajuste de Diária ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -5384,7 +5384,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V10.0';
+        if (versaoEl) versaoEl.textContent = 'V10.1';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -10033,6 +10033,606 @@ window.RH_SECURITY_V94 = {
       showToast(`${f.nome}: manutenção encerrada em ${fmt.date(data)}. A estadia deixa de acumular após essa data.`);
     }catch(err){
       showToast('Erro ao encerrar manutenção: '+err.message,true);
+    }
+  });
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V10.1 — RESTAURAÇÃO DO GANTT DE FÉRIAS + AJUSTE DE DIÁRIA
+   ============================================================ */
+(function(){
+  'use strict';
+
+  // ============================================================
+  // 1. DASHBOARD RH
+  //    - mantém o gráfico anual com TODOS os colaboradores
+  //    - altera somente "Pessoal de Férias" para barra progressiva
+  // ============================================================
+
+  const CFER={
+    verde:'#22c55e',
+    amarelo:'#facc15',
+    vermelho:'#ef4444',
+    laranja:'#f97316',
+    roxo:'#a855f7'
+  };
+
+  function iso101(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function diasInc101(ini,fim){
+    if(!ini||!fim)return 0;
+    const a=new Date(ini+'T12:00:00'), b=new Date(fim+'T12:00:00');
+    if(isNaN(a)||isNaN(b)||b<a)return 0;
+    return Math.floor((b-a)/86400000)+1;
+  }
+
+  function projeta101(dataISO,ano){
+    if(!dataISO)return '';
+    const d=new Date(dataISO+'T12:00:00');
+    if(isNaN(d))return '';
+    const nd=new Date(ano,d.getMonth(),d.getDate(),12);
+    if(nd.getMonth()!==d.getMonth())nd.setDate(0);
+    return iso101(nd);
+  }
+
+  function ultimaFerias101(nome){
+    const n=normalize(nome||'');
+    return rhFerias
+      .filter(f=>normalize(f.colaboradorNome||f.nome||'')===n && f.inicio && f.fim)
+      .sort((a,b)=>String(b.inicio).localeCompare(String(a.inicio)))[0]||null;
+  }
+
+  function periodoProjetado101(f,ano){
+    if(!f)return {inicio:'',fim:''};
+    let ini=projeta101(f.inicio,ano);
+    let fim=projeta101(f.fim,ano);
+    const mi=Number(String(f.inicio||'').slice(5,7)), mf=Number(String(f.fim||'').slice(5,7));
+    if(mi&&mf&&mf<mi)fim=projeta101(f.fim,ano+1);
+    return {inicio:ini,fim};
+  }
+
+  function statusFerias101(c,p){
+    const hoje=hojeISO();
+    if(!p.inicio||!p.fim)return {texto:'Sem programação',cor:'#64748b',alerta:false};
+
+    if(hoje>=p.inicio && hoje<=p.fim)
+      return {texto:'De férias',cor:CFER.laranja,alerta:false};
+
+    if(p.fim<hoje)
+      return {texto:'Período aquisitivo vencido',cor:CFER.vermelho,alerta:true};
+
+    const diasAte=Math.ceil((new Date(p.inicio+'T12:00:00')-new Date(hoje+'T12:00:00'))/86400000);
+
+    let proxAniv='';
+    if(c.admissao){
+      proxAniv=projeta101(c.admissao,new Date().getFullYear());
+      if(proxAniv<hoje)proxAniv=projeta101(c.admissao,new Date().getFullYear()+1);
+    }
+    const diasAteNovo=proxAniv
+      ? Math.ceil((new Date(proxAniv+'T12:00:00')-new Date(hoje+'T12:00:00'))/86400000)
+      : null;
+
+    if(diasAteNovo!==null && diasAteNovo>=0 && diasAteNovo<=60 && p.inicio>hoje)
+      return {texto:'⚠ Risco de 2 períodos',cor:CFER.roxo,alerta:true};
+
+    if(diasAte>=0 && diasAte<=60)
+      return {texto:'Férias em até 2 meses',cor:CFER.amarelo,alerta:false};
+
+    return {texto:'Dentro do prazo',cor:CFER.verde,alerta:false};
+  }
+
+  function pessoalFeriasProgressivo101(ativos){
+    const fer=feriasAtuaisV93();
+    const deFerias=ativos.filter(c=>fer.ids.has(normalize(c.nome||'')));
+
+    const rows=deFerias.map(c=>{
+      const f=fer.regs.find(x=>normalize(x.colaboradorNome||x.nome||'')===normalize(c.nome||''));
+      const total=Math.max(1,diasInc101(f?.inicio,f?.fim));
+      let dec=0;
+      if(f?.inicio && hojeISO()>=f.inicio){
+        dec=Math.min(total,Math.max(0,diasInc101(f.inicio,hojeISO())));
+      }
+      const pct=Math.max(0,Math.min(100,dec/total*100));
+      const restante=Math.max(0,total-dec);
+      const passo=100/total;
+
+      return `<div style="margin-bottom:18px">
+        <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px">
+          <div>
+            <strong>${c.nome}</strong>
+            <div style="font-size:10px;color:var(--text-muted)">${fmt.date(f?.inicio)} → ${fmt.date(f?.fim)}</div>
+          </div>
+          <div style="text-align:right">
+            <strong>${dec} de ${total} dias</strong>
+            <div style="font-size:10px;color:var(--text-muted)">${restante} dia(s) restantes</div>
+          </div>
+        </div>
+        <div style="height:30px;position:relative;border:2px solid #22c55e;border-radius:10px;background:#050806;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:#22c55e;position:absolute;left:0;top:0"></div>
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(to right,transparent 0,transparent calc(${passo}% - 1px),rgba(255,255,255,.17) calc(${passo}% - 1px),rgba(255,255,255,.17) ${passo}%);pointer-events:none"></div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:white;text-shadow:0 1px 2px #000">${dec}/${total} dias</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="card" style="grid-column:1/-1">
+      <div class="card-title">Pessoal de Férias</div>
+      <div class="card-sub">Somente quem está de férias hoje. A barra cheia representa os dias já transcorridos; o contorno escuro representa os dias restantes.</div>
+      <div style="margin-top:18px">${rows||'<div style="padding:12px;color:var(--text-muted)">Nenhum colaborador está de férias hoje.</div>'}</div>
+    </div>`;
+  }
+
+  function ganttTodosFerias101(ativos){
+    const ano=Number(state.rhFeriasAnoDashboardV101||new Date().getFullYear());
+    const meses=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+    const iniAno=new Date(ano,0,1,12), fimAno=new Date(ano,11,31,12);
+    const totalDias=Math.floor((fimAno-iniAno)/86400000)+1;
+    const hojeD=new Date(hojeISO()+'T12:00:00');
+    const hojePct=hojeD.getFullYear()===ano
+      ? Math.max(0,Math.min(100,((hojeD-iniAno)/86400000)/totalDias*100))
+      : -1;
+
+    const rows=ativos.slice()
+      .sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'))
+      .map(c=>{
+        const f=ultimaFerias101(c.nome);
+        const p=periodoProjetado101(f,ano);
+        const st=statusFerias101(c,p);
+        let left=0,width=0,dias=0;
+        if(p.inicio&&p.fim){
+          const di=new Date(p.inicio+'T12:00:00'), df=new Date(p.fim+'T12:00:00');
+          left=Math.max(0,((di-iniAno)/86400000)/totalDias*100);
+          dias=Math.max(1,diasInc101(p.inicio,p.fim));
+          width=Math.max(1,dias/totalDias*100);
+          if(left+width>100)width=100-left;
+        }
+
+        return `<div style="display:grid;grid-template-columns:220px minmax(760px,1fr) 220px;min-height:38px;border-top:1px solid var(--border);align-items:center">
+          <div style="padding:7px 10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.nome||'—'}</div>
+          <div style="height:37px;position:relative;background:repeating-linear-gradient(to right,transparent 0,transparent calc(8.333% - 1px),rgba(148,163,184,.16) calc(8.333% - 1px),rgba(148,163,184,.16) 8.333%)">
+            ${hojePct>=0?`<div title="Hoje" style="position:absolute;left:${hojePct}%;top:0;bottom:0;width:2px;background:white;opacity:.72;z-index:3"></div>`:''}
+            ${p.inicio?`<div title="${fmt.date(p.inicio)} a ${fmt.date(p.fim)} — ${dias} dias" style="position:absolute;left:${left}%;width:${width}%;top:7px;height:23px;border-radius:4px;background:${st.cor};display:flex;align-items:center;justify-content:center;color:#111;font-size:9px;font-weight:900;overflow:hidden">${dias}d</div>`:''}
+          </div>
+          <div style="padding:5px 8px;font-size:10px;font-weight:800;color:${st.cor}">${st.texto}</div>
+        </div>`;
+      }).join('');
+
+    return `<div class="card" style="grid-column:1/-1;margin-top:16px">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Planejamento Anual de Férias — Todos os Colaboradores</div>
+          <div class="card-sub">Este gráfico permanece independente do gráfico “Pessoal de Férias”. Mostra todos os colaboradores e o período projetado de férias ao longo do ano.</div>
+        </div>
+        <div class="field" style="min-width:120px"><label>Ano</label><input type="number" id="rhFeriasAnoDashboardV101" min="2025" max="2100" value="${ano}"></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-size:11px">
+        <span><i style="display:inline-block;width:12px;height:12px;background:${CFER.verde};border-radius:3px;margin-right:5px"></i>Dentro do prazo</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:${CFER.amarelo};border-radius:3px;margin-right:5px"></i>Faltam até 2 meses</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:${CFER.vermelho};border-radius:3px;margin-right:5px"></i>Período vencido</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:${CFER.laranja};border-radius:3px;margin-right:5px"></i>De férias</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:${CFER.roxo};border-radius:3px;margin-right:5px"></i>Alerta de 2 períodos</span>
+      </div>
+      <div style="overflow:auto;border:1px solid var(--border);border-radius:8px">
+        <div style="min-width:1200px">
+          <div style="display:grid;grid-template-columns:220px minmax(760px,1fr) 220px;background:var(--surface-2);align-items:end">
+            <div style="padding:8px 10px;font-weight:900">Colaborador</div>
+            <div style="display:grid;grid-template-columns:repeat(12,1fr)">${meses.map(m=>`<div style="padding:8px 0;text-align:center;font-size:10px;font-weight:900;border-left:1px solid var(--border)">${m}</div>`).join('')}</div>
+            <div style="padding:8px 10px;font-weight:900">Situação</div>
+          </div>
+          ${rows||'<div style="padding:18px">Nenhum colaborador ativo.</div>'}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  dashboardRHV93=function(){
+    const ativos=rhColaboradores.filter(c=>c.ativo!==false&&filtroUnidadeRHV93(c));
+    const fer=feriasAtuaisV93();
+    const deFerias=ativos.filter(c=>fer.ids.has(normalize(c.nome||'')));
+    const ativosTrab=Math.max(0,ativos.length-deFerias.length);
+
+    let venc=0,pend=0,emDia=0;
+    ativos.forEach(c=>RH_MATRIZ_TREINAMENTOS_V91.forEach(tr=>{
+      const st=statusTreinoV91(c,tr);
+      if(st.codigo==='VENCIDO')venc++;
+      else if(st.codigo==='PENDENTE')pend++;
+      else if(st.codigo==='REALIZADO')emDia++;
+    }));
+
+    const totPessoas=Math.max(1,ativos.length);
+
+    return `
+      <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">${seletorUnidadeRHV93()}</div></div>
+      <div class="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Colaboradores ativos</div><div class="kpi-value accent">${ativos.length}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Em férias hoje</div><div class="kpi-value">${deFerias.length}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Treinamentos vencidos</div><div class="kpi-value">${venc}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Treinamentos pendentes</div><div class="kpi-value">${pend}</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px;margin-top:16px">
+        <div class="card">
+          <div class="card-title">Colaboradores — Ativos x Em Férias</div>
+          <div class="card-sub">Situação na data de hoje.</div>
+          <div style="margin-top:18px">${graficoBarrasSimplesV93([
+            {label:'Ativos trabalhando',valor:ativosTrab,texto:String(ativosTrab)},
+            {label:'Em férias',valor:deFerias.length,texto:String(deFerias.length)}
+          ],totPessoas)}</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Treinamentos — Situação</div>
+          <div class="card-sub">Situação consolidada dos treinamentos aplicáveis.</div>
+          <div style="margin-top:18px">${graficoBarrasSimplesV93([
+            {label:'Vencidos',valor:venc,texto:String(venc)},
+            {label:'Pendentes',valor:pend,texto:String(pend)},
+            {label:'Em dia / realizados',valor:emDia,texto:String(emDia)}
+          ],Math.max(1,venc,pend,emDia))}</div>
+        </div>
+
+        ${pessoalFeriasProgressivo101(ativos)}
+        ${ganttTodosFerias101(ativos)}
+      </div>`;
+  };
+
+  document.addEventListener('change',e=>{
+    if(e.target?.id==='rhFeriasAnoDashboardV101'){
+      state.rhFeriasAnoDashboardV101=Number(e.target.value)||new Date().getFullYear();
+      render();
+    }
+  });
+
+  // ============================================================
+  // 2. AJUSTE GERENCIAL DE DIÁRIA EXCESSIVA
+  // ============================================================
+
+  window.ajustesDiariaV101={itens:[]};
+  let unsubAjusteV101=null;
+
+  function chaveFrota101(nome){
+    return normalize(String(nome||'')).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+  }
+
+  function perfilAjusta101(){
+    return ['gerente','admin'].includes(perfilAtual);
+  }
+
+  // Novo listener da configuração existente. Não requer coleção nova.
+  auth.onAuthStateChanged(user=>{
+    if(unsubAjusteV101){try{unsubAjusteV101();}catch(e){} unsubAjusteV101=null;}
+    if(!user)return;
+    unsubAjusteV101=db.collection('configuracoes').doc('ajustes_diaria').onSnapshot(doc=>{
+      window.ajustesDiariaV101=doc.exists?doc.data():{itens:[]};
+      if(!Array.isArray(window.ajustesDiariaV101.itens))window.ajustesDiariaV101.itens=[];
+      if(state.section==='dashboardCustos')render();
+    },err=>console.warn('Ajustes de diária indisponíveis:',err));
+  });
+
+  function ajusteFrota101(nome){
+    const k=chaveFrota101(nome);
+    return (window.ajustesDiariaV101.itens||[]).find(x=>x.chave===k)||null;
+  }
+
+  function canonFrota101(v){
+    const raw=String(v||'').trim();
+    const n=normalize(raw);
+    const m=n.match(/^frota[\s_-]*0*(\d+)\b/);
+    if(m)return `FROTA ${Number(m[1])}`;
+    if(/^frota\b/.test(n))return raw.toUpperCase().replace(/\s+/g,' ');
+    return '';
+  }
+
+  function dataRC101(rc){return String(rc.dataAprovacao||rc.data||rc.dataBase||'').slice(0,10);}
+  function centroRC101(rc){return getCentroCustoRegistro(rc);}
+
+  function periodosFrota101(){
+    const hist={};
+
+    rcs.forEach(rc=>{
+      if(rc.status&&rc.status!=='aprovado')return;
+      const nome=canonFrota101(rc.aplicacao||rc.destino||'');
+      const d=dataRC101(rc);
+      if(!nome||!d)return;
+      const k=chaveFrota101(nome);
+      if(!hist[k])hist[k]={nome,inicio:d,fim:d,centro:centroRC101(rc),fonte:'RCS'};
+      if(d<hist[k].inicio)hist[k].inicio=d;
+      if(d>hist[k].fim)hist[k].fim=d;
+    });
+
+    frotas.forEach(f=>{
+      const nome=canonFrota101(f.nome);
+      if(!nome)return;
+      const k=chaveFrota101(nome);
+      const h=hist[k];
+      const ini=String(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||h?.inicio||'').slice(0,10);
+      const encerrada=f.concluido===true
+        || normalize(f.statusOperacional||'').includes('conclu')
+        || normalize(f.statusOperacional||'').includes('encerr');
+      const fim=encerrada
+        ? String(f.dataConclusaoReal||f.dataSaidaReal||f.dataConclusao||h?.fim||'').slice(0,10)
+        : hojeISO();
+
+      hist[k]={nome,inicio:ini,fim,centro:getCentroCustoRegistro(f),fonte:'CADASTRO',aberta:!encerrada};
+    });
+
+    return hist;
+  }
+
+  function overlap101(a,b){
+    if(!a?.inicio||!a?.fim||!b?.inicio||!b?.fim)return false;
+    return a.inicio<=b.fim && b.inicio<=a.fim;
+  }
+
+  function compAjustada101(movimentos,filtros){
+    const periodos=periodosFrota101(), mapa={}, oficinaMes={}, presentes={};
+
+    function get(nome,cc){
+      const k=`${cc}|${chaveFrota101(nome)}`;
+      if(!mapa[k])mapa[k]={nome,centro:cc,compras:0,baixas:0,oficina:0,estadia:0,redistribuida:0};
+      return mapa[k];
+    }
+
+    // presença mensal nas RCs
+    rcs.forEach(rc=>{
+      if(rc.status&&rc.status!=='aprovado')return;
+      const nome=canonFrota101(rc.aplicacao||rc.destino||'');
+      const d=dataRC101(rc); if(!nome||!d)return;
+      const cc=centroRC101(rc), key=`${cc}|${d.slice(0,7)}`;
+      if(!presentes[key])presentes[key]=new Map();
+      presentes[key].set(chaveFrota101(nome),nome);
+    });
+
+    movimentos.forEach(m=>{
+      const dest=String(m.destino||'');
+      const cc=getCentroCustoRegistro(m);
+      if(normalize(dest).includes('oficina')){
+        const mes=m.mesCusto||String(m.dataCusto||'').slice(0,7);
+        if(mes){
+          const key=`${cc}|${mes}`;
+          oficinaMes[key]=(oficinaMes[key]||0)+numeroSeguro(m.valorCusto);
+        }
+        return;
+      }
+      const nome=canonFrota101(dest);
+      if(!nome)return;
+      const it=get(nome,cc);
+      if(m.tipoDocumento==='BAIXA_ESTOQUE')it.baixas+=numeroSeguro(m.valorCusto);
+      else it.compras+=numeroSeguro(m.valorCusto);
+    });
+
+    Object.entries(oficinaMes).forEach(([key,val])=>{
+      const nomes=[...(presentes[key]?.values()||[])];
+      if(!nomes.length)return;
+      const cc=key.split('|')[0],parcela=val/nomes.length;
+      nomes.forEach(nome=>get(nome,cc).oficina+=parcela);
+    });
+
+    // estadia inicial
+    Object.values(periodos).forEach(p=>{
+      if(!p.inicio||!p.fim)return;
+      let a=p.inicio,b=p.fim;
+      if(filtros.dataIni&&a<filtros.dataIni)a=filtros.dataIni;
+      if(filtros.dataFim&&b>filtros.dataFim)b=filtros.dataFim;
+      const dias=diasInc101(a,b);
+      const it=get(p.nome,p.centro||'SANTOS');
+      it.periodo=p;
+      it.diasBase=dias;
+      it.estadia=dias*700;
+    });
+
+    // Ajustes: abate dias da frota e redistribui R$ 700/dia às demais frotas
+    // com período de manutenção sobreposto.
+    const ajustes=window.ajustesDiariaV101.itens||[];
+    ajustes.forEach(a=>{
+      const p=periodos[a.chave];
+      if(!p)return;
+      const it=Object.values(mapa).find(x=>chaveFrota101(x.nome)===a.chave);
+      if(!it)return;
+
+      const dias=Math.min(Math.max(0,Number(a.diasAbater)||0),it.diasBase||0);
+      if(!dias)return;
+      const valor=dias*700;
+
+      it.estadia=Math.max(0,it.estadia-valor);
+      it.diasAbatidos=dias;
+      it.valorAbatido=valor;
+      it.justificativa=a.justificativa||'';
+
+      const outros=Object.values(periodos).filter(op=>op.nome!==p.nome && overlap101(p,op));
+      if(outros.length){
+        const parcela=valor/outros.length;
+        outros.forEach(op=>{
+          const rec=get(op.nome,op.centro||'SANTOS');
+          rec.estadia+=parcela;
+          rec.redistribuida+=parcela;
+        });
+      }else{
+        // Sem outra frota no período: mantém registro explícito para auditoria,
+        // sem inventar destino.
+        it.semRedistribuicao=valor;
+      }
+    });
+
+    return Object.values(mapa).map(x=>{
+      x.total=x.compras+x.baixas+x.oficina+x.estadia;
+      x.pCompra=x.total?x.compras/x.total*100:0;
+      x.pBaixa=x.total?x.baixas/x.total*100:0;
+      x.pOficina=x.total?x.oficina/x.total*100:0;
+      x.pEstadia=x.total?x.estadia/x.total*100:0;
+      return x;
+    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+  }
+
+  function cardAjuste101(){
+    const periodos=Object.values(periodosFrota101()).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR',{numeric:true}));
+    const itens=window.ajustesDiariaV101.itens||[];
+
+    if(!perfilAjusta101()){
+      if(!itens.length)return '';
+      return `<div class="card" style="margin-bottom:20px">
+        <div class="card-title">Ajustes gerenciais de diária</div>
+        <div class="card-sub">Somente Gerente/Admin podem alterar. Ajustes ativos: ${itens.length}.</div>
+      </div>`;
+    }
+
+    return `<div class="card" style="margin-bottom:20px;border:1px solid #a855f7">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Justificativa de Diária Excessiva</div>
+          <div class="card-sub">Gerente/Admin podem abater dias de uma frota. Cada dia abate R$ 700,00 da estadia da frota e o mesmo valor é redistribuído entre as demais frotas com período de manutenção sobreposto.</div>
+        </div>
+      </div>
+
+      <div class="filters-grid">
+        <div class="field"><label>Frota *</label>
+          <select id="ajDiariaFrota101"><option value="">Selecione...</option>${periodos.map(p=>`<option value="${p.nome}">${p.nome} — ${fmt.date(p.inicio)} a ${fmt.date(p.fim)}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Dias a abater *</label><input type="number" id="ajDiariaDias101" min="0" step="1" placeholder="Ex.: 5"></div>
+        <div class="field" style="grid-column:span 2"><label>Justificativa *</label><input type="text" id="ajDiariaJust101" placeholder="Motivo do abatimento da diária"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-accent" id="salvarAjDiaria101">Salvar ajuste</button>
+      </div>
+
+      ${itens.length?`<div class="table-wrap" style="margin-top:16px"><table>
+        <thead><tr><th>Frota</th><th>Dias abatidos</th><th>Valor transferido</th><th>Justificativa</th><th>Responsável</th><th>Ação</th></tr></thead>
+        <tbody>${itens.map(a=>`<tr>
+          <td><strong>${a.frotaNome}</strong></td>
+          <td>${a.diasAbater}</td>
+          <td>${fmt.money((Number(a.diasAbater)||0)*700)}</td>
+          <td>${a.justificativa||'—'}</td>
+          <td>${a.atualizadoPorNome||a.atualizadoPorEmail||'—'}</td>
+          <td><button class="btn btn-danger btn-sm" data-remover-aj-diaria101="${a.chave}">Remover</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>`:''}
+    </div>`;
+  }
+
+  function graficoCustosAjustado101(movimentos,filtros){
+    const comp=compAjustada101(movimentos,filtros);
+    const max=Math.max(1,...comp.map(x=>x.total));
+
+    return `<div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><div>
+        <div class="card-title">Ranking de custo real por frota / destino</div>
+        <div class="card-sub">Compra/RC/NF + baixa da frota + rateio de Oficina + estadia. Ajustes gerenciais de diária mantêm o valor total redistribuindo o abatimento às demais frotas do mesmo período.</div>
+      </div></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 16px;font-size:11px">
+        <span><i style="display:inline-block;width:12px;height:12px;background:#3b82f6;border-radius:3px;margin-right:5px"></i>Compra / RC / NF</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#22c55e;border-radius:3px;margin-right:5px"></i>Baixa de estoque</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#f59e0b;border-radius:3px;margin-right:5px"></i>Rateio Oficina</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#a855f7;border-radius:3px;margin-right:5px"></i>Estadia</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+      ${comp.map((x,i)=>{
+        const larg=Math.max(1.2,x.total/max*100);
+        return `<div style="display:grid;grid-template-columns:36px minmax(165px,280px) 1fr 155px;gap:12px;align-items:center">
+          <div style="color:var(--text-muted);text-align:right">${i+1}º</div>
+          <div>
+            <strong>${x.nome}</strong>
+            <div style="font-size:9px;color:var(--text-muted)">${x.diasBase||0} dia(s) base × ${fmt.money(700)}${x.diasAbatidos?` · <span style="color:#facc15">−${x.diasAbatidos} dia(s) justificados</span>`:''}${x.redistribuida?` · +${fmt.money(x.redistribuida)} redistribuído`:''}</div>
+            ${x.justificativa?`<div style="font-size:9px;color:#facc15">Justificativa: ${x.justificativa}</div>`:''}
+          </div>
+          <div>
+            <div style="height:18px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden">
+              <div style="height:100%;width:${larg}%;display:flex;overflow:hidden;border-radius:999px">
+                ${x.compras?`<div title="Compra ${fmt.money(x.compras)}" style="width:${x.pCompra}%;background:#3b82f6"></div>`:''}
+                ${x.baixas?`<div title="Baixa ${fmt.money(x.baixas)}" style="width:${x.pBaixa}%;background:#22c55e"></div>`:''}
+                ${x.oficina?`<div title="Oficina ${fmt.money(x.oficina)}" style="width:${x.pOficina}%;background:#f59e0b"></div>`:''}
+                ${x.estadia?`<div title="Estadia ${fmt.money(x.estadia)}" style="width:${x.pEstadia}%;background:#a855f7"></div>`:''}
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--text-muted);display:flex;gap:9px;flex-wrap:wrap;margin-top:4px">
+              <span>Compra ${x.pCompra.toFixed(1)}%</span><span>Baixa ${x.pBaixa.toFixed(1)}%</span><span>Oficina ${x.pOficina.toFixed(1)}%</span><span>Estadia ${x.pEstadia.toFixed(1)}%</span>
+            </div>
+          </div>
+          <div style="text-align:right"><strong>${fmt.money(x.total)}</strong></div>
+        </div>`;
+      }).join('')||'<div style="padding:18px;color:var(--text-muted)">Sem custos de frota.</div>'}
+      </div>
+    </div>`;
+  }
+
+  const _renderCustos101=renderDashboardCustos;
+  renderDashboardCustos=function(){
+    let base=_renderCustos101();
+    const f=state.custosFilters||{};
+    let mov=getMovimentosCustos(recebimentosNF);
+
+    if(f.dataIni)mov=mov.filter(x=>(x.dataCusto||'')>=f.dataIni);
+    if(f.dataFim)mov=mov.filter(x=>(x.dataCusto||'')<=f.dataFim);
+    if(f.centroCusto)mov=mov.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
+    if(f.fornecedor)mov=mov.filter(x=>x.fornecedor===f.fornecedor);
+    if(f.destino)mov=mov.filter(x=>x.destino===f.destino);
+    if(f.codigoContabil)mov=mov.filter(x=>x.codigoContabil===f.codigoContabil);
+
+    const novo=graficoCustosAjustado101(mov,f);
+
+    base=base.replace(
+      /<div class="card" style="margin-bottom:20px;">\s*<div class="card-header"><div>\s*<div class="card-title">Ranking de custo real por frota \/ destino<\/div>[\s\S]*?<\/div>\s*(?=<div style="display:grid;grid-template-columns:repeat\(auto-fit,minmax\(420px,1fr\)\);gap:20px;margin-bottom:20px">)/,
+      novo
+    );
+
+    return cardAjuste101()+base;
+  };
+
+  document.addEventListener('click',async e=>{
+    const save=e.target.closest('#salvarAjDiaria101');
+    if(save){
+      if(!perfilAjusta101()){showToast('Somente Gerente/Admin podem ajustar diárias.',true);return;}
+      const frota=(document.getElementById('ajDiariaFrota101')?.value||'').trim();
+      const dias=Math.max(0,parseInt(document.getElementById('ajDiariaDias101')?.value||'0',10)||0);
+      const justificativa=(document.getElementById('ajDiariaJust101')?.value||'').trim();
+      if(!frota||dias<=0||!justificativa){showToast('Informe frota, quantidade de dias e justificativa.',true);return;}
+
+      const itens=[...(window.ajustesDiariaV101.itens||[])];
+      const chave=chaveFrota101(frota);
+      const reg={
+        chave,
+        frotaNome:frota,
+        diasAbater:dias,
+        justificativa,
+        atualizadoPorUid:getUsuarioUid(),
+        atualizadoPorEmail:getUsuarioEmail(),
+        atualizadoPorNome:getUsuarioNome(),
+        atualizadoEmISO:new Date().toISOString()
+      };
+      const idx=itens.findIndex(x=>x.chave===chave);
+      if(idx>=0)itens[idx]=reg; else itens.push(reg);
+
+      try{
+        await db.collection('configuracoes').doc('ajustes_diaria').set({
+          itens,
+          atualizadoPorUid:getUsuarioUid(),
+          atualizadoPorEmail:getUsuarioEmail(),
+          atualizadoPorNome:getUsuarioNome(),
+          atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()
+        },{merge:true});
+        showToast('Ajuste de diária salvo e redistribuído.');
+      }catch(err){showToast('Erro ao salvar ajuste: '+err.message,true);}
+      return;
+    }
+
+    const rem=e.target.closest('[data-remover-aj-diaria101]');
+    if(rem){
+      if(!perfilAjusta101()){showToast('Somente Gerente/Admin podem remover ajustes.',true);return;}
+      const chave=rem.dataset.removerAjDiaria101;
+      const itens=(window.ajustesDiariaV101.itens||[]).filter(x=>x.chave!==chave);
+      try{
+        await db.collection('configuracoes').doc('ajustes_diaria').set({
+          itens,
+          atualizadoPorUid:getUsuarioUid(),
+          atualizadoPorEmail:getUsuarioEmail(),
+          atualizadoPorNome:getUsuarioNome(),
+          atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()
+        },{merge:true});
+        showToast('Ajuste removido.');
+      }catch(err){showToast('Erro ao remover ajuste: '+err.message,true);}
     }
   });
 })();
