@@ -467,7 +467,7 @@
 </head>
 <body>
 
-  <!-- ===== V9.5 — Custos Reais + Compliance EPI + Planejamento RH ===== -->
+  <!-- ===== V9.6 — Férias Gantt + ASO 2026 + Custo Real Auditado ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -5384,7 +5384,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V9.5';
+        if (versaoEl) versaoEl.textContent = 'V9.6';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -8657,6 +8657,279 @@ window.RH_SECURITY_V94 = {
     },0);
     return r;
   };
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V9.6 — FÉRIAS GANTT + ASO 2026 + CUSTO REAL AUDITADO
+   ============================================================ */
+(function(){
+  'use strict';
+
+  const V96_CORES={
+    verde:'#22c55e',
+    amarelo:'#facc15',
+    vermelho:'#ef4444',
+    laranja:'#f97316',
+    roxo:'#a855f7',
+    grade:'rgba(148,163,184,.16)'
+  };
+
+  function diasEntreV96(a,b){
+    if(!a||!b)return null;
+    return Math.ceil((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000);
+  }
+  function isoV96(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+  function dataProjetadaAnoV96(dataISO,ano){
+    if(!dataISO)return '';
+    const p=String(dataISO).slice(0,10).split('-').map(Number);
+    if(p.length!==3||!p[1]||!p[2])return '';
+    const d=new Date(ano,p[1]-1,p[2],12);
+    // Trata 29/02 em ano não bissexto
+    if(d.getMonth()!==p[1]-1) d.setDate(0);
+    return isoV96(d);
+  }
+  function periodoFeriasProjetadoV96(f,ano){
+    let ini=dataProjetadaAnoV96(f?.inicio||f?.inicioFerias||'',ano);
+    let fim=dataProjetadaAnoV96(f?.fim||f?.fimFerias||'',ano);
+    if(!ini||!fim)return {inicio:'',fim:''};
+    // Se o período original cruza dezembro/janeiro, mantém a virada do ano.
+    const mi=Number(String(f.inicio||'').slice(5,7)), mf=Number(String(f.fim||'').slice(5,7));
+    if(mf && mi && mf<mi) fim=dataProjetadaAnoV96(f?.fim||f?.fimFerias||'',ano+1);
+    return {inicio:ini,fim};
+  }
+  function ultimaFeriasPorPessoaV96(nome){
+    const n=normalize(nome||'');
+    return rhFerias.filter(f=>normalize(f.colaboradorNome||f.nome||'')===n && f.inicio && f.fim)
+      .sort((a,b)=>String(b.inicio||'').localeCompare(String(a.inicio||'')))[0]||null;
+  }
+  function aniversarioNoAnoV96(dataISO,ano){return dataProjetadaAnoV96(dataISO,ano);}
+
+  function statusFeriasV96(c,periodo,ano){
+    const hoje=hojeISO();
+    if(!periodo.inicio||!periodo.fim)return {codigo:'SEM_DATA',texto:'Sem programação',cor:'#64748b',alerta:false};
+    if(hoje>=periodo.inicio && hoje<=periodo.fim)
+      return {codigo:'FERIAS',texto:'De férias',cor:V96_CORES.laranja,alerta:false};
+
+    // Limite gerencial para não acumular o segundo período: próximo aniversário de admissão.
+    let limite=aniversarioNoAnoV96(c.admissao||'',ano);
+    if(limite && limite<hoje) limite=aniversarioNoAnoV96(c.admissao||'',ano+1);
+    const ateLimite=limite?diasEntreV96(hoje,limite):null;
+    const ateFerias=diasEntreV96(hoje,periodo.inicio);
+
+    // Se a data prevista já passou e a pessoa não está em férias, considerar período vencido.
+    if(periodo.fim < hoje)
+      return {codigo:'VENCIDO',texto:'Período aquisitivo vencido',cor:V96_CORES.vermelho,alerta:true};
+
+    // Risco de chegar ao próximo ciclo sem concessão do anterior.
+    if(ateLimite!==null && ateLimite>=0 && ateLimite<=60 && periodo.inicio>hoje)
+      return {codigo:'RISCO_2',texto:'ALERTA: faltam até 2 meses para 2 férias',cor:V96_CORES.roxo,alerta:true};
+
+    if(ateFerias!==null && ateFerias>=0 && ateFerias<=60)
+      return {codigo:'PROXIMO',texto:'Férias em até 2 meses',cor:V96_CORES.amarelo,alerta:false};
+
+    return {codigo:'OK',texto:'Dentro do prazo',cor:V96_CORES.verde,alerta:false};
+  }
+
+  function legendaFeriasV96(){
+    const itens=[
+      ['Dentro do prazo',V96_CORES.verde],
+      ['Férias em até 2 meses',V96_CORES.amarelo],
+      ['Período aquisitivo vencido',V96_CORES.vermelho],
+      ['De férias',V96_CORES.laranja],
+      ['Alerta: até 2 meses para risco de 2 férias',V96_CORES.roxo]
+    ];
+    return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:12px 0 4px">${itens.map(([l,c])=>`<span style="display:flex;align-items:center;gap:6px;font-size:11px"><i style="width:12px;height:12px;border-radius:3px;background:${c};display:inline-block"></i>${l}</span>`).join('')}</div>`;
+  }
+
+  function ganttFeriasDashboardV96(){
+    const ano=Number(state.rhFeriasAnoDashboardV96||new Date().getFullYear());
+    const pessoas=rhColaboradores.filter(c=>c.ativo!==false&&filtroUnidadeRHV93(c)).sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+    const inicioAno=new Date(ano,0,1,12), fimAno=new Date(ano,11,31,12);
+    const totalDias=Math.round((fimAno-inicioAno)/86400000)+1;
+    const hoje=hojeISO();
+    const hojeD=new Date(hoje+'T12:00:00');
+    const hojePct=hojeD.getFullYear()===ano ? Math.max(0,Math.min(100,((hojeD-inicioAno)/86400000)/totalDias*100)) : -1;
+    const meses=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+
+    const rows=pessoas.map(c=>{
+      const f=ultimaFeriasPorPessoaV96(c.nome);
+      const per=periodoFeriasProjetadoV96(f,ano);
+      const st=statusFeriasV96(c,per,ano);
+      let left=0,width=0;
+      if(per.inicio&&per.fim){
+        const di=new Date(per.inicio+'T12:00:00'), df=new Date(per.fim+'T12:00:00');
+        left=Math.max(0,((di-inicioAno)/86400000)/totalDias*100);
+        width=Math.max(1,(((df-di)/86400000)+1)/totalDias*100);
+        if(left+width>100)width=100-left;
+      }
+      return `<div style="display:grid;grid-template-columns:210px minmax(760px,1fr) 230px;min-height:36px;border-top:1px solid var(--border);align-items:center">
+        <div style="padding:7px 10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${c.nome||''}">${c.nome||'—'}</div>
+        <div style="height:35px;position:relative;background:repeating-linear-gradient(to right,transparent 0,transparent calc(8.333% - 1px),${V96_CORES.grade} calc(8.333% - 1px),${V96_CORES.grade} 8.333%)">
+          ${hojePct>=0?`<div title="Hoje" style="position:absolute;left:${hojePct}%;top:0;bottom:0;width:2px;background:#ffffff;opacity:.7;z-index:3"></div>`:''}
+          ${per.inicio?`<div title="${fmt.date(per.inicio)} a ${fmt.date(per.fim)} — ${st.texto}" style="position:absolute;left:${left}%;width:${width}%;top:7px;height:21px;border-radius:4px;background:${st.cor};box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;display:flex;align-items:center;justify-content:center;color:#111;font-size:10px;font-weight:900;overflow:hidden">FÉRIAS</div>`:''}
+        </div>
+        <div style="padding:5px 8px"><span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:${st.cor}">${st.alerta?'⚠ ':''}${st.texto}</span></div>
+      </div>`;
+    }).join('');
+
+    return `<div class="card" style="grid-column:1/-1;margin-top:16px">
+      <div class="card-header"><div><div class="card-title">Planejamento Anual de Férias — ${ano}</div>
+      <div class="card-sub">Períodos projetados para ${ano} mantendo o mesmo mês/dia das férias registradas no histórico mais recente. O gráfico é recalculado pela data atual.</div></div>
+      <div class="field" style="min-width:120px"><label>Ano</label><input type="number" min="2025" max="2100" id="rhFeriasAnoDashboardV96" value="${ano}"></div></div>
+      ${legendaFeriasV96()}
+      <div style="overflow:auto;margin-top:12px;border:1px solid var(--border);border-radius:8px">
+        <div style="min-width:1200px">
+          <div style="display:grid;grid-template-columns:210px minmax(760px,1fr) 230px;align-items:end;background:var(--surface-2)">
+            <div style="padding:8px 10px;font-weight:900">Colaborador</div>
+            <div style="display:grid;grid-template-columns:repeat(12,1fr)">${meses.map(m=>`<div style="text-align:center;padding:8px 0;font-size:10px;font-weight:900;border-left:1px solid var(--border)">${m}</div>`).join('')}</div>
+            <div style="padding:8px 10px;font-weight:900">Situação</div>
+          </div>${rows||'<div style="padding:20px">Nenhum colaborador ativo.</div>'}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Dashboard RH: mantém KPIs/gráficos atuais e adiciona o Gantt solicitado.
+  const _dashboardRHV93V96=dashboardRHV93;
+  dashboardRHV93=function(){
+    return _dashboardRHV93V96()+ganttFeriasDashboardV96();
+  };
+
+  // ASO: anual legado é projetado para o mesmo mês/dia de 2026 quando o registro anterior não foi atualizado,
+  // preservando quem já possui um próximo ASO válido/em dia e preservando periodicidades bienais.
+  const _proximoASORHV93V96=proximoASORHV93;
+  proximoASORHV93=function(a={}){
+    const original=_proximoASORHV93V96(a);
+    const ultimo=a.ultimoASO||a.aso_data||'';
+    const validade=Number(a.validadeAnos||a.aso_validade||1);
+    if(!ultimo)return original;
+    if(validade!==1)return original;
+    if(original && original>='2026-01-01')return original;
+    const y=Number(String(ultimo).slice(0,4));
+    if(y<=2024) return dataProjetadaAnoV96(ultimo,2026);
+    return original;
+  };
+  statusASOV91=function(a){
+    const proximo=proximoASORHV93(a);
+    if(!proximo)return {texto:'SEM ASO',classe:'badge-danger',proximo:'',cor:V96_CORES.vermelho};
+    const hoje=hojeISO();
+    const dias=diasEntreV96(hoje,proximo);
+    if(proximo<=hoje)return {texto:proximo===hoje?'VENCE HOJE':'VENCIDO',classe:'badge-danger',proximo,cor:V96_CORES.vermelho};
+    if(dias!==null&&dias<=60)return {texto:'VENCE EM ATÉ 2 MESES',classe:'badge-pending',proximo,cor:V96_CORES.amarelo};
+    return {texto:'EM DIA',classe:'badge-ok',proximo,cor:V96_CORES.verde};
+  };
+
+  // Adiciona legenda à tela de ASO.
+  const _renderRHV96=renderRH;
+  renderRH=function(){
+    const html=_renderRHV96.apply(this,arguments);
+    if((state.rhTab||'dashboard')!=='aso')return html;
+    const leg=`<div class="card" style="margin-bottom:12px"><div class="card-title">Legenda ASO</div><div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+      <span><i style="display:inline-block;width:12px;height:12px;background:${V96_CORES.verde};border-radius:3px;margin-right:6px"></i>Em dia</span>
+      <span><i style="display:inline-block;width:12px;height:12px;background:${V96_CORES.amarelo};border-radius:3px;margin-right:6px"></i>Faltam até 2 meses</span>
+      <span><i style="display:inline-block;width:12px;height:12px;background:${V96_CORES.vermelho};border-radius:3px;margin-right:6px"></i>Vence hoje ou vencido</span>
+    </div></div>`;
+    return html.replace(/(<div class="card"[^>]*>)/,leg+'$1');
+  };
+
+  // ---------- CUSTO REAL AUDITADO ----------
+  function destinoGenericoV96(v){
+    const n=normalize(v||'').replace(/\s+/g,' ').trim();
+    return !n || ['oficina','estoque','epi','administrativo','despesas adm','despesas administrativas','mechatronics','mecha','2 galpao','porto'].includes(n);
+  }
+  function frotaCanonicaV96(destino,centro=''){
+    const n=normalize(destino||'').replace(/\s+/g,' ').trim();
+    if(destinoGenericoV96(destino))return null;
+    const cc=centroCustoNormalizado(centro||'');
+    const f=frotas.find(x=>normalize(x.nome||'').replace(/\s+/g,' ').trim()===n && (!cc||getCentroCustoRegistro(x)===cc));
+    if(f)return {nome:f.nome,centro:getCentroCustoRegistro(f)};
+    // Para histórico, aceita destino textual que claramente seja uma frota.
+    if(/^frota\b/.test(n))return {nome:String(destino||'').trim().replace(/\s+/g,' '),centro:cc||'SANTOS'};
+    return null;
+  }
+  function mesRCV96(rc){return String(rc.dataAprovacao||rc.data||rc.dataCriacao||'').slice(0,7);}
+  function frotasPresentesPorRCMesV96(){
+    const m={};
+    rcs.forEach(rc=>{
+      const mes=mesRCV96(rc); if(!mes)return;
+      const centro=getCentroCustoRegistro(rc);
+      const fr=frotaCanonicaV96(rc.aplicacao||rc.destino||'',centro); if(!fr)return;
+      const key=`${centro}|${mes}`;
+      if(!m[key])m[key]=new Map();
+      m[key].set(normalize(fr.nome),fr.nome);
+    });
+    return m;
+  }
+  function custosReaisV96(movimentos){
+    const diretos={}, oficinaMes={}, presencas=frotasPresentesPorRCMesV96();
+    const keyF=(cc,n)=>`${cc}|${normalize(n)}`;
+    movimentos.forEach(m=>{
+      const cc=getCentroCustoRegistro(m), mes=m.mesCusto||String(m.dataCusto||'').slice(0,7);
+      const val=numeroSeguro(m.valorCusto);
+      if(normalize(m.destino||'').includes('oficina')){
+        const k=`${cc}|${mes}`; oficinaMes[k]=(oficinaMes[k]||0)+val; return;
+      }
+      const fr=frotaCanonicaV96(m.destino,cc); if(!fr)return;
+      const k=keyF(cc,fr.nome);
+      if(!diretos[k])diretos[k]={nome:fr.nome,centro:cc,rcnf:0,baixa:0};
+      if(m.tipoDocumento==='BAIXA_ESTOQUE')diretos[k].baixa+=val; else diretos[k].rcnf+=val;
+    });
+    const rateios={},auditoria=[],naoRateado=[];
+    Object.entries(oficinaMes).forEach(([k,custo])=>{
+      const [cc,mes]=k.split('|');
+      const lista=[...(presencas[k]?.values()||[])];
+      if(!lista.length){naoRateado.push({centro:cc,mes,custo});return;}
+      const parcela=custo/lista.length;
+      lista.forEach(nome=>{
+        const fk=keyF(cc,nome);
+        rateios[fk]=(rateios[fk]||0)+parcela;
+        auditoria.push({centro:cc,mes,nome,custo,qtd:lista.length,parcela});
+      });
+    });
+    const keys=new Set([...Object.keys(diretos),...Object.keys(rateios)]);
+    const linhas=[...keys].map(k=>{
+      const d=diretos[k]||{}; const [cc]=k.split('|'); const rateio=rateios[k]||0;
+      return {nome:d.nome||auditoria.find(a=>keyF(a.centro,a.nome)===k)?.nome||k,centro:d.centro||cc,rcnf:d.rcnf||0,baixa:d.baixa||0,rateio,total:(d.rcnf||0)+(d.baixa||0)+rateio};
+    }).sort((a,b)=>b.total-a.total);
+    return {linhas,auditoria,naoRateado,oficinaTotal:Object.values(oficinaMes).reduce((s,v)=>s+v,0)};
+  }
+
+  const _renderDashboardCustosV95V96=renderDashboardCustos;
+  renderDashboardCustos=function(){
+    const f=state.custosFilters||{};
+    let mov=getMovimentosCustos(recebimentosNF);
+    if(f.dataIni)mov=mov.filter(x=>(x.dataCusto||'')>=f.dataIni);
+    if(f.dataFim)mov=mov.filter(x=>(x.dataCusto||'')<=f.dataFim);
+    if(f.centroCusto)mov=mov.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
+    if(f.fornecedor)mov=mov.filter(x=>x.fornecedor===f.fornecedor);
+    if(f.codigoContabil)mov=mov.filter(x=>x.codigoContabil===f.codigoContabil);
+    const c=custosReaisV96(mov);
+    const totalFrotas=c.linhas.reduce((s,x)=>s+x.total,0);
+    const bloco=`<div class="card" style="margin-bottom:20px;border:2px solid var(--accent)">
+      <div class="card-header"><div><div class="card-title">Ranking de Custo Real por Frota — Auditado</div>
+      <div class="card-sub"><strong>Fórmula:</strong> custos efetivos via RC/NF + baixas de estoque + rateio mensal de Oficina. A Oficina permanece visível como origem do rateio e NÃO é somada novamente ao total das frotas.</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Pos.</th><th>Frota</th><th>Centro</th><th>RC / NF</th><th>Baixas Estoque</th><th>Rateio Oficina</th><th>Custo Real</th></tr></thead><tbody>
+        ${c.linhas.map((x,i)=>`<tr><td>${i+1}º</td><td><strong>${x.nome}</strong></td><td>${x.centro}</td><td>${fmt.money(x.rcnf)}</td><td>${fmt.money(x.baixa)}</td><td>${fmt.money(x.rateio)}</td><td><strong style="color:var(--accent)">${fmt.money(x.total)}</strong></td></tr>`).join('')||'<tr><td colspan="7">Sem custos de frota no período.</td></tr>'}
+      </tbody><tfoot><tr><td colspan="6"><strong>Total de custo real atribuído às frotas</strong></td><td><strong>${fmt.money(totalFrotas)}</strong></td></tr>
+      <tr><td colspan="6">OFICINA — valor informativo / origem do rateio (não somar novamente)</td><td><strong>${fmt.money(c.oficinaTotal)}</strong></td></tr></tfoot></table></div>
+      ${c.naoRateado.length?`<div style="margin-top:12px;padding:10px;border:1px solid ${V96_CORES.roxo};border-radius:8px;color:${V96_CORES.roxo};font-weight:800">⚠ Existem ${c.naoRateado.length} mês(es) com custo de Oficina sem frota identificada nas RCs daquele mês. Esses valores ficaram sem rateio para evitar distribuição incorreta.</div>`:''}
+      <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:900">Auditoria do rateio mensal de Oficina</summary><div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>Mês</th><th>Centro</th><th>Frota identificada nas RCs</th><th>Oficina no mês</th><th>Qtd. frotas</th><th>Parcela</th></tr></thead><tbody>${c.auditoria.map(a=>`<tr><td>${a.mes}</td><td>${a.centro}</td><td>${a.nome}</td><td>${fmt.money(a.custo)}</td><td>${a.qtd}</td><td><strong>${fmt.money(a.parcela)}</strong></td></tr>`).join('')||'<tr><td colspan="6">Sem rateios.</td></tr>'}</tbody></table></div></details>
+    </div>`;
+    // Remove o card V9.5 anterior para não mostrar dois cálculos de rateio distintos.
+    const base=_renderDashboardCustosV95V96();
+    const cleaned=base.replace(/<div class="card" style="margin-bottom:20px;border:2px solid var\(--accent\)">[\s\S]*?<\/details>\s*<\/div>/,'');
+    return bloco+cleaned;
+  };
+
+  // Eventos do ano do Gantt.
+  document.addEventListener('change',e=>{
+    if(e.target?.id==='rhFeriasAnoDashboardV96'){
+      state.rhFeriasAnoDashboardV96=Number(e.target.value)||new Date().getFullYear(); render();
+    }
+  });
 })();
 </script>
 
