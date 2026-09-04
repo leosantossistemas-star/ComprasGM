@@ -369,7 +369,7 @@
 </head>
 <body>
 
-  <!-- ===== V9.0 — RH + Orçamento Técnico + Frotas antigas liberáveis para RC ===== -->
+  <!-- ===== V9.1 — RH completo + Férias/ASO/Treinamentos + Frota livre no OT/Solicitação ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -4715,7 +4715,13 @@ function gerarPDF(rcData) {
       if(!podeAcessarOrcamentoTecnico())return '<div class="card">Acesso negado.</div>';
       const list=orcamentosTecnicos.slice().sort((a,b)=>String(b.numero||'').localeCompare(String(a.numero||''),'pt-BR',{numeric:true}));
       let form='';
-      if(state.orcamentoFormAberto){const o=state.orcamentoEditId?orcamentosTecnicos.find(x=>x.id===state.orcamentoEditId):null;const h=o||state.otHeader||{};const itens=state.orcamentoItensDraft.length?state.orcamentoItensDraft:(o?.itens||[{tipo:'SERVICO',descricao:'',quantidade:1,valorUnitario:0}]);const imp=h.impostoPct||0;const tot=totaisOT(itens,imp);form=`<div class="card" style="border:2px solid var(--accent);margin-bottom:20px"><div class="card-header"><div><div class="card-title">${o?'Editar '+o.numero:'Novo Orçamento Técnico'}</div><div class="card-sub">Cabeçalho + composição de custos.</div></div><button class="btn btn-ghost" id="otCancelar">Cancelar</button></div><form id="formOT"><input type="hidden" id="otId" value="${o?.id||''}"><div class="form-grid"><div class="field"><label>Número</label><input id="otNumero" readonly value="${o?.numero||'Gerado ao salvar'}"></div><div class="field"><label>Prestador de Serviço *</label><select id="otPrestador"><option ${h.prestador==='SANTOS'?'selected':''}>SANTOS</option><option ${h.prestador==='CAMAÇARI'?'selected':''}>CAMAÇARI</option><option ${h.prestador==='MECHATRONICS'?'selected':''}>MECHATRONICS</option></select></div><div class="field"><label>Frota / Projeto *</label><select id="otFrotaId" required><option value="">Selecione</option>${frotas.filter(f=>!isDestinoPadrao(f)).map(f=>`<option value="${f.id}" ${h.frotaId===f.id?'selected':''}>${f.nome} — ${getCentroCustoRegistro(f)}</option>`).join('')}</select></div><div class="field"><label>Data chegada da frota *</label><input type="date" id="otDataChegada" required value="${h.dataChegada||hojeISO()}"></div><div class="field"><label>Data do orçamento *</label><input type="date" id="otData" required value="${h.dataOrcamento||hojeISO()}"></div><div class="field"><label>Cliente *</label><input id="otCliente" required value="${h.cliente||''}"></div><div class="field"><label>OS gerada?</label><select id="otTemOS"><option value="NAO" ${!h.osNumero?'selected':''}>Não</option><option value="SIM" ${h.osNumero?'selected':''}>Sim</option></select></div><div class="field" id="otOSWrap" style="display:${h.osNumero?'':'none'}"><label>Número da OS</label><input id="otOSNumero" value="${h.osNumero||''}" placeholder="OS não gerada"></div></div><div class="card-title" style="margin:18px 0 8px">Composição do orçamento</div><div id="otItens">${itens.map((i,idx)=>renderLinhaOT(i,idx)).join('')}</div><button type="button" class="btn btn-ghost" id="otAddItem">+ Incluir item</button><div class="form-grid" style="margin-top:18px"><div class="field"><label>Imposto %</label><input type="number" min="0" step="0.01" id="otImposto" value="${imp}"></div><div class="field"><label>Subtotal</label><input id="otSubtotal" readonly value="${fmt.money(tot.subtotal)}"></div><div class="field"><label>Imposto</label><input id="otImpostoValor" readonly value="${fmt.money(tot.imposto)}"></div><div class="field"><label>PREÇO FINAL</label><input id="otTotal" readonly style="color:var(--accent);font-weight:900" value="${fmt.money(tot.total)}"></div><div class="field field-full"><label>Observações</label><textarea id="otObservacoes">${h.observacoes||''}</textarea></div></div><div class="form-actions"><button class="btn btn-accent" type="submit">SALVAR — STAND BY</button>${o?`<button class="btn btn-danger" type="button" data-ot-excluir="${o.id}">EXCLUIR</button>`:''}</div></form></div>`;}
+      if(state.orcamentoFormAberto){const o=state.orcamentoEditId?orcamentosTecnicos.find(x=>x.id===state.orcamentoEditId):null;const h=o||state.otHeader||{};const itens=state.orcamentoItensDraft.length?state.orcamentoItensDraft:(o?.itens||[{tipo:'SERVICO',descricao:'',quantidade:1,valorUnitario:0}]);const imp=h.impostoPct||0;const tot=totaisOT(itens,imp);form=`<div class="card" style="border:2px solid var(--accent);margin-bottom:20px"><div class="card-header"><div><div class="card-title">${o?'Editar '+o.numero:'Novo Orçamento Técnico'}</div><div class="card-sub">Cabeçalho + composição de custos.</div></div><button class="btn btn-ghost" id="otCancelar">Cancelar</button></div><form id="formOT"><input type="hidden" id="otId" value="${o?.id||''}"><div class="form-grid"><div class="field"><label>Número</label><input id="otNumero" readonly value="${o?.numero||'Gerado ao salvar'}"></div><div class="field"><label>Prestador de Serviço *</label><select id="otPrestador"><option ${h.prestador==='SANTOS'?'selected':''}>SANTOS</option><option ${h.prestador==='CAMAÇARI'?'selected':''}>CAMAÇARI</option><option ${h.prestador==='MECHATRONICS'?'selected':''}>MECHATRONICS</option></select></div><div class="field"><label>Número da Frota / Projeto *</label>
+  <input id="otFrotaNome" required value="${h.frotaNome||''}" placeholder="Ex.: FROTA 9571 WM ou Projeto Linha 02">
+  <input type="hidden" id="otFrotaId" value="${h.frotaId||''}">
+  <div style="font-size:11px;color:var(--text-muted);margin-top:5px">
+    Digite a frota/projeto. Se ainda não existir, o sistema cadastra automaticamente ao salvar o orçamento.
+  </div>
+</div><div class="field"><label>Data chegada da frota *</label><input type="date" id="otDataChegada" required value="${h.dataChegada||hojeISO()}"></div><div class="field"><label>Data do orçamento *</label><input type="date" id="otData" required value="${h.dataOrcamento||hojeISO()}"></div><div class="field"><label>Cliente *</label><input id="otCliente" required value="${h.cliente||''}"></div><div class="field"><label>OS gerada?</label><select id="otTemOS"><option value="NAO" ${!h.osNumero?'selected':''}>Não</option><option value="SIM" ${h.osNumero?'selected':''}>Sim</option></select></div><div class="field" id="otOSWrap" style="display:${h.osNumero?'':'none'}"><label>Número da OS</label><input id="otOSNumero" value="${h.osNumero||''}" placeholder="OS não gerada"></div></div><div class="card-title" style="margin:18px 0 8px">Composição do orçamento</div><div id="otItens">${itens.map((i,idx)=>renderLinhaOT(i,idx)).join('')}</div><button type="button" class="btn btn-ghost" id="otAddItem">+ Incluir item</button><div class="form-grid" style="margin-top:18px"><div class="field"><label>Imposto %</label><input type="number" min="0" step="0.01" id="otImposto" value="${imp}"></div><div class="field"><label>Subtotal</label><input id="otSubtotal" readonly value="${fmt.money(tot.subtotal)}"></div><div class="field"><label>Imposto</label><input id="otImpostoValor" readonly value="${fmt.money(tot.imposto)}"></div><div class="field"><label>PREÇO FINAL</label><input id="otTotal" readonly style="color:var(--accent);font-weight:900" value="${fmt.money(tot.total)}"></div><div class="field field-full"><label>Observações</label><textarea id="otObservacoes">${h.observacoes||''}</textarea></div></div><div class="form-actions"><button class="btn btn-accent" type="submit">SALVAR — STAND BY</button>${o?`<button class="btn btn-danger" type="button" data-ot-excluir="${o.id}">EXCLUIR</button>`:''}</div></form></div>`;}
       return `<div class="card" style="margin-bottom:20px"><div class="card-header"><div><div class="card-title">Orçamento Técnico</div><div class="card-sub">Numeração automática, composição por itens e fluxo STAND BY → APROVADO → Solicitação de RC.</div></div><button class="btn btn-accent" id="otNovo">+ Novo Orçamento</button></div></div>${form}<div class="card"><div class="table-wrap"><table><thead><tr><th>Número</th><th>Prestador</th><th>Frota/Projeto</th><th>Cliente</th><th>Data</th><th>OS</th><th>Subtotal</th><th>Imposto</th><th>Total</th><th>Status</th><th>Ações</th></tr></thead><tbody>${list.map(o=>{const f=frotas.find(x=>x.id===o.frotaId);const a=[`<button class="btn btn-ghost btn-sm" data-ot-ver="${o.id}">🔍 Ver</button>`];if(o.status==='STAND_BY'){a.push(`<button class="btn btn-success btn-sm" data-ot-aprovar="${o.id}">Aprovar</button>`,`<button class="btn btn-ghost btn-sm" data-ot-editar="${o.id}">Editar</button>`,`<button class="btn btn-danger btn-sm" data-ot-excluir="${o.id}">Excluir</button>`);}else if(o.status==='APROVADO'){a.push(`<button class="btn btn-accent btn-sm" data-ot-solicitar="${o.id}">Completar Solicitação RC</button>`);}return `<tr><td><strong>${o.numero}</strong></td><td>${o.prestador}</td><td>${f?.nome||o.frotaNome||'—'}</td><td>${o.cliente}</td><td>${fmt.date(o.dataOrcamento)}</td><td>${o.osNumero||'OS não gerada'}</td><td>${fmt.money(numeroSeguro(o.subtotal))}</td><td>${o.impostoPct||0}%</td><td><strong>${fmt.money(numeroSeguro(o.valorFinal))}</strong></td><td><span class="badge ${o.status==='APROVADO'?'badge-ok':'badge-pending'}">${o.status||'STAND_BY'}</span></td><td>${a.join(' ')}</td></tr>`;}).join('')||'<tr><td colspan="11">Nenhum orçamento técnico.</td></tr>'}</tbody></table></div></div>`;
     }
     function renderLinhaOT(i={},idx=0){
@@ -4905,16 +4911,19 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
                   <option value="MECHATRONICS" ${getCentroCustoRegistro(data)==='MECHATRONICS'?'selected':''}>Mechatronics</option>
                 </select>
               </div>
-              <div class="field"><label>Destino *</label>
-                <select id="solDestino" required>
-                  <option value="">Selecione</option>
+              <div class="field"><label>Frota / Projeto / Destino *</label>
+                <input id="solDestino" required value="${data.destino||''}" list="solDestinosExistentes"
+                       placeholder="Digite ou selecione uma Frota/Projeto">
+                <datalist id="solDestinosExistentes">
                   ${(() => {
                     const cc = getCentroCustoRegistro(data);
                     const nomes = [...new Set(frotasList.filter(f => getCentroCustoRegistro(f) === cc).map(f => f.nome))];
-                    if (data.destino && !nomes.includes(data.destino)) nomes.unshift(data.destino);
-                    return nomes.map(nome => `<option value="${nome}" ${data.destino===nome?'selected':''}>${nome}</option>`).join('');
+                    return nomes.map(nome => `<option value="${nome}"></option>`).join('');
                   })()}
-                </select>
+                </datalist>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:5px">
+                  Se a frota/projeto ainda não existir, digite o nome/número e ela será cadastrada ao salvar a solicitação.
+                </div>
               </div>
               <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${dataNecessidadeValor}" required /></div>
               ${perfilAtual==='admin' && isEdit ? `
@@ -5104,7 +5113,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
     }
 
-    function salvarSolicitacaoHandler() {
+    async function salvarSolicitacaoHandler() {
       const getVal = (id) => document.getElementById(id)?.value || '';
       const centroCusto = centroCustoNormalizado(getVal('solCentroCusto'));
       const destino = getVal('solDestino');
@@ -5130,6 +5139,36 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }
       });
       if (!itens.length) { showToast('Adicione pelo menos um item.', true); return; }
+
+      // Se a Frota/Projeto ainda não existir, a Solicitação pode cadastrá-la.
+      let destinoRef = getFrotaByNome(destino, centroCusto);
+      if (!destinoRef && !['ESTOQUE','OFICINA','DESPESAS ADMINISTRATIVAS'].includes(String(destino).toUpperCase())) {
+        try {
+          const payloadDestino={
+            nome:destino,
+            centroCusto,
+            tipoCadastro:centroCusto==='MECHATRONICS'?'PROJETO':'FROTA',
+            valorOrcamento:0,
+            percentualLimite:20,
+            dataEntrada:hojeISO(),
+            dataPrevisaoSaida:'',
+            statusOperacional:centroCusto==='MECHATRONICS'?'':'EM_MANUTENCAO',
+            statusProjeto:centroCusto==='MECHATRONICS'?'PLANEJAMENTO':'',
+            concluido:false,
+            cadastroIncompleto:true,
+            origemCadastro:'SOLICITACAO_RC',
+            criadoPorUid:getUsuarioUid(),
+            criadoPorEmail:getUsuarioEmail(),
+            criadoPorNome:getUsuarioNome(),
+            criadoEm:firebase.firestore.FieldValue.serverTimestamp()
+          };
+          const ref=await db.collection('frotas').add(payloadDestino);
+          destinoRef={id:ref.id,...payloadDestino};
+        } catch(err) {
+          showToast('Não foi possível cadastrar a Frota/Projeto: '+err.message,true);
+          return;
+        }
+      }
 
       const editId = getVal('solEditId');
       const origemCopiaId = getVal('solOrigemCopiaId');
@@ -5270,12 +5309,113 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('otNovo')?.addEventListener('click',()=>{state.orcamentoEditId=null;state.otHeader={};state.orcamentoItensDraft=[{tipo:'SERVICO',descricao:'',quantidade:1,valorUnitario:0}];state.orcamentoFormAberto=true;render();});
       document.getElementById('otCancelar')?.addEventListener('click',()=>{state.orcamentoFormAberto=false;state.orcamentoEditId=null;state.orcamentoItensDraft=[];state.otHeader={};render();});
       document.getElementById('otTemOS')?.addEventListener('change',e=>{const w=document.getElementById('otOSWrap');if(w)w.style.display=e.target.value==='SIM'?'':'none';});
-      document.getElementById('otAddItem')?.addEventListener('click',()=>{state.orcamentoItensDraft=coletarItensOT();state.orcamentoItensDraft.push({tipo:'SERVICO',descricao:'',quantidade:1,valorUnitario:0});state.otHeader={prestador:document.getElementById('otPrestador')?.value||'SANTOS',frotaId:document.getElementById('otFrotaId')?.value||'',dataChegada:document.getElementById('otDataChegada')?.value||hojeISO(),dataOrcamento:document.getElementById('otData')?.value||hojeISO(),cliente:document.getElementById('otCliente')?.value||'',osNumero:document.getElementById('otTemOS')?.value==='SIM'?(document.getElementById('otOSNumero')?.value||''):'',impostoPct:document.getElementById('otImposto')?.value||0,observacoes:document.getElementById('otObservacoes')?.value||''};render();});
+      document.getElementById('otAddItem')?.addEventListener('click',()=>{state.orcamentoItensDraft=coletarItensOT();state.orcamentoItensDraft.push({tipo:'SERVICO',descricao:'',quantidade:1,valorUnitario:0});state.otHeader={prestador:document.getElementById('otPrestador')?.value||'SANTOS',frotaId:document.getElementById('otFrotaId')?.value||'',frotaNome:document.getElementById('otFrotaNome')?.value||'',dataChegada:document.getElementById('otDataChegada')?.value||hojeISO(),dataOrcamento:document.getElementById('otData')?.value||hojeISO(),cliente:document.getElementById('otCliente')?.value||'',osNumero:document.getElementById('otTemOS')?.value==='SIM'?(document.getElementById('otOSNumero')?.value||''):'',impostoPct:document.getElementById('otImposto')?.value||0,observacoes:document.getElementById('otObservacoes')?.value||''};render();});
       document.querySelectorAll('.ot-remove').forEach(b=>b.addEventListener('click',()=>{b.closest('.ot-item')?.remove();recalcularOT();}));
       document.querySelectorAll('.ot-qtd,.ot-unit,#otImposto').forEach(el=>el.addEventListener('input',recalcularOT));
       document.querySelectorAll('.ot-tipo').forEach(sel=>sel.addEventListener('change',()=>{const row=sel.closest('.ot-item');const desc=row?.querySelector('.ot-desc');if(desc)desc.placeholder=sel.value==='MATERIAL'?'Digite código/nome do material...':'Descrição do serviço/item';}));
       document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){sug.style.display='none';return;}const ms=allItems.filter(i=>normalize([i.codigo,i.descricaoSimples,i.descricaoCurta,i.descricaoCompleta].join(' ')).includes(q)).slice(0,15);sug.innerHTML=ms.map((m,i)=>`<button type="button" data-i="${i}" style="display:block;width:100%;text-align:left;padding:9px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border)"><strong style="color:var(--accent)">${m.codigo}</strong> — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}</button>`).join('');sug.style.display=ms.length?'block':'none';sug.querySelectorAll('[data-i]').forEach(b=>b.addEventListener('mousedown',e=>{e.preventDefault();const m=ms[Number(b.dataset.i)];inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();sug.style.display='none';recalcularOT();}));});});
-      document.getElementById('formOT')?.addEventListener('submit',async e=>{e.preventDefault();try{const id=document.getElementById('otId').value;const itens=coletarItensOT();if(!itens.length)throw new Error('Inclua pelo menos um item.');const impostoPct=numeroSeguro(document.getElementById('otImposto').value),tot=totaisOT(itens,impostoPct),frotaId=document.getElementById('otFrotaId').value,f=frotas.find(x=>x.id===frotaId);if(!f)throw new Error('Selecione a Frota/Projeto.');let numero=id?(orcamentosTecnicos.find(x=>x.id===id)?.numero||''):await proximoNumeroOT();const osSim=document.getElementById('otTemOS').value==='SIM';const payload={numero,prestador:document.getElementById('otPrestador').value,frotaId,frotaNome:f.nome,dataChegada:document.getElementById('otDataChegada').value,dataOrcamento:document.getElementById('otData').value,cliente:document.getElementById('otCliente').value.trim(),osNumero:osSim?document.getElementById('otOSNumero').value.trim():'',itens,impostoPct,subtotal:tot.subtotal,valorImposto:tot.imposto,valorFinal:tot.total,observacoes:document.getElementById('otObservacoes').value,status:id?(orcamentosTecnicos.find(x=>x.id===id)?.status||'STAND_BY'):'STAND_BY',alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()};if(id)await db.collection('orcamentos_tecnicos').doc(id).update(payload);else await db.collection('orcamentos_tecnicos').add({...payload,criadoPorUid:getUsuarioUid(),criadoPorNome:getUsuarioNome(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()});state.orcamentoFormAberto=false;state.orcamentoEditId=null;state.orcamentoItensDraft=[];state.otHeader={};showToast('Orçamento salvo em STAND BY.');}catch(err){showToast(err.message,true);}});
+      document.getElementById('formOT')?.addEventListener('submit',async e=>{
+        e.preventDefault();
+        try{
+          const id=document.getElementById('otId').value;
+          const itens=coletarItensOT();
+          if(!itens.length) throw new Error('Inclua pelo menos um item.');
+
+          const prestador=document.getElementById('otPrestador').value;
+          const frotaNome=(document.getElementById('otFrotaNome')?.value||'').trim();
+          if(!frotaNome) throw new Error('Informe o número/nome da Frota ou Projeto.');
+
+          const impostoPct=numeroSeguro(document.getElementById('otImposto').value);
+          const tot=totaisOT(itens,impostoPct);
+          const dataChegada=document.getElementById('otDataChegada').value;
+          const cliente=document.getElementById('otCliente').value.trim();
+
+          // Tenta localizar uma frota/projeto já existente pelo nome + centro.
+          let f=frotas.find(x =>
+            normalize(x.nome||'')===normalize(frotaNome)
+            && getCentroCustoRegistro(x)===prestador
+          );
+
+          // Se não existir, o próprio Orçamento Técnico cadastra.
+          if(!f){
+            const payloadFrota={
+              nome:frotaNome,
+              centroCusto:prestador,
+              tipoCadastro:prestador==='MECHATRONICS'?'PROJETO':'FROTA',
+              valorOrcamento:tot.total,
+              percentualLimite:20,
+              dataEntrada:dataChegada||hojeISO(),
+              dataPrevisaoSaida:'',
+              statusOperacional:prestador==='MECHATRONICS'?'':'EM_MANUTENCAO',
+              statusProjeto:prestador==='MECHATRONICS'?'PLANEJAMENTO':'',
+              concluido:false,
+              cadastroIncompleto:true,
+              origemCadastro:'ORCAMENTO_TECNICO',
+              criadoPorUid:getUsuarioUid(),
+              criadoPorEmail:getUsuarioEmail(),
+              criadoPorNome:getUsuarioNome(),
+              criadoEm:firebase.firestore.FieldValue.serverTimestamp()
+            };
+            const ref=await db.collection('frotas').add(payloadFrota);
+            f={id:ref.id,...payloadFrota};
+          }else{
+            // O orçamento técnico pode atualizar valor e data de chegada da frota já existente.
+            await db.collection('frotas').doc(f.id).set({
+              valorOrcamento:tot.total,
+              dataEntrada:dataChegada||f.dataEntrada||'',
+              alteradoPorUid:getUsuarioUid(),
+              alteradoPorEmail:getUsuarioEmail(),
+              alteradoPorNome:getUsuarioNome(),
+              alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+            },{merge:true});
+          }
+
+          let numero=id
+            ? (orcamentosTecnicos.find(x=>x.id===id)?.numero||'')
+            : await proximoNumeroOT();
+
+          const osSim=document.getElementById('otTemOS').value==='SIM';
+          const payload={
+            numero,
+            prestador,
+            frotaId:f.id,
+            frotaNome,
+            dataChegada,
+            dataOrcamento:document.getElementById('otData').value,
+            cliente,
+            osNumero:osSim?document.getElementById('otOSNumero').value.trim():'',
+            itens,
+            impostoPct,
+            subtotal:tot.subtotal,
+            valorImposto:tot.imposto,
+            valorFinal:tot.total,
+            observacoes:document.getElementById('otObservacoes').value,
+            status:id?(orcamentosTecnicos.find(x=>x.id===id)?.status||'STAND_BY'):'STAND_BY',
+            alteradoPorUid:getUsuarioUid(),
+            alteradoPorNome:getUsuarioNome(),
+            alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+          };
+
+          if(id){
+            await db.collection('orcamentos_tecnicos').doc(id).update(payload);
+          }else{
+            await db.collection('orcamentos_tecnicos').add({
+              ...payload,
+              criadoPorUid:getUsuarioUid(),
+              criadoPorNome:getUsuarioNome(),
+              criadoEm:firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }
+
+          state.orcamentoFormAberto=false;
+          state.orcamentoEditId=null;
+          state.orcamentoItensDraft=[];
+          state.otHeader={};
+          showToast(`Orçamento salvo em STAND BY. ${frotaNome} cadastrada/vinculada.`);
+        }catch(err){
+          showToast(err.message,true);
+        }
+      });
       document.querySelectorAll('[data-ot-editar]').forEach(b=>b.addEventListener('click',()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otEditar);if(!o)return;state.orcamentoEditId=o.id;state.otHeader={};state.orcamentoItensDraft=o.itens||[];state.orcamentoFormAberto=true;render();}));
       document.querySelectorAll('[data-ot-excluir]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Excluir orçamento técnico?'))return;await db.collection('orcamentos_tecnicos').doc(b.dataset.otExcluir).delete();state.orcamentoFormAberto=false;state.orcamentoEditId=null;}));
       document.querySelectorAll('[data-ot-aprovar]').forEach(b=>b.addEventListener('click',async()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otAprovar);if(!o||!confirm(`Aprovar ${o.numero}?`))return;const batch=db.batch();batch.update(db.collection('orcamentos_tecnicos').doc(o.id),{status:'APROVADO',aprovadoPorUid:getUsuarioUid(),aprovadoPorNome:getUsuarioNome(),aprovadoEm:firebase.firestore.FieldValue.serverTimestamp()});if(o.frotaId){batch.update(db.collection('frotas').doc(o.frotaId),{valorOrcamento:o.valorFinal,dataEntrada:o.dataChegada,origemOrcamentoTecnico:o.numero,alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});}await batch.commit();showToast('Orçamento aprovado. Valor do serviço enviado para a Frota/Projeto.');}));
@@ -6670,10 +6810,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const atual = destinoEl.value;
           const nomes = [...new Set(frotas.filter(f=>getCentroCustoRegistro(f)===cc).map(f=>f.nome))]
             .sort((a,b)=>a.localeCompare(b,'pt-BR'));
-          if (dados?.destino && !nomes.includes(dados.destino)) nomes.unshift(dados.destino);
-          destinoEl.innerHTML='<option value="">Selecione</option>'+nomes.map(nome=>`<option value="${nome}">${nome}</option>`).join('');
-          if (nomes.includes(atual)) destinoEl.value=atual;
-          else if (dados?.destino) destinoEl.value=dados.destino;
+          const dl=document.getElementById('solDestinosExistentes');
+          if(dl) dl.innerHTML=nomes.map(nome=>`<option value="${nome}"></option>`).join('');
+          if(atual) destinoEl.value=atual;
+          else if(dados?.destino) destinoEl.value=dados.destino;
         };
 
         document.getElementById('solCentroCusto')?.addEventListener('change', atualizarDestinosSolicitacao);
@@ -7153,5 +7293,331 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
     }
   </script>
+
+<script>
+/* ============================================================
+   V9.1 — RH COMPLETO
+   Férias programadas/concedidas, ASO e Matriz de Treinamentos
+   ============================================================ */
+const RH_FERIAS_INICIAIS_V91 = [{"empresa": "Mechatronics", "filial": "Santos", "matricula": "73", "admissao": "2018-08-31", "colaboradorNome": "DARIO SANTOS DE PAZ", "departamento": "Produção", "funcao": "Encarregado", "inicioAq": "2023-08-31", "fimAq": "2024-08-31", "diasVencidosFonte": 734, "limiteGozo": "2025-07-31", "inicio": "2025-06-02", "fim": "2025-07-02", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Mechatronics", "filial": "Santos", "matricula": "113", "admissao": "2021-01-13", "colaboradorNome": "CASSIO RODRIGUES CARVALHO", "departamento": "Produção", "funcao": "Eletricista tecnico", "inicioAq": "2023-01-13", "fimAq": "2024-01-13", "diasVencidosFonte": 965, "limiteGozo": "2024-12-12", "inicio": "2024-12-12", "fim": "2025-01-10", "diasFerias": 29, "status": "Férias concedidas", "observacao": "falta sair", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Mechatronics", "filial": "Santos", "matricula": "147", "admissao": "2023-07-03", "colaboradorNome": "ADRIANO SOUSA DOS SANTOS", "departamento": "Produção", "funcao": "Eletricista tecnico", "inicioAq": "2023-07-03", "fimAq": "2024-07-03", "diasVencidosFonte": 793, "limiteGozo": "2025-06-02", "inicio": "2025-02-03", "fim": "2025-03-05", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Mechatronics", "filial": "Santos", "matricula": "149", "admissao": "2023-12-01", "colaboradorNome": "EVANDRO JOSE DOS SANTOS", "departamento": "Produção", "funcao": "Ajudante geral", "inicioAq": "2023-12-01", "fimAq": "2024-12-01", "diasVencidosFonte": 642, "limiteGozo": "2025-10-31", "inicio": "2025-03-03", "fim": "2025-04-02", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Mechatronics", "filial": "Santos", "matricula": "150", "admissao": "2024-01-10", "colaboradorNome": "LEONARDO ALVES DOS SANTOS", "departamento": "Produção", "funcao": "Consultor de processos", "inicioAq": "2024-01-10", "fimAq": "2025-01-10", "diasVencidosFonte": 602, "limiteGozo": "2025-12-10", "inicio": "2025-01-06", "fim": "2025-02-05", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Mechatronics", "filial": "Santos", "matricula": "151", "admissao": "2024-03-01", "colaboradorNome": "DANIEL WAGNER FRANCISCO GONÇALVES", "departamento": "Produção", "funcao": "Instrumentista", "inicioAq": "2024-03-01", "fimAq": "2025-03-01", "diasVencidosFonte": 552, "limiteGozo": "2026-01-29", "inicio": "2025-04-01", "fim": "2025-05-01", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "1", "admissao": "2019-03-13", "colaboradorNome": "FIDEL RODRIGUEZ RODRIGUEZ", "departamento": "Comercial", "funcao": "Gerente Comercial", "inicioAq": "2023-03-13", "fimAq": "2024-03-13", "diasVencidosFonte": 905, "limiteGozo": "2025-02-10", "inicio": "2025-02-03", "fim": "2025-03-05", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "9", "admissao": "2020-10-13", "colaboradorNome": "LEODATO FRANCISCO DOS SANTOS", "departamento": "Produção", "funcao": "Soldador", "inicioAq": "2023-10-13", "fimAq": "2024-10-13", "diasVencidosFonte": 691, "limiteGozo": "2025-09-12", "inicio": "2025-06-02", "fim": "2025-07-02", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "10", "admissao": "2020-10-29", "colaboradorNome": "TIAGO OLIVEIRA DE JESUS", "departamento": "Produção", "funcao": "Soldador", "inicioAq": "2023-10-29", "fimAq": "2024-10-29", "diasVencidosFonte": 675, "limiteGozo": "2025-09-28", "inicio": "2025-07-01", "fim": "2025-07-31", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "12", "admissao": "2021-03-15", "colaboradorNome": "FABIO GONCALVES SILVA DE CARVALHO", "departamento": "Produção", "funcao": "Caldereiro", "inicioAq": "2023-03-15", "fimAq": "2024-03-15", "diasVencidosFonte": 903, "limiteGozo": "2025-02-12", "inicio": "2025-01-06", "fim": "2025-02-05", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "16", "admissao": "2021-05-24", "colaboradorNome": "COSMO APARECIDO MACENA DA SILVA", "departamento": "Produção", "funcao": "Pintor", "inicioAq": "2023-05-24", "fimAq": "2024-05-24", "diasVencidosFonte": 833, "limiteGozo": "2025-04-23", "inicio": "2025-03-03", "fim": "2025-04-02", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "20", "admissao": "2022-04-05", "colaboradorNome": "TIAGO SOARES DA SILVA", "departamento": "Produção", "funcao": "Pintor", "inicioAq": "2023-04-05", "fimAq": "2024-04-05", "diasVencidosFonte": 882, "limiteGozo": "2025-03-05", "inicio": "2025-02-03", "fim": "2025-03-05", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "22", "admissao": "2022-09-02", "colaboradorNome": "JOSE FERREIRA ALVES FILHO", "departamento": "Produção", "funcao": "Ajudante Geral", "inicioAq": "2023-09-02", "fimAq": "2024-09-02", "diasVencidosFonte": 732, "limiteGozo": "2025-08-02", "inicio": "2025-05-06", "fim": "2025-06-05", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "27", "admissao": "2023-07-21", "colaboradorNome": "ADELSON DOS SANTOS", "departamento": "Produção", "funcao": "Caldereiro", "inicioAq": "2023-07-21", "fimAq": "2024-07-21", "diasVencidosFonte": 775, "limiteGozo": "2025-06-20", "inicio": "2025-04-07", "fim": "2025-05-07", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "29", "admissao": "2023-11-03", "colaboradorNome": "ALESSANDRA SILVA TRIGO", "departamento": "Almoxarifado", "funcao": "Aux. Almoxarife", "inicioAq": "2023-11-03", "fimAq": "2024-11-03", "diasVencidosFonte": 670, "limiteGozo": "2025-10-03", "inicio": "2024-12-16", "fim": "2025-01-14", "diasFerias": 29, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Santos", "matricula": "34", "admissao": "2024-03-06", "colaboradorNome": "SIDNEI FRANCISCO DOS SANTOS", "departamento": "Produção", "funcao": "Caldereiro", "inicioAq": "2024-03-06", "fimAq": "2025-03-06", "diasVencidosFonte": 547, "limiteGozo": "2026-02-03", "inicio": "2025-09-01", "fim": "2025-10-01", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Camaçari", "matricula": "", "admissao": "2024-03-11", "colaboradorNome": "Antonio Carlos Santos dos Reis", "departamento": "Produção", "funcao": "Pintor", "inicioAq": "2024-03-11", "fimAq": "2025-03-11", "diasVencidosFonte": 542, "limiteGozo": "2026-02-08", "inicio": "2025-05-05", "fim": "2025-06-04", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Camaçari", "matricula": "", "admissao": "2023-08-07", "colaboradorNome": "Emerson de Jesus Santos", "departamento": "Produção", "funcao": "Ajudante Geral", "inicioAq": "2023-08-07", "fimAq": "2024-08-07", "diasVencidosFonte": 758, "limiteGozo": "2025-07-07", "inicio": "2024-11-04", "fim": "2024-12-04", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Camaçari", "matricula": "", "admissao": "2023-09-01", "colaboradorNome": "Gabriel de Almeida Santos", "departamento": "Produção", "funcao": "Eletricista", "inicioAq": "2023-09-01", "fimAq": "2024-09-01", "diasVencidosFonte": 733, "limiteGozo": "2025-08-01", "inicio": "2025-02-03", "fim": "2025-02-23", "diasFerias": 20, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Camaçari", "matricula": "", "admissao": "2023-10-04", "colaboradorNome": "Irving Santos Silva", "departamento": "Produção", "funcao": "Caldereiro", "inicioAq": "2023-10-04", "fimAq": "2024-10-04", "diasVencidosFonte": 700, "limiteGozo": "2025-09-03", "inicio": "2025-01-06", "fim": "2025-02-05", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Camaçari", "matricula": "", "admissao": "2024-01-02", "colaboradorNome": "Raquel Sena Carneiro", "departamento": "Almoxarifado", "funcao": "Aux. Almoxarife", "inicioAq": "2024-01-02", "fimAq": "2025-01-02", "diasVencidosFonte": 610, "limiteGozo": "2025-12-02", "inicio": "2025-04-01", "fim": "2025-04-21", "diasFerias": 20, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Camaçari", "matricula": "", "admissao": "2024-03-25", "colaboradorNome": "Ricardo da Silva Alves", "departamento": "Produção", "funcao": "Soldador", "inicioAq": "2024-03-25", "fimAq": "2025-03-25", "diasVencidosFonte": 528, "limiteGozo": "2026-02-22", "inicio": "2025-06-02", "fim": "2025-07-02", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}, {"empresa": "Cryotronics", "filial": "Camaçari", "matricula": "", "admissao": "2023-06-01", "colaboradorNome": "Roned Macedo dos Santos Rios", "departamento": "Produção", "funcao": "Pintor", "inicioAq": "2023-06-01", "fimAq": "2024-06-01", "diasVencidosFonte": 825, "limiteGozo": "2025-05-01", "inicio": "2024-11-04", "fim": "2024-12-04", "diasFerias": 30, "status": "Férias concedidas", "observacao": "", "origem": "Controle de Férias Grupo Mechatronics_rev05.xlsx"}];
+const RH_ASOS_INICIAIS_V91 = [{"empresa": "CRYOTRONICS", "colaboradorNome": "ADELSON DOS SANTOS", "ultimoASO": "2023-07-18", "vencimento": "2024-07-18", "dataRealizada2024": "2024-07-11", "faltamParaVencerFonte": "1899-09-11T00:00:00.000Z", "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "ALESSANDRA SILVA TRIGO", "ultimoASO": "2023-10-26", "vencimento": "2025-10-26", "dataRealizada2024": "", "faltamParaVencerFonte": "1900-12-20T00:00:00.000Z", "validadeAnos": 2, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "COSMO APARECIDO MACENA DA SILVA", "ultimoASO": "2023-01-19", "vencimento": "2024-01-19", "dataRealizada2024": "2024-01-23", "faltamParaVencerFonte": -291, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "FABIO GONCALVES SILVA DE CARVALHO", "ultimoASO": "2023-05-16", "vencimento": "2024-05-16", "dataRealizada2024": "2024-05-13", "faltamParaVencerFonte": -173, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "LEODATO FRANCISCO DOS SANTOS", "ultimoASO": "2023-12-18", "vencimento": "2024-12-18", "dataRealizada2024": "", "faltamParaVencerFonte": 43, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "RAFAEL SANTIAGO GRAÇA", "ultimoASO": "2023-02-27", "vencimento": "2024-02-27", "dataRealizada2024": "2024-03-05", "faltamParaVencerFonte": -252, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "YASMIN SANTIAGO DA CRUZ", "ultimoASO": "2023-11-03", "vencimento": "2025-11-03", "dataRealizada2024": "", "faltamParaVencerFonte": 363, "validadeAnos": 2, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "TIAGO OLIVEIRA DE JESUS", "ultimoASO": "2023-05-04", "vencimento": "2024-05-04", "dataRealizada2024": "2024-05-14", "faltamParaVencerFonte": -185, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "TIAGO SOARES DA SILVA", "ultimoASO": "2023-03-14", "vencimento": "2024-03-14", "dataRealizada2024": "2024-03-14", "faltamParaVencerFonte": -236, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "JOSE FERREIRA ALVES FILHO", "ultimoASO": "2023-05-22", "vencimento": "2024-05-22", "dataRealizada2024": "2024-05-14", "faltamParaVencerFonte": -167, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "FIDEL RODRIGUEZ RODRIGUEZ", "ultimoASO": "2023-02-28", "vencimento": "2024-02-28", "dataRealizada2024": "2024-02-27", "faltamParaVencerFonte": -251, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "CLAUDICELIO ALVES DA SILVA", "ultimoASO": "2023-12-08", "vencimento": "2024-12-07", "dataRealizada2024": "", "faltamParaVencerFonte": 32, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "LEONARDO ALVES DA SILVA", "ultimoASO": "2024-02-01", "vencimento": "2025-02-01", "dataRealizada2024": "", "faltamParaVencerFonte": 88, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "CRYOTRONICS", "colaboradorNome": "SIDNEI FRANCISCO DOS SANTOS", "ultimoASO": "2024-02-23", "vencimento": "2025-02-23", "dataRealizada2024": "", "faltamParaVencerFonte": 110, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "MECHATRONICS", "colaboradorNome": "DARIO SANTOS DE PAZ", "ultimoASO": "2023-07-18", "vencimento": "2024-07-18", "dataRealizada2024": "2024-07-12", "faltamParaVencerFonte": -110, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "MECHATRONICS", "colaboradorNome": "CASSIO RODRIGUES CARVALHO", "ultimoASO": "2023-03-30", "vencimento": "2024-03-30", "dataRealizada2024": "2024-03-28", "faltamParaVencerFonte": -220, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "MECHATRONICS", "colaboradorNome": "ADRIANO SOUSA DOS SANTOS", "ultimoASO": "2023-06-22", "vencimento": "2024-06-22", "dataRealizada2024": "2024-04-12", "faltamParaVencerFonte": -136, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "MECHATRONICS", "colaboradorNome": "EVANDRO JOSÉ DOS SANTOS", "ultimoASO": "2023-11-22", "vencimento": "2024-11-22", "dataRealizada2024": "", "faltamParaVencerFonte": 17, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "MECHATRONICS", "colaboradorNome": "LEONARDO ALVES DOS SANTOS", "ultimoASO": "2023-12-07", "vencimento": "2024-12-07", "dataRealizada2024": "", "faltamParaVencerFonte": 32, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "MECHATRONICS", "colaboradorNome": "SERGIO LUIS ROSSI", "ultimoASO": "2023-06-27", "vencimento": "2024-06-27", "dataRealizada2024": "2024-07-04", "faltamParaVencerFonte": -131, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}, {"empresa": "MECHATRONICS", "colaboradorNome": "DANIEL WAGNER FRANCISCO GONÇALVES", "ultimoASO": "2024-01-30", "vencimento": "2025-01-30", "dataRealizada2024": "", "faltamParaVencerFonte": 86, "validadeAnos": 1, "origem": "b797a985-fc70-4b15-8648-7ac974eb20ef.xlsx"}];
+const RH_MATRIZ_TREINAMENTOS_V91 = [{"codigo": "Política de SMQS", "descricao": "Política de SMQS", "escopo": "Geral", "aplicabilidade": {"Auxiliar Almoxarife": "PI", "Assistente Administrativo": "PI", "Pintor": "PI", "Ajudante": "PI", "Soldador": "PI", "Caldereiro": "PI", "Eletricista": "PI", "Instrumentista": "PI", "Mecânico": "PI", "Mecânico refrigeração": "PI", "Encarregado": "PI", "Supervisor": "PI", "Consultor": "PI", "Gerente": "PI"}}, {"codigo": "Manual da Qualidade", "descricao": "Manual da Qualidade", "escopo": "Geral", "aplicabilidade": {"Auxiliar Almoxarife": "PI", "Assistente Administrativo": "PI", "Pintor": "PI", "Ajudante": "PI", "Soldador": "PI", "Caldereiro": "PI", "Eletricista": "PI", "Instrumentista": "PI", "Mecânico": "PI", "Mecânico refrigeração": "PI", "Encarregado": "PI", "Supervisor": "PI", "Consultor": "PI", "Gerente": "PI"}}, {"codigo": "MC-PRO-001", "descricao": "Recebimento de Frotas para Manutenção", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-002", "descricao": "Procedimento para realização de Vácuo em Tanques criogênicos", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "A", "Soldador": "NA", "Caldereiro": "A", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "A", "Mecânico refrigeração": "NA", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-003", "descricao": "Procedimento para realização de Soldas", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "A", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-004", "descricao": "Procedimento para realização de Pintura", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-005", "descricao": "Procedimento Básico para a realização de Trabalhos elétricos", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "A", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "NA", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-006", "descricao": "Procedimento para utilização de máquinas e ferramentas", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-007", "descricao": "Procedimento para realização de Manutenção em aparelhos de ar condicionado", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "A", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-008", "descricao": "Procedimento para elaboração de Relatórios de Serviço", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-009", "descricao": "Procedimento para elaboração de Permissão de Trabalho", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-010", "descricao": "Procedimento para início de manutenção", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-011", "descricao": "Procedimento para Gestão de EPI", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-012", "descricao": "Procedimento para uso da Empilhadeira", "escopo": "Geral", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "MC-PRO-013", "descricao": "Procedimento para trabalho em altura", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "MC-PRO-014", "descricao": "Procedimento para Prestação de Serviços externos", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-015", "descricao": "Procedimento para realização de Avaliação de Risco", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-016", "descricao": "Procedimento para Reembolso de despesas", "escopo": "Administrativo", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-017", "descricao": "Procedimento para movimentações no almoxarifado", "escopo": "Administrativo", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-018", "descricao": "Procedimento para treinamento e desenvolvimento", "escopo": "Administrativo", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "A"}}, {"codigo": "MC-PRO-019", "descricao": "Plano de Atendimento a Emergência", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "MC-PRO-020", "descricao": "Procedimento para manuseio e armazenamento de cilindros", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-021", "descricao": "Procedimento para registro do controle de Ponto", "escopo": "Administrativo", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-022", "descricao": "Procedimento de Controle dos Equipamentos de Medição", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-023", "descricao": "Procedimento para Emissão de Certificados de Calibração", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-024", "descricao": "Procedimento para  em espaço confinado", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "MC-PRO-025", "descricao": "Procedimento para Inspeção Visual em Soldas", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "A", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-026", "descricao": "Procedimento para Teste de Estanqueidade", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-027", "descricao": "Procedimento para Tratativas de Não Conformidades", "escopo": "Administrativo", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-028", "descricao": "Procedimento para Teste de Líquido Penetrante", "escopo": "Técnico", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "A", "Mecânico refrigeração": "NA", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "MC-PRO-029", "descricao": "Procedimento para realização de Testes Pneumáticos em Tanques", "escopo": "", "aplicabilidade": {"Auxiliar Almoxarife": "", "Assistente Administrativo": "", "Pintor": "", "Ajudante": "", "Soldador": "", "Caldereiro": "", "Eletricista": "", "Instrumentista": "", "Mecânico": "", "Mecânico refrigeração": "", "Encarregado": "", "Supervisor": "", "Consultor": "", "Gerente": ""}}, {"codigo": "MC-PRO-030", "descricao": "Procedimento para realização de Compras", "escopo": "", "aplicabilidade": {"Auxiliar Almoxarife": "", "Assistente Administrativo": "", "Pintor": "", "Ajudante": "", "Soldador": "", "Caldereiro": "", "Eletricista": "", "Instrumentista": "", "Mecânico": "", "Mecânico refrigeração": "", "Encarregado": "", "Supervisor": "", "Consultor": "", "Gerente": ""}}, {"codigo": "MC-PRO-031", "descricao": "PLANO DE CARGOS E SALÁRIOS, BENEFÍCIOS E PROVISÕES", "escopo": "", "aplicabilidade": {"Auxiliar Almoxarife": "", "Assistente Administrativo": "", "Pintor": "", "Ajudante": "", "Soldador": "", "Caldereiro": "", "Eletricista": "", "Instrumentista": "", "Mecânico": "", "Mecânico refrigeração": "", "Encarregado": "", "Supervisor": "", "Consultor": "", "Gerente": ""}}, {"codigo": "MC-PRO-032", "descricao": "Procedimento para entrega de ferramentas", "escopo": "", "aplicabilidade": {"Auxiliar Almoxarife": "", "Assistente Administrativo": "", "Pintor": "", "Ajudante": "", "Soldador": "", "Caldereiro": "", "Eletricista": "", "Instrumentista": "", "Mecânico": "", "Mecânico refrigeração": "", "Encarregado": "", "Supervisor": "", "Consultor": "", "Gerente": ""}}, {"codigo": "MC-PRO-033", "descricao": "Procedimento Para Viagens – Política de Viagens", "escopo": "", "aplicabilidade": {"Auxiliar Almoxarife": "", "Assistente Administrativo": "", "Pintor": "", "Ajudante": "", "Soldador": "", "Caldereiro": "", "Eletricista": "", "Instrumentista": "", "Mecânico": "", "Mecânico refrigeração": "", "Encarregado": "", "Supervisor": "", "Consultor": "", "Gerente": ""}}, {"codigo": "MC-PRO-034", "descricao": "Procedimento para detecção de vazamentos com espectrômetro de massa", "escopo": "", "aplicabilidade": {"Auxiliar Almoxarife": "", "Assistente Administrativo": "", "Pintor": "", "Ajudante": "", "Soldador": "", "Caldereiro": "", "Eletricista": "", "Instrumentista": "", "Mecânico": "", "Mecânico refrigeração": "", "Encarregado": "", "Supervisor": "", "Consultor": "", "Gerente": ""}}, {"codigo": "NR1", "descricao": "NORMA REGULAMENTADORA N.º 01 - DISPOSIÇÕES GERAIS e GERENCIAMENTO DE RISCOS OCUPACIONAIS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "PI", "Assistente Administrativo": "PI", "Pintor": "PI", "Ajudante": "PI", "Soldador": "PI", "Caldereiro": "PI", "Eletricista": "PI", "Instrumentista": "PI", "Mecânico": "PI", "Mecânico refrigeração": "PI", "Encarregado": "PI", "Supervisor": "PI", "Consultor": "PI", "Gerente": "PI"}}, {"codigo": "NR2", "descricao": "NORMA REGULAMENTADORA 2 - NR 2", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR3", "descricao": "NORMA REGULAMENTADORA N.º 03 – EMBARGO E INTERDIÇÃO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "PI", "Ajudante": "PI", "Soldador": "PI", "Caldereiro": "PI", "Eletricista": "PI", "Instrumentista": "PI", "Mecânico": "PI", "Mecânico refrigeração": "PI", "Encarregado": "PI", "Supervisor": "PI", "Consultor": "PI", "Gerente": "PI"}}, {"codigo": "NR4", "descricao": "NR 4 - SERVIÇOS ESPECIALIZADOS EM ENGENHARIA DE SEGURANÇA E EM MEDICINA DO TRABALHO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR5", "descricao": "NR 5 - COMISSÃO INTERNA DE PREVENÇÃO DE ACIDENTES", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "SCE", "Assistente Administrativo": "SCE", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR6", "descricao": "NR6 - EQUIPAMENTODE PROTEÇÃO INDIVIDUAL - EPI", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "NR7", "descricao": "NR 7 - PROGRAMA DE CONTROLE MÉDICO DE SAÚDE OCUPACIONAL - PCMSO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "PI", "Assistente Administrativo": "PI", "Pintor": "PI", "Ajudante": "PI", "Soldador": "PI", "Caldereiro": "PI", "Eletricista": "PI", "Instrumentista": "PI", "Mecânico": "PI", "Mecânico refrigeração": "PI", "Encarregado": "PI", "Supervisor": "PI", "Consultor": "PI", "Gerente": "PI"}}, {"codigo": "NR8", "descricao": "NR 8 - EDIFICAÇÕES", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "PI", "Assistente Administrativo": "PI", "Pintor": "PI", "Ajudante": "PI", "Soldador": "PI", "Caldereiro": "PI", "Eletricista": "PI", "Instrumentista": "PI", "Mecânico": "PI", "Mecânico refrigeração": "PI", "Encarregado": "PI", "Supervisor": "PI", "Consultor": "PI", "Gerente": "PI"}}, {"codigo": "NR9", "descricao": "NR-09 - AVALIAÇÃO E CONTROLE DAS EXPOSIÇÕES OCUPACIONAIS A AGENTES FÍSICOS, QUÍMICOS E BIOLÓGICOS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "PI", "Assistente Administrativo": "PI", "Pintor": "PI", "Ajudante": "PI", "Soldador": "PI", "Caldereiro": "PI", "Eletricista": "PI", "Instrumentista": "PI", "Mecânico": "PI", "Mecânico refrigeração": "PI", "Encarregado": "PI", "Supervisor": "PI", "Consultor": "PI", "Gerente": "PI"}}, {"codigo": "NR10", "descricao": "NR 10 - SEGURANÇA EM INSTALAÇÕES E SERVIÇOS EM ELETRICIDADE", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "SCE", "Assistente Administrativo": "SCE", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "A", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR11", "descricao": "NR 11 - TRANSPORTE, MOVIMENTAÇÃO, ARMAZENAGEM E MANUSEIO DE MATERIAIS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "SCE", "Assistente Administrativo": "SCE", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR12", "descricao": "NR-12 - SEGURANÇA NO TRABALHO EM MÁQUINAS E EQUIPAMENTOS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "PI", "Assistente Administrativo": "PI", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "NR13", "descricao": "NR-13 CALDEIRAS, VASOS DE PRESSÃO, TUBULAÇÕES E TANQUES METÁLICOS DE ARMAZENAMENTO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR14", "descricao": "NR-14 FORNOS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR15", "descricao": "NR 15 - ATIVIDADES E OPERAÇÕES INSALUBRES", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "SCE", "Assistente Administrativo": "SCE", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR16", "descricao": "NR 16 - ATIVIDADES E OPERAÇÕES PERIGOSAS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "SCE", "Assistente Administrativo": "SCE", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR17", "descricao": "NR 17 - ERGONOMIA", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "NR18", "descricao": "NR 18 - SEGURANÇA E SAÚDE NO TRABALHO NA INDÚSTRIA DA CONSTRUÇÃO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "A", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR19", "descricao": "NR 19 - EXPLOSIVOS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR20", "descricao": "NR 20 - SEGURANÇA E SAÚDE NO TRABALHO COM INFLAMÁVEIS E COMBUSTÍVEIS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "SCE", "Assistente Administrativo": "SCE", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR21", "descricao": "NR 21 - TRABALHOS A CÉU ABERTO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR22", "descricao": "NR 22 - NORMA REGULAMENTADORA 22", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR23", "descricao": "NR 23 - Proteção Contra Incêndios", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "NR24", "descricao": "NR 24 - Condições Sanitárias e de Conforto nos Locais de Trabalho", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "NR25", "descricao": "NR 25 - RESÍDUOS INDUSTRIAIS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR26", "descricao": "NR 26 - Sinalização de Segurança", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "A", "Assistente Administrativo": "A", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "NR27", "descricao": "NR 27  - NORMA REGULAMENTADORA 27", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR28", "descricao": "NR 28 - FISCALIZAÇÃO E PENALIDADES", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "A", "Consultor": "NA", "Gerente": "A"}}, {"codigo": "NR29", "descricao": "NR 29 - NORMA REGULAMENTADORA DE SEGURANÇA E SAÚDE NO TRABALHO PORTUÁRIO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR30", "descricao": "NR 30 - SEGURANÇA E SAÚDE NO TRABALHO AQUAVIÁRIO", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR31", "descricao": "NR-31 - SEGURANÇA E SAÚDE NO TRABALHO NA AGRICULTURA, PECUÁRIA, SILVICULTURA, EXPLORAÇÃO FLORESTAL E AQUICULTURA", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR32", "descricao": "NORMA REGULAMENTADORA 32 -  NR 32", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR33", "descricao": "NR-33 SEGURANÇA E SAÚDE NOS TRABALHOS EM ESPAÇOS CONFINADOS", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "SCE", "Ajudante": "SCE", "Soldador": "SCE", "Caldereiro": "SCE", "Eletricista": "SCE", "Instrumentista": "SCE", "Mecânico": "SCE", "Mecânico refrigeração": "SCE", "Encarregado": "SCE", "Supervisor": "SCE", "Consultor": "SCE", "Gerente": "SCE"}}, {"codigo": "NR34", "descricao": "NORMA REGULAMENTADORA 34 NR 34", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}, {"codigo": "NR35", "descricao": "NORMA REGULAMENTADORA Nº 35 - TRABALHO EM ALTURA", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "A", "Ajudante": "A", "Soldador": "A", "Caldereiro": "A", "Eletricista": "A", "Instrumentista": "A", "Mecânico": "A", "Mecânico refrigeração": "A", "Encarregado": "A", "Supervisor": "A", "Consultor": "A", "Gerente": "A"}}, {"codigo": "NR36", "descricao": "NORMA REGULAMENTADORA Nº 36 - NR36", "escopo": "Requisito Legal", "aplicabilidade": {"Auxiliar Almoxarife": "NA", "Assistente Administrativo": "NA", "Pintor": "NA", "Ajudante": "NA", "Soldador": "NA", "Caldereiro": "NA", "Eletricista": "NA", "Instrumentista": "NA", "Mecânico": "NA", "Mecânico refrigeração": "NA", "Encarregado": "NA", "Supervisor": "NA", "Consultor": "NA", "Gerente": "NA"}}];
+const RH_FUNCOES_MATRIZ_V91 = ["Auxiliar Almoxarife", "Assistente Administrativo", "Pintor", "Ajudante", "Soldador", "Caldereiro", "Eletricista", "Instrumentista", "Mecânico", "Mecânico refrigeração", "Encarregado", "Supervisor", "Consultor", "Gerente"];
+
+let __rhV91MigracaoExecutada=false;
+
+async function migrarRHComplementarV91(){
+  if(__rhV91MigracaoExecutada || !podeAcessarRH()) return;
+  __rhV91MigracaoExecutada=true;
+  try {
+    const [ferSnap,asoSnap]=await Promise.all([
+      db.collection('rh_ferias').limit(1).get(),
+      db.collection('rh_asos').limit(1).get()
+    ]);
+
+    if(ferSnap.empty && RH_FERIAS_INICIAIS_V91.length){
+      let batch=db.batch(), n=0;
+      for(let i=0;i<RH_FERIAS_INICIAIS_V91.length;i++){
+        batch.set(
+          db.collection('rh_ferias').doc('ferias_import_'+String(i+1).padStart(3,'0')),
+          {...RH_FERIAS_INICIAIS_V91[i],importado:true}
+        );
+        n++;
+        if(n>=400){await batch.commit();batch=db.batch();n=0;}
+      }
+      if(n) await batch.commit();
+    }
+
+    if(asoSnap.empty && RH_ASOS_INICIAIS_V91.length){
+      let batch=db.batch(), n=0;
+      for(let i=0;i<RH_ASOS_INICIAIS_V91.length;i++){
+        batch.set(
+          db.collection('rh_asos').doc('aso_import_'+String(i+1).padStart(3,'0')),
+          {...RH_ASOS_INICIAIS_V91[i],importado:true}
+        );
+        n++;
+        if(n>=400){await batch.commit();batch=db.batch();n=0;}
+      }
+      if(n) await batch.commit();
+    }
+  } catch(err){
+    console.error('Migração complementar RH V9.1:',err);
+    showToast('Falha na carga complementar do RH: '+err.message,true);
+  }
+}
+
+function statusASOV91(a){
+  const venc=a?.vencimento||'';
+  if(!venc) return {texto:'Sem vencimento',classe:'badge-pending'};
+  const d=new Date(venc+'T12:00:00'), hoje=new Date(), lim=new Date(hoje.getTime()+60*86400000);
+  if(d<hoje) return {texto:'Vencido',classe:'badge-danger'};
+  if(d<=lim) return {texto:'Vence em até 60 dias',classe:'badge-pending'};
+  return {texto:'Vigente',classe:'badge-ok'};
+}
+
+function funcaoMatrizV91(cargo=''){
+  const n=normalize(cargo);
+  const r=[
+    ['auxiliar almoxarife','Auxiliar Almoxarife'],['almoxarife','Auxiliar Almoxarife'],
+    ['assistente administrativo','Assistente Administrativo'],['administrativo','Assistente Administrativo'],
+    ['pintor','Pintor'],['ajudante','Ajudante'],['soldador','Soldador'],['caldereiro','Caldereiro'],
+    ['eletricista','Eletricista'],['instrumentista','Instrumentista'],
+    ['mecanico refrigeracao','Mecânico refrigeração'],['refrigeracao','Mecânico refrigeração'],
+    ['mecanico','Mecânico'],['encarregado','Encarregado'],['supervisor','Supervisor'],
+    ['consultor','Consultor'],['gerente','Gerente']
+  ];
+  return (r.find(([k])=>n.includes(k))||[])[1]||'';
+}
+
+function treinoKeyV91(codigo=''){
+  return String(codigo||'').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,120);
+}
+function registroTreinoV91(c,tr){return c?.treinamentos?.[treinoKeyV91(tr.codigo)]||{};}
+function regraTreinoV91(c,tr){
+  const f=funcaoMatrizV91(c?.cargo||'');
+  return f?(tr?.aplicabilidade?.[f]||''):'';
+}
+function statusTreinoV91(c,tr){
+  const reg=registroTreinoV91(c,tr);
+  if(reg.status==='NA_MANUAL') return {codigo:'NA',texto:'Não aplicável (manual)',classe:'badge-pending'};
+  if(reg.data) return {codigo:'REALIZADO',texto:'Realizado',classe:'badge-ok'};
+  const regra=regraTreinoV91(c,tr);
+  if(regra==='NA') return {codigo:'NA',texto:'Não aplicável (matriz)',classe:'badge-pending'};
+  if(!regra) return {codigo:'SEM_REGRA',texto:'Sem regra definida',classe:'badge-pending'};
+  return {codigo:'PENDENTE',texto:'Pendente',classe:'badge-danger'};
+}
+
+rhSubnav = function(){
+  const tabs=[
+    ['dashboard','Dashboard'],['colaboradores','Colaboradores'],['cargos','Cargos & Salários'],
+    ['folha','Folha'],['ferias','Férias'],['aso','ASO'],['treinamentos','Treinamentos'],
+    ['cct','Acordos (CCT)'],['epi','Entrega de EPIs'],['relatorios','Relatórios / Exportar']
+  ];
+  return `<div class="card" style="padding:10px;margin-bottom:16px"><div style="display:flex;gap:8px;flex-wrap:wrap">${tabs.map(([k,n])=>`<button class="btn ${state.rhTab===k?'btn-accent':'btn-ghost'} btn-sm" data-rh-tab="${k}">${n}</button>`).join('')}</div></div>`;
+};
+
+function renderFeriasV91(){
+  const list=rhFerias.slice().sort((a,b)=>String(b.inicio||b.inicioAq||'').localeCompare(String(a.inicio||a.inicioAq||'')));
+  return `<div class="card">
+    <div class="card-header">
+      <div><div class="card-title">Férias Programadas / Histórico</div>
+      <div class="card-sub">Dados carregados do Controle de Férias Grupo Mechatronics_rev05.xlsx. Mesmo registros antigos permanecem disponíveis para correção.</div></div>
+      <button class="btn btn-accent" data-rhv91-nova-ferias>+ Registrar Férias</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Empresa</th><th>Matrícula</th><th>Colaborador</th><th>Função</th><th>Período aquisitivo</th><th>Limite gozo</th><th>Início férias</th><th>Fim</th><th>Dias</th><th>Status</th><th>Observação</th><th>Ações</th></tr></thead>
+      <tbody>${list.map(f=>`<tr>
+        <td>${f.empresa||'—'}</td><td>${f.matricula||'—'}</td><td><strong>${f.colaboradorNome||f.nome||'—'}</strong></td>
+        <td>${f.funcao||'—'}</td><td>${fmt.date(f.inicioAq)} → ${fmt.date(f.fimAq)}</td>
+        <td>${fmt.date(f.limiteGozo)}</td><td>${fmt.date(f.inicio)}</td><td>${fmt.date(f.fim)}</td>
+        <td>${f.diasFerias||'—'}</td><td>${f.status||'Registrado'}</td><td>${f.observacao||'—'}</td>
+        <td><button class="btn btn-ghost btn-sm" data-rhv91-editar-ferias="${f.id}">Editar</button>
+            <button class="btn btn-danger btn-sm" data-rhv91-excluir-ferias="${f.id}">Excluir</button></td>
+      </tr>`).join('')||'<tr><td colspan="12">Nenhum registro de férias.</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderASOV91(){
+  const list=rhAsos.slice().sort((a,b)=>String(a.colaboradorNome||'').localeCompare(String(b.colaboradorNome||''),'pt-BR'));
+  return `<div class="card">
+    <div class="card-header">
+      <div><div class="card-title">Controle de ASO</div>
+      <div class="card-sub">Dados carregados da planilha de ASO. Todos os registros podem ser editados ou excluídos.</div></div>
+      <button class="btn btn-accent" data-rhv91-novo-aso>+ Registrar ASO</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Empresa</th><th>Colaborador</th><th>Último ASO</th><th>Validade</th><th>Vencimento</th><th>Realizado 2024</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody>${list.map(a=>{const st=statusASOV91(a);return `<tr>
+        <td>${a.empresa||'—'}</td><td><strong>${a.colaboradorNome||'—'}</strong></td>
+        <td>${fmt.date(a.ultimoASO)}</td><td>${a.validadeAnos||1} ano(s)</td><td>${fmt.date(a.vencimento)}</td>
+        <td>${a.dataRealizada2024?fmt.date(a.dataRealizada2024):'—'}</td>
+        <td><span class="badge ${st.classe}">${st.texto}</span></td>
+        <td><button class="btn btn-ghost btn-sm" data-rhv91-editar-aso="${a.id}">Editar</button>
+            <button class="btn btn-danger btn-sm" data-rhv91-excluir-aso="${a.id}">Excluir</button></td>
+      </tr>`;}).join('')||'<tr><td colspan="8">Nenhum ASO registrado.</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderTreinamentosV91(){
+  if((state.rhTreinoModo||'controle')==='matriz'){
+    return `<div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-accent" data-rhv91-treino-modo="controle">Controle por Colaborador</button>
+      <button class="btn btn-ghost" data-rhv91-treino-modo="matriz">Matriz Original</button>
+    </div>
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Matriz de Treinamentos</div>
+      <div class="card-sub">Fonte: Matriz de Treinamentos_rev2026.xlsx · A = Aplicável · NA = Não Aplicável · PI = Palestra Informativa · SCE = condição especial.</div></div></div>
+      <div class="table-wrap" style="max-height:650px"><table>
+        <thead><tr><th>Procedimento</th><th>Descrição</th><th>Escopo</th>${RH_FUNCOES_MATRIZ_V91.map(f=>`<th>${f}</th>`).join('')}</tr></thead>
+        <tbody>${RH_MATRIZ_TREINAMENTOS_V91.map(tr=>`<tr><td><strong>${tr.codigo}</strong></td><td style="min-width:260px">${tr.descricao}</td><td>${tr.escopo||'—'}</td>${RH_FUNCOES_MATRIZ_V91.map(f=>`<td style="text-align:center">${tr.aplicabilidade?.[f]||'—'}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  const ativos=rhColaboradores.filter(c=>c.ativo!==false).sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+  const q=normalize(state.rhTreinoBusca||'');
+  const fc=state.rhTreinoColab||'';
+  const fs=state.rhTreinoStatus||'';
+  const rows=[];
+
+  ativos.forEach(c=>{
+    if(fc && c.id!==fc) return;
+    RH_MATRIZ_TREINAMENTOS_V91.forEach(tr=>{
+      if(q && !normalize([c.nome,c.cargo,tr.codigo,tr.descricao,tr.escopo].join(' ')).includes(q)) return;
+      const st=statusTreinoV91(c,tr);
+      if(fs && st.codigo!==fs) return;
+      rows.push({c,tr,st,reg:registroTreinoV91(c,tr),regra:regraTreinoV91(c,tr)});
+    });
+  });
+
+  return `<div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn btn-accent" data-rhv91-treino-modo="controle">Controle por Colaborador</button>
+    <button class="btn btn-ghost" data-rhv91-treino-modo="matriz">Matriz Original</button>
+  </div>
+  <div class="card">
+    <div class="card-header"><div><div class="card-title">Controle de Treinamentos</div>
+      <div class="card-sub">Todos os colaboradores × treinamentos aplicáveis à função. Informe a data ou marque Não Aplicável.</div></div></div>
+    <div class="filters-grid">
+      <div class="field"><label>Colaborador</label><select id="rhV91TreinoColab"><option value="">Todos</option>${ativos.map(c=>`<option value="${c.id}" ${fc===c.id?'selected':''}>${c.nome} — ${c.cargo||'Sem cargo'}</option>`).join('')}</select></div>
+      <div class="field"><label>Buscar</label><input id="rhV91TreinoBusca" value="${state.rhTreinoBusca||''}" placeholder="NR, procedimento, nome, cargo..."></div>
+      <div class="field"><label>Status</label><select id="rhV91TreinoStatus"><option value="">Todos</option><option value="PENDENTE" ${fs==='PENDENTE'?'selected':''}>Pendente</option><option value="REALIZADO" ${fs==='REALIZADO'?'selected':''}>Realizado</option><option value="NA" ${fs==='NA'?'selected':''}>Não aplicável</option><option value="SEM_REGRA" ${fs==='SEM_REGRA'?'selected':''}>Sem regra</option></select></div>
+    </div>
+    <div class="table-wrap" style="max-height:650px"><table>
+      <thead><tr><th>Colaborador</th><th>Função</th><th>Treinamento</th><th>Descrição</th><th>Regra Matriz</th><th>Data</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${rows.slice(0,1200).map(x=>`<tr>
+        <td><strong>${x.c.nome}</strong></td><td>${x.c.cargo||'—'}</td><td>${x.tr.codigo}</td><td>${x.tr.descricao}</td>
+        <td>${x.regra||'—'}</td>
+        <td><input type="date" class="rh-v91-treino-data" data-colab="${x.c.id}" data-treino="${treinoKeyV91(x.tr.codigo)}" value="${x.reg.data||''}" style="min-width:145px"></td>
+        <td><span class="badge ${x.st.classe}">${x.st.texto}</span></td>
+        <td><button class="btn btn-ghost btn-sm" data-rhv91-na-colab="${x.c.id}" data-rhv91-na-treino="${treinoKeyV91(x.tr.codigo)}">${x.st.codigo==='NA'&&x.reg.status==='NA_MANUAL'?'Reativar':'Não Aplicável'}</button></td>
+      </tr>`).join('')||'<tr><td colspan="8">Nenhum treinamento encontrado.</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+
+const __renderRH_originalV90 = renderRH;
+renderRH = function(){
+  if(!podeAcessarRH()) return '<div class="card"><h3>Acesso negado</h3></div>';
+  setTimeout(migrarRHComplementarV91,0);
+  const tab=state.rhTab||'dashboard';
+  if(tab==='ferias') return rhSubnav()+renderFeriasV91();
+  if(tab==='aso') return rhSubnav()+renderASOV91();
+  if(tab==='treinamentos') return rhSubnav()+renderTreinamentosV91();
+  return __renderRH_originalV90();
+};
+
+function modalFeriasV91(id=''){
+  const f=id?rhFerias.find(x=>x.id===id):{};
+  document.getElementById('modalRHV91')?.remove();
+  const d=document.createElement('div'); d.className='modal-overlay active'; d.id='modalRHV91';
+  d.innerHTML=`<div class="modal" style="max-width:900px">
+    <div class="modal-header"><h2>${id?'Editar':'Registrar'} Férias</h2><button class="modal-close" onclick="document.getElementById('modalRHV91')?.remove()">×</button></div>
+    <form id="formFeriasV91"><div class="form-grid">
+      <div class="field"><label>Empresa</label><input id="fvEmpresa" value="${f.empresa||''}"></div>
+      <div class="field"><label>Matrícula</label><input id="fvMatricula" value="${f.matricula||''}"></div>
+      <div class="field field-full"><label>Colaborador *</label><input id="fvNome" required value="${f.colaboradorNome||f.nome||''}" list="fvListaColab"><datalist id="fvListaColab">${rhColaboradores.map(c=>`<option value="${c.nome}"></option>`).join('')}</datalist></div>
+      <div class="field"><label>Função</label><input id="fvFuncao" value="${f.funcao||''}"></div>
+      <div class="field"><label>Início período aquisitivo</label><input type="date" id="fvInicioAq" value="${f.inicioAq||''}"></div>
+      <div class="field"><label>Fim período aquisitivo</label><input type="date" id="fvFimAq" value="${f.fimAq||''}"></div>
+      <div class="field"><label>Limite de gozo</label><input type="date" id="fvLimite" value="${f.limiteGozo||''}"></div>
+      <div class="field"><label>Início das férias *</label><input type="date" id="fvInicio" required value="${f.inicio||''}"></div>
+      <div class="field"><label>Fim das férias *</label><input type="date" id="fvFim" required value="${f.fim||''}"></div>
+      <div class="field"><label>Dias</label><input type="number" id="fvDias" value="${f.diasFerias||30}"></div>
+      <div class="field"><label>Status</label><select id="fvStatus"><option ${f.status==='Programada'?'selected':''}>Programada</option><option ${f.status==='Férias concedidas'?'selected':''}>Férias concedidas</option><option ${f.status==='Cancelada'?'selected':''}>Cancelada</option></select></div>
+      <div class="field field-full"><label>Observação</label><textarea id="fvObs">${f.observacao||''}</textarea></div>
+    </div><div class="form-actions"><button class="btn btn-accent">Salvar</button><button type="button" class="btn btn-ghost" onclick="document.getElementById('modalRHV91')?.remove()">Cancelar</button></div></form>
+  </div>`;
+  document.body.appendChild(d);
+  document.getElementById('formFeriasV91').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const v=x=>document.getElementById(x)?.value||'';
+    const p={empresa:v('fvEmpresa'),matricula:v('fvMatricula'),colaboradorNome:v('fvNome').trim(),funcao:v('fvFuncao'),inicioAq:v('fvInicioAq'),fimAq:v('fvFimAq'),limiteGozo:v('fvLimite'),inicio:v('fvInicio'),fim:v('fvFim'),diasFerias:Number(v('fvDias'))||0,status:v('fvStatus'),observacao:v('fvObs'),alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()};
+    try{if(id)await db.collection('rh_ferias').doc(id).update(p);else await db.collection('rh_ferias').add({...p,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});d.remove();showToast('Férias salvas.');}catch(err){showToast(err.message,true);}
+  });
+}
+
+function modalASOV91(id=''){
+  const a=id?rhAsos.find(x=>x.id===id):{};
+  document.getElementById('modalRHV91')?.remove();
+  const d=document.createElement('div'); d.className='modal-overlay active'; d.id='modalRHV91';
+  d.innerHTML=`<div class="modal" style="max-width:820px">
+    <div class="modal-header"><h2>${id?'Editar':'Registrar'} ASO</h2><button class="modal-close" onclick="document.getElementById('modalRHV91')?.remove()">×</button></div>
+    <form id="formASOV91"><div class="form-grid">
+      <div class="field"><label>Empresa</label><input id="avEmpresa" value="${a.empresa||''}"></div>
+      <div class="field field-full"><label>Colaborador *</label><input id="avNome" required value="${a.colaboradorNome||''}" list="avListaColab"><datalist id="avListaColab">${rhColaboradores.map(c=>`<option value="${c.nome}"></option>`).join('')}</datalist></div>
+      <div class="field"><label>Último ASO *</label><input type="date" id="avUltimo" required value="${a.ultimoASO||''}"></div>
+      <div class="field"><label>Validade (anos)</label><input type="number" min="1" id="avValidade" value="${a.validadeAnos||1}"></div>
+      <div class="field"><label>Vencimento *</label><input type="date" id="avVenc" required value="${a.vencimento||''}"></div>
+      <div class="field"><label>Data realizada 2024</label><input type="date" id="avRealizada" value="${a.dataRealizada2024||''}"></div>
+    </div><div class="form-actions"><button class="btn btn-accent">Salvar</button><button type="button" class="btn btn-ghost" onclick="document.getElementById('modalRHV91')?.remove()">Cancelar</button></div></form>
+  </div>`;
+  document.body.appendChild(d);
+  document.getElementById('formASOV91').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const v=x=>document.getElementById(x)?.value||'';
+    const p={empresa:v('avEmpresa'),colaboradorNome:v('avNome').trim(),ultimoASO:v('avUltimo'),validadeAnos:Number(v('avValidade'))||1,vencimento:v('avVenc'),dataRealizada2024:v('avRealizada'),alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()};
+    try{if(id)await db.collection('rh_asos').doc(id).update(p);else await db.collection('rh_asos').add({...p,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});d.remove();showToast('ASO salvo.');}catch(err){showToast(err.message,true);}
+  });
+}
+
+// Eventos delegados V9.1 para não duplicar bindEvents.
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('button');
+  if(!b) return;
+
+  if(b.hasAttribute('data-rhv91-nova-ferias')) return modalFeriasV91();
+  if(b.dataset.rhv91EditarFerias) return modalFeriasV91(b.dataset.rhv91EditarFerias);
+  if(b.dataset.rhv91ExcluirFerias){
+    if(confirm('Excluir este registro de férias?')) await db.collection('rh_ferias').doc(b.dataset.rhv91ExcluirFerias).delete();
+    return;
+  }
+
+  if(b.hasAttribute('data-rhv91-novo-aso')) return modalASOV91();
+  if(b.dataset.rhv91EditarAso) return modalASOV91(b.dataset.rhv91EditarAso);
+  if(b.dataset.rhv91ExcluirAso){
+    if(confirm('Excluir este ASO?')) await db.collection('rh_asos').doc(b.dataset.rhv91ExcluirAso).delete();
+    return;
+  }
+
+  if(b.dataset.rhv91TreinoModo){
+    state.rhTreinoModo=b.dataset.rhv91TreinoModo;
+    render(); return;
+  }
+
+  if(b.dataset.rhv91NaColab && b.dataset.rhv91NaTreino){
+    const c=rhColaboradores.find(x=>x.id===b.dataset.rhv91NaColab);
+    if(!c) return;
+    const atual=c.treinamentos?.[b.dataset.rhv91NaTreino]||{};
+    const novoStatus=atual.status==='NA_MANUAL'?'':'NA_MANUAL';
+    const treinos={...(c.treinamentos||{}),[b.dataset.rhv91NaTreino]:{...atual,status:novoStatus,data:novoStatus?'':(atual.data||''),alteradoEm:new Date().toISOString(),alteradoPor:getUsuarioNome()}};
+    await db.collection('rh_colaboradores').doc(c.id).update({treinamentos:treinos});
+    return;
+  }
+});
+
+document.addEventListener('change',async e=>{
+  if(e.target.id==='rhV91TreinoColab'){state.rhTreinoColab=e.target.value;render();return;}
+  if(e.target.id==='rhV91TreinoStatus'){state.rhTreinoStatus=e.target.value;render();return;}
+  if(e.target.classList.contains('rh-v91-treino-data')){
+    const c=rhColaboradores.find(x=>x.id===e.target.dataset.colab);
+    if(!c) return;
+    const k=e.target.dataset.treino, atual=c.treinamentos?.[k]||{};
+    const treinos={...(c.treinamentos||{}),[k]:{...atual,data:e.target.value,status:e.target.value?'REALIZADO':'',alteradoEm:new Date().toISOString(),alteradoPor:getUsuarioNome()}};
+    await db.collection('rh_colaboradores').doc(c.id).update({treinamentos:treinos});
+    return;
+  }
+});
+
+document.addEventListener('input',e=>{
+  if(e.target.id==='rhV91TreinoBusca'){
+    state.rhTreinoBusca=e.target.value;
+    clearTimeout(window.__rhV91TreinoBusca);
+    window.__rhV91TreinoBusca=setTimeout(render,250);
+  }
+});
+</script>
+
 </body>
 </html>
