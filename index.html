@@ -467,7 +467,7 @@
 </head>
 <body>
 
-  <!-- ===== V9.6 — Férias Gantt + ASO 2026 + Custo Real Auditado ===== -->
+  <!-- ===== V9.8 — Composição de Custos + Diária de Manutenção ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -5384,7 +5384,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V9.6';
+        if (versaoEl) versaoEl.textContent = 'V9.8';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -8930,6 +8930,463 @@ window.RH_SECURITY_V94 = {
       state.rhFeriasAnoDashboardV96=Number(e.target.value)||new Date().getFullYear(); render();
     }
   });
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V9.7 — CORREÇÃO CIRÚRGICA DO DASHBOARD DE CUSTOS
+   Mantém TODO o Dashboard original. Altera SOMENTE os valores
+   do gráfico "Ranking de custo real por frota / destino".
+   ============================================================ */
+(function(){
+  'use strict';
+
+  function v97Norm(v){ return normalize(String(v||'')).replace(/\s+/g,' ').trim(); }
+  function v97MesRC(rc){ return String(rc.dataAprovacao||rc.data||rc.dataCriacao||'').slice(0,7); }
+  function v97DestinoRC(rc){ return clean(rc.aplicacao||rc.destino||''); }
+  function v97Centro(obj){ return getCentroCustoRegistro(obj); }
+
+  function v97EhOficina(v){ return v97Norm(v).includes('oficina'); }
+  function v97EhFrota(v){
+    const n=v97Norm(v);
+    if(!n)return false;
+    // Primeiro usa o cadastro oficial de frotas/projetos.
+    if(frotas.some(f=>v97Norm(f.nome)===n))return true;
+    // Compatibilidade com históricos cujo destino foi gravado como "FROTA ...".
+    return /^frota\b/.test(n);
+  }
+
+  function v97NomeFrota(destino,centro){
+    const n=v97Norm(destino); const cc=centro||'';
+    const f=frotas.find(x=>v97Norm(x.nome)===n && (!cc || v97Centro(x)===cc))
+      || frotas.find(x=>v97Norm(x.nome)===n);
+    return f ? clean(f.nome) : clean(destino);
+  }
+
+  // Retorna exatamente o objeto usado APENAS pelo gráfico de barras.
+  // Os demais KPIs, gráficos, tabelas, totais e movimentos continuam usando porDestino original.
+  window.custosGraficoFrotasV97 = function(movimentos, porDestinoOriginal){
+    const resultado={...porDestinoOriginal};
+    const presentes={}; // centro|AAAA-MM => Map(normalizado -> nome)
+
+    // Presença mensal é definida EXCLUSIVAMENTE pelas RCs, conforme regra do usuário.
+    rcs.forEach(rc=>{
+      const mes=v97MesRC(rc); if(!mes)return;
+      const destino=v97DestinoRC(rc); if(!v97EhFrota(destino))return;
+      const cc=v97Centro(rc);
+      const nome=v97NomeFrota(destino,cc);
+      const k=`${cc}|${mes}`;
+      if(!presentes[k])presentes[k]=new Map();
+      presentes[k].set(v97Norm(nome),nome); // uma frota conta só uma vez no mês
+    });
+
+    // Zera somente as frotas no objeto do gráfico para reconstruí-las com custo real.
+    Object.keys(resultado).forEach(dest=>{ if(v97EhFrota(dest)) resultado[dest]=0; });
+
+    // Custo direto da frota = movimentos efetivos já usados pelo dashboard
+    // (NF/RC + baixa de estoque), respeitando os filtros atuais.
+    movimentos.forEach(m=>{
+      if(v97EhOficina(m.destino))return;
+      if(!v97EhFrota(m.destino))return;
+      const nome=v97NomeFrota(m.destino,v97Centro(m));
+      resultado[nome]=(resultado[nome]||0)+numeroSeguro(m.valorCusto);
+    });
+
+    // Soma Oficina por mês/centro a partir dos mesmos movimentos filtrados.
+    const oficinaMes={};
+    movimentos.forEach(m=>{
+      if(!v97EhOficina(m.destino))return;
+      const mes=m.mesCusto||String(m.dataCusto||'').slice(0,7); if(!mes)return;
+      const k=`${v97Centro(m)}|${mes}`;
+      oficinaMes[k]=(oficinaMes[k]||0)+numeroSeguro(m.valorCusto);
+    });
+
+    // Rateia igualmente somente entre as frotas presentes nas RCs daquele mês.
+    Object.entries(oficinaMes).forEach(([k,custoOficina])=>{
+      const lista=[...(presentes[k]?.values()||[])];
+      if(!lista.length)return; // sem evidência de frota: não inventa rateio
+      const parcela=custoOficina/lista.length;
+      lista.forEach(nome=>{ resultado[nome]=(resultado[nome]||0)+parcela; });
+    });
+
+    // Remove frotas zeradas que surgiram apenas por normalização.
+    Object.keys(resultado).forEach(k=>{ if(v97EhFrota(k) && !numeroSeguro(resultado[k])) delete resultado[k]; });
+    return resultado;
+  };
+
+  // Restaura o Dashboard original e altera apenas a fonte do gráfico de barras.
+  renderDashboardCustos = function() {
+      const f=state.custosFilters||{};
+      let movimentos=getMovimentosCustos(recebimentosNF);
+
+      // A competência gerencial de custo é SEMPRE a data de pagamento/vencimento.
+      if(f.dataIni) movimentos=movimentos.filter(x=>(x.dataCusto||'')>=f.dataIni);
+      if(f.dataFim) movimentos=movimentos.filter(x=>(x.dataCusto||'')<=f.dataFim);
+      if(f.centroCusto) movimentos=movimentos.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
+      if(f.fornecedor) movimentos=movimentos.filter(x=>x.fornecedor===f.fornecedor);
+      if(f.destino) movimentos=movimentos.filter(x=>x.destino===f.destino);
+      if(f.codigoContabil) movimentos=movimentos.filter(x=>x.codigoContabil===f.codigoContabil);
+
+      const total=movimentos.reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
+      const valorNFs=movimentos.filter(x=>x.tipoDocumento!=='BAIXA_ESTOQUE').reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
+      const valorBaixas=movimentos.filter(x=>x.tipoDocumento==='BAIXA_ESTOQUE').reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
+
+      const porDestino={}, porFornecedor={}, porConta={}, porMes={}, porCentro={}, porTipo={};
+      movimentos.forEach(x=>{
+        const d=clean(x.destino||'Sem destino')||'Sem destino';
+        const fo=clean(x.fornecedor||'Sem fornecedor')||'Sem fornecedor';
+        const co=(x.codigoContabil||'Sem conta')+(x.contaContabilDescricao?` — ${x.contaContabilDescricao}`:'');
+        const mes=x.mesCusto||'Sem data';
+        const cc=getCentroCustoRegistro(x);
+        const tipo=x.tipoDocumento==='BAIXA_ESTOQUE'?'Baixa de estoque':'Nota Fiscal';
+        porDestino[d]=(porDestino[d]||0)+numeroSeguro(x.valorCusto);
+        porFornecedor[fo]=(porFornecedor[fo]||0)+numeroSeguro(x.valorCusto);
+        porConta[co]=(porConta[co]||0)+numeroSeguro(x.valorCusto);
+        porMes[mes]=(porMes[mes]||0)+numeroSeguro(x.valorCusto);
+        porCentro[cc]=(porCentro[cc]||0)+numeroSeguro(x.valorCusto);
+        porTipo[tipo]=(porTipo[tipo]||0)+numeroSeguro(x.valorCusto);
+      });
+
+      const ranking=o=>Object.entries(o).sort((a,b)=>b[1]-a[1]);
+      const destinos=ranking(custosGraficoFrotasV97(movimentos, porDestino)), fornecedoresRank=ranking(porFornecedor), contasRank=ranking(porConta), centrosRank=ranking(porCentro), tiposRank=ranking(porTipo);
+      const meses=Object.entries(porMes).sort((a,b)=>a[0].localeCompare(b[0]));
+      const maxDestino=destinos[0]?.[1]||1;
+      const maxMes=Math.max(1,...meses.map(x=>x[1]));
+      const fornecedoresList=[...new Set(recebimentosNF.map(x=>x.fornecedor).filter(Boolean))].sort();
+      const destinosList=[...new Set(recebimentosNF.map(x=>x.destino).filter(Boolean))].sort();
+
+      const mesAtual=hojeISO().slice(0,7);
+      const custoMesAtual=getMovimentosCustos(recebimentosNF)
+        .filter(x=>x.mesCusto===mesAtual)
+        .reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
+
+      return `
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Dashboard de Custos — Real Efetivo</div>
+              <div class="card-sub">Competência por pagamento: à vista entra na data do documento; parcelado entra no mês de vencimento de cada parcela.</div>
+            </div>
+          </div>
+          <div class="filters-grid">
+            <div class="field"><label>Vencimento inicial</label><input type="date" id="custoDataIni" value="${f.dataIni||''}"></div>
+            <div class="field"><label>Vencimento final</label><input type="date" id="custoDataFim" value="${f.dataFim||''}"></div>
+            <div class="field"><label>Centro de custo</label><select id="custoCentro"><option value="">Santos + Camaçari</option>${CENTROS_CUSTO.map(c=>`<option value="${c}" ${f.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
+            <div class="field"><label>Fornecedor</label><select id="custoFornecedor"><option value="">Todos</option>${fornecedoresList.map(v=>`<option value="${v}" ${f.fornecedor===v?'selected':''}>${v}</option>`).join('')}</select></div>
+            <div class="field"><label>Frota / Destino</label><select id="custoDestino"><option value="">Todos</option>${destinosList.map(v=>`<option value="${v}" ${f.destino===v?'selected':''}>${v}</option>`).join('')}</select></div>
+            <div class="field"><label>Conta contábil</label><select id="custoConta"><option value="">Todas</option>${PLANO_CONTAS.map(c=>`<option value="${c.codigo}" ${f.codigoContabil===c.codigo?'selected':''}>${c.codigo} — ${c.descricao}</option>`).join('')}</select></div>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-label">Custo real no filtro</div><div class="kpi-value accent">${fmt.money(total)}</div><div class="kpi-sub">${movimentos.length} movimento(s) financeiros</div></div>
+          <div class="kpi-card"><div class="kpi-label">Custo do mês atual</div><div class="kpi-value">${fmt.money(custoMesAtual)}</div><div class="kpi-sub">por vencimentos em ${mesAtual}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Notas Fiscais</div><div class="kpi-value">${fmt.money(valorNFs)}</div><div class="kpi-sub">${total?((valorNFs/total)*100).toFixed(1):'0.0'}% do custo</div></div>
+          <div class="kpi-card"><div class="kpi-label">Baixas de estoque</div><div class="kpi-value">${fmt.money(valorBaixas)}</div><div class="kpi-sub">${total?((valorBaixas/total)*100).toFixed(1):'0.0'}% do custo</div></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin-bottom:20px">
+          <div class="card">
+            <div class="card-header"><div><div class="card-title">Custo por centro de custo</div></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Centro</th><th>Valor</th><th>%</th></tr></thead><tbody>
+              ${centrosRank.map(([n,v])=>`<tr><td><strong>${n}</strong></td><td>${fmt.money(v)}</td><td>${total?((v/total)*100).toFixed(1):'0.0'}%</td></tr>`).join('')||'<tr><td colspan="3">Sem dados</td></tr>'}
+            </tbody></table></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div><div class="card-title">Composição do custo</div></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Origem</th><th>Valor</th><th>%</th></tr></thead><tbody>
+              ${tiposRank.map(([n,v])=>`<tr><td><strong>${n}</strong></td><td>${fmt.money(v)}</td><td>${total?((v/total)*100).toFixed(1):'0.0'}%</td></tr>`).join('')||'<tr><td colspan="3">Sem dados</td></tr>'}
+            </tbody></table></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><div><div class="card-title">Evolução mensal do custo real</div><div class="card-sub">Cada parcela aparece somente no mês em que vence.</div></div></div>
+          ${meses.length?`<div style="display:flex;align-items:flex-end;gap:10px;height:240px;padding:15px 6px 0;overflow-x:auto">${meses.map(([m,v])=>`
+            <div style="min-width:72px;flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:5px">
+              <div style="font-size:10px;white-space:nowrap">${fmt.money(v)}</div>
+              <div title="${fmt.money(v)}" style="width:70%;max-width:54px;height:${Math.max(3,v/maxMes*170)}px;background:var(--accent);border-radius:6px 6px 0 0"></div>
+              <div style="font-size:11px;color:var(--text-muted)">${m}</div>
+            </div>`).join('')}</div>`:`<div style="padding:22px;color:var(--text-muted)">Sem dados.</div>`}
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><div><div class="card-title">Ranking de custo real por frota / destino</div><div class="card-sub">Frotas = RC/NF + baixas de estoque + rateio mensal de Oficina. Demais destinos permanecem inalterados.</div></div></div>
+          ${destinos.length?`<div style="display:flex;flex-direction:column;gap:10px">${destinos.map(([n,v],i)=>`
+            <div style="display:grid;grid-template-columns:36px minmax(150px,270px) 1fr 130px;gap:12px;align-items:center">
+              <div style="color:var(--text-muted);text-align:right">${i+1}º</div>
+              <div><strong>${n}</strong></div>
+              <div style="height:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden"><div style="height:100%;width:${Math.max(1,v/maxDestino*100)}%;background:var(--accent);border-radius:999px"></div></div>
+              <div style="text-align:right"><strong>${fmt.money(v)}</strong></div>
+            </div>`).join('')}</div>`:`<div style="padding:22px;color:var(--text-muted)">Sem dados para os filtros selecionados.</div>`}
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px;margin-bottom:20px">
+          <div class="card">
+            <div class="card-header"><div><div class="card-title">Custos por conta contábil</div></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Conta</th><th>Valor</th><th>%</th></tr></thead><tbody>
+              ${contasRank.map(([n,v])=>`<tr><td>${n}</td><td><strong>${fmt.money(v)}</strong></td><td>${total?((v/total)*100).toFixed(1):'0.0'}%</td></tr>`).join('')||'<tr><td colspan="3">Sem dados</td></tr>'}
+            </tbody></table></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div><div class="card-title">Maiores fornecedores por custo real</div></div></div>
+            <div class="table-wrap"><table><thead><tr><th>#</th><th>Fornecedor</th><th>Valor</th><th>%</th></tr></thead><tbody>
+              ${fornecedoresRank.map(([n,v],i)=>`<tr><td>${i+1}</td><td>${n}</td><td><strong>${fmt.money(v)}</strong></td><td>${total?((v/total)*100).toFixed(1):'0.0'}%</td></tr>`).join('')||'<tr><td colspan="4">Sem dados</td></tr>'}
+            </tbody></table></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">Movimentos financeiros por vencimento</div><div class="card-sub">Auditoria da competência mensal utilizada no Dashboard.</div></div></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Vencimento</th><th>Parcela</th><th>NF/Documento</th><th>Fornecedor</th><th>Centro</th><th>Frota/Destino</th><th>Tipo</th><th>Conta</th><th>Valor do mês</th></tr></thead>
+            <tbody>${movimentos.slice().sort((a,b)=>String(b.dataCusto).localeCompare(String(a.dataCusto))).map(x=>`
+              <tr>
+                <td><strong>${x.dataCusto?fmt.date(x.dataCusto):'—'}</strong></td>
+                <td>${x.parcelaNumero||1}</td>
+                <td>${x.numeroNF||'—'}</td>
+                <td>${x.fornecedor||'—'}</td>
+                <td>${getCentroCustoRegistro(x)}</td>
+                <td>${x.destino||'—'}</td>
+                <td>${x.tipoDocumento==='BAIXA_ESTOQUE'?'Baixa Estoque':'NF'}</td>
+                <td>${x.codigoContabil||'—'}</td>
+                <td><strong>${fmt.money(x.valorCusto)}</strong></td>
+              </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px">Sem movimentos</td></tr>'}</tbody>
+          </table></div>
+        </div>`;
+    };
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V9.8 — COMPOSIÇÃO DE CUSTOS + DIÁRIA DE MANUTENÇÃO
+   ============================================================ */
+(function(){
+  'use strict';
+
+  const V98_DIARIA_PADRAO = 700;
+
+  function v98Norm(v){ return normalize(String(v||'')).replace(/\s+/g,' ').trim(); }
+  function v98Centro(obj){ return getCentroCustoRegistro(obj); }
+  function v98MesRC(rc){ return String(rc.dataAprovacao||rc.data||rc.dataCriacao||'').slice(0,7); }
+  function v98DestinoRC(rc){ return clean(rc.aplicacao||rc.destino||''); }
+
+  function v98EhFrota(v){
+    const n=v98Norm(v);
+    if(!n)return false;
+    if(frotas.some(f=>v98Norm(f.nome)===n)) return true;
+    return /^frota\b/.test(n);
+  }
+
+  function v98EhOficina(v){ return v98Norm(v).includes('oficina'); }
+
+  function v98NomeFrota(destino,centro){
+    const n=v98Norm(destino), cc=centro||'';
+    const f=frotas.find(x=>v98Norm(x.nome)===n && (!cc || v98Centro(x)===cc))
+      || frotas.find(x=>v98Norm(x.nome)===n);
+    return f ? clean(f.nome) : clean(destino);
+  }
+
+  function v98DataInicioFrota(f){
+    return String(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||f.dataAbertura||'').slice(0,10);
+  }
+
+  function v98DataFimFrota(f){
+    if(f.concluido===true || v98Norm(f.statusOperacional).includes('conclu') || v98Norm(f.statusProjeto).includes('conclu')){
+      return String(f.dataConclusaoReal||f.dataSaidaReal||f.dataConclusao||f.dataPrevisaoSaida||'').slice(0,10);
+    }
+    return hojeISO();
+  }
+
+  function v98DiasInclusive(inicio,fim){
+    if(!inicio || !fim) return 0;
+    const a=new Date(inicio+'T12:00:00'), b=new Date(fim+'T12:00:00');
+    if(isNaN(a)||isNaN(b)||b<a) return 0;
+    return Math.floor((b-a)/86400000)+1;
+  }
+
+  function v98ValorDiariaFrota(f){
+    const v=numeroSeguro(f.valorDiariaManutencao ?? f.valorDiaria ?? f.diariaManutencao ?? V98_DIARIA_PADRAO);
+    return v>0 ? v : V98_DIARIA_PADRAO;
+  }
+
+  function v98CustoDiariaFrota(f){
+    const ini=v98DataInicioFrota(f), fim=v98DataFimFrota(f), valorDia=v98ValorDiariaFrota(f);
+    if(!ini || !fim) return {dias:0,valorDia,total:0,inicio:ini,fim};
+    const dias=v98DiasInclusive(ini,fim);
+    return {dias,valorDia,total:dias*valorDia,inicio:ini,fim};
+  }
+
+  function v98FrotasPresentesPorMes(){
+    const presentes={};
+    rcs.forEach(rc=>{
+      const mes=v98MesRC(rc); if(!mes)return;
+      const destino=v98DestinoRC(rc); if(!v98EhFrota(destino))return;
+      const cc=v98Centro(rc), nome=v98NomeFrota(destino,cc), k=`${cc}|${mes}`;
+      if(!presentes[k])presentes[k]=new Map();
+      presentes[k].set(v98Norm(nome),nome);
+    });
+    return presentes;
+  }
+
+  function v98ComposicaoFrotas(movimentos){
+    const mapa={}, presentes=v98FrotasPresentesPorMes(), oficinaMes={};
+
+    function get(nome,cc){
+      const k=`${cc}|${v98Norm(nome)}`;
+      if(!mapa[k]) mapa[k]={nome,centro:cc,compras:0,baixas:0,oficina:0,diaria:0,diasDiaria:0,valorDia:0};
+      return mapa[k];
+    }
+
+    movimentos.forEach(m=>{
+      const cc=v98Centro(m);
+      if(v98EhOficina(m.destino)){
+        const mes=m.mesCusto||String(m.dataCusto||'').slice(0,7);
+        if(mes){
+          const k=`${cc}|${mes}`;
+          oficinaMes[k]=(oficinaMes[k]||0)+numeroSeguro(m.valorCusto);
+        }
+        return;
+      }
+      if(!v98EhFrota(m.destino))return;
+      const nome=v98NomeFrota(m.destino,cc), item=get(nome,cc);
+      if(m.tipoDocumento==='BAIXA_ESTOQUE') item.baixas+=numeroSeguro(m.valorCusto);
+      else item.compras+=numeroSeguro(m.valorCusto);
+    });
+
+    Object.entries(oficinaMes).forEach(([k,totalOficina])=>{
+      const lista=[...(presentes[k]?.values()||[])];
+      if(!lista.length)return;
+      const cc=k.split('|')[0], parcela=totalOficina/lista.length;
+      lista.forEach(nome=>get(nome,cc).oficina+=parcela);
+    });
+
+    frotas.forEach(f=>{
+      const nome=clean(f.nome||'');
+      if(!nome || !v98EhFrota(nome))return;
+      const cc=v98Centro(f), d=v98CustoDiariaFrota(f);
+      if(d.total<=0)return;
+      const item=get(nome,cc);
+      item.diaria=d.total;
+      item.diasDiaria=d.dias;
+      item.valorDia=d.valorDia;
+      item.dataInicio=d.inicio;
+      item.dataFim=d.fim;
+    });
+
+    return Object.values(mapa).map(x=>{
+      x.total=x.compras+x.baixas+x.oficina+x.diaria;
+      x.pCompras=x.total?x.compras/x.total*100:0;
+      x.pBaixas=x.total?x.baixas/x.total*100:0;
+      x.pOficina=x.total?x.oficina/x.total*100:0;
+      x.pDiaria=x.total?x.diaria/x.total*100:0;
+      return x;
+    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+  }
+
+  const _renderCustosV97 = renderDashboardCustos;
+  renderDashboardCustos = function(){
+    const htmlBase=_renderCustosV97();
+    const f=state.custosFilters||{};
+    let movimentos=getMovimentosCustos(recebimentosNF);
+
+    if(f.dataIni) movimentos=movimentos.filter(x=>(x.dataCusto||'')>=f.dataIni);
+    if(f.dataFim) movimentos=movimentos.filter(x=>(x.dataCusto||'')<=f.dataFim);
+    if(f.centroCusto) movimentos=movimentos.filter(x=>v98Centro(x)===f.centroCusto);
+    if(f.fornecedor) movimentos=movimentos.filter(x=>x.fornecedor===f.fornecedor);
+    if(f.destino) movimentos=movimentos.filter(x=>x.destino===f.destino);
+    if(f.codigoContabil) movimentos=movimentos.filter(x=>x.codigoContabil===f.codigoContabil);
+
+    const comp=v98ComposicaoFrotas(movimentos);
+
+    const grafico=`<div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><div>
+        <div class="card-title">Ranking de custo real por frota / destino</div>
+        <div class="card-sub">Composição: Compras/RC/NF + Baixas de Estoque + Rateio de Oficina + Diária de manutenção.</div>
+      </div></div>
+
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin:10px 0 16px;font-size:11px">
+        <span><i style="display:inline-block;width:12px;height:12px;background:#3b82f6;border-radius:3px;margin-right:5px"></i>Compras / RC / NF</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#22c55e;border-radius:3px;margin-right:5px"></i>Baixa de estoque</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#f59e0b;border-radius:3px;margin-right:5px"></i>Rateio Oficina</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#a855f7;border-radius:3px;margin-right:5px"></i>Diária manutenção</span>
+      </div>
+
+      ${comp.length?`<div style="display:flex;flex-direction:column;gap:12px">${comp.map((x,i)=>`
+        <div style="display:grid;grid-template-columns:36px minmax(155px,250px) 1fr 155px;gap:12px;align-items:center">
+          <div style="color:var(--text-muted);text-align:right">${i+1}º</div>
+          <div>
+            <strong>${x.nome}</strong>
+            ${x.diaria>0?`<div style="font-size:10px;color:var(--text-muted)">${x.diasDiaria} dia(s) × ${fmt.money(x.valorDia)}</div>`:''}
+          </div>
+          <div>
+            <div style="height:18px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex">
+              ${x.compras>0?`<div title="Compras/RC/NF: ${fmt.money(x.compras)} (${x.pCompras.toFixed(1)}%)" style="width:${x.pCompras}%;background:#3b82f6"></div>`:''}
+              ${x.baixas>0?`<div title="Baixa de estoque: ${fmt.money(x.baixas)} (${x.pBaixas.toFixed(1)}%)" style="width:${x.pBaixas}%;background:#22c55e"></div>`:''}
+              ${x.oficina>0?`<div title="Rateio Oficina: ${fmt.money(x.oficina)} (${x.pOficina.toFixed(1)}%)" style="width:${x.pOficina}%;background:#f59e0b"></div>`:''}
+              ${x.diaria>0?`<div title="Diária: ${fmt.money(x.diaria)} (${x.pDiaria.toFixed(1)}%)" style="width:${x.pDiaria}%;background:#a855f7"></div>`:''}
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:9px;margin-top:4px;color:var(--text-muted)">
+              <span>Compra ${x.pCompras.toFixed(1)}%</span>
+              <span>Baixa ${x.pBaixas.toFixed(1)}%</span>
+              <span>Oficina ${x.pOficina.toFixed(1)}%</span>
+              <span>Diária ${x.pDiaria.toFixed(1)}%</span>
+            </div>
+          </div>
+          <div style="text-align:right"><strong>${fmt.money(x.total)}</strong></div>
+        </div>`).join('')}</div>`:
+        `<div style="padding:22px;color:var(--text-muted)">Sem dados para os filtros selecionados.</div>`}
+    </div>`;
+
+    return htmlBase.replace(
+      /<div class="card" style="margin-bottom:20px;">\s*<div class="card-header"><div><div class="card-title">Ranking de custo real por frota \/ destino<\/div>[\s\S]*?<\/div>\s*<\/div>\s*(?=<div style="display:grid;grid-template-columns:repeat\(auto-fit,minmax\(420px,1fr\)\);gap:20px;margin-bottom:20px">)/,
+      grafico
+    );
+  };
+
+  const _renderV98=render;
+  render=function(){
+    const r=_renderV98.apply(this,arguments);
+    setTimeout(()=>{
+      const form=document.getElementById('formOT');
+      if(form && !document.getElementById('otValorDiariaManutencao')){
+        const ref=document.getElementById('otValorServico')?.closest('.field') || form.querySelector('.field');
+        if(ref){
+          const wrap=document.createElement('div');
+          wrap.className='field';
+          wrap.innerHTML=`<label>Diária de manutenção (R$/dia)</label>
+            <input type="text" id="otValorDiariaManutencao" value="700,00">
+            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Parâmetro gerencial. Não gera RC/NF adicional e não duplica custo.</div>`;
+          ref.parentNode.insertBefore(wrap,ref.nextSibling);
+        }
+      }
+    },0);
+    return r;
+  };
+
+  const _salvarOrcamentoTecnicoV98 = window.salvarOrcamentoTecnico;
+  if(typeof _salvarOrcamentoTecnicoV98==='function'){
+    window.salvarOrcamentoTecnico=async function(){
+      const valorDia=parseMoney(document.getElementById('otValorDiariaManutencao')?.value||'700')||V98_DIARIA_PADRAO;
+      const result=await _salvarOrcamentoTecnicoV98.apply(this,arguments);
+      try{
+        const nome=clean(document.getElementById('otFrotaNome')?.value||'');
+        const cc=centroCustoNormalizado(document.getElementById('otCentroCusto')?.value||'');
+        const f=getFrotaByNome(nome,cc);
+        if(f?.id){
+          await db.collection('frotas').doc(f.id).update({
+            valorDiariaManutencao:valorDia,
+            alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      }catch(err){ console.warn('Não foi possível atualizar a diária na frota:',err); }
+      return result;
+    };
+  }
 })();
 </script>
 
