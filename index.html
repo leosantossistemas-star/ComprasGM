@@ -467,7 +467,7 @@
 </head>
 <body>
 
-  <!-- ===== V9.9 — Custos Proporcionais + Férias Progressivas ===== -->
+  <!-- ===== V10.0 — Custos Históricos + Estadia + Centro Mechatronics ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -5384,7 +5384,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V9.9';
+        if (versaoEl) versaoEl.textContent = 'V10.0';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -9686,6 +9686,355 @@ window.RH_SECURITY_V94 = {
       novo
     );
   };
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V10.0 — MOTOR FINAL DE CUSTOS DE FROTA
+   Regras:
+   1) Todas as frotas históricas encontradas nas RCs participam do rateio de Oficina.
+   2) Estadia = R$ 700/dia.
+      - Frota cadastrada: data de entrada -> saída real; se aberta -> hoje.
+      - Frota histórica sem cadastro: primeira RC -> última RC.
+      - Nunca cria RC/NF/baixa de estadia: cálculo gerencial, sem duplicidade.
+   3) TESTE é excluído de custos.
+   4) MERCHA / MERCHA-G2 / PORTO são consolidados em MECHATRONICS.
+   5) ESTOQUE e OFICINA permanecem como destinos próprios; não recebem rateio.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  const V100_DIARIA = 700;
+  const V100_ALIASES_MECH = new Set(['mercha','mercha-g2','porto','mecha','mechatronics']);
+  const V100_TESTE = new Set(['teste','test']);
+
+  function n100(v){return normalize(String(v||'')).replace(/\s+/g,' ').trim();}
+  function iso100(v){return String(v||'').slice(0,10);}
+  function centro100(obj){return getCentroCustoRegistro(obj);}
+  function dataRC100(rc){return iso100(rc.dataAprovacao||rc.data||rc.dataBase||'');}
+
+  function canonFrota100(v){
+    const raw=String(v||'').trim();
+    const n=n100(raw);
+    let m=n.match(/^frota[\s_-]*0*(\d+)\b/);
+    if(m)return `FROTA ${Number(m[1])}`;
+    if(/^frota\b/.test(n))return raw.replace(/\s+/g,' ').toUpperCase();
+    return '';
+  }
+
+  function ehFrota100(v){return !!canonFrota100(v);}
+  function ehOficina100(v){return n100(v).includes('oficina');}
+  function ehEstoque100(v){return n100(v)==='estoque';}
+  function ehTeste100(v){return V100_TESTE.has(n100(v));}
+  function ehAliasMech100(v){return V100_ALIASES_MECH.has(n100(v));}
+
+  function destinoCanonico100(v){
+    if(ehAliasMech100(v))return 'MECHATRONICS';
+    const cf=canonFrota100(v);
+    return cf||String(v||'').trim();
+  }
+
+  // Normaliza os movimentos para TODO o Dashboard:
+  // - remove TESTE;
+  // - consolida MERCHA/MERCHA-G2/PORTO em MECHATRONICS.
+  const _getMovimentosCustos100=getMovimentosCustos;
+  getMovimentosCustos=function(lista){
+    return _getMovimentosCustos100(lista)
+      .filter(m=>!ehTeste100(m.destino||m.aplicacao||m.formularioAprovacao))
+      .map(m=>{
+        const dest=destinoCanonico100(m.destino||m.aplicacao||'');
+        if(dest==='MECHATRONICS'){
+          return {...m,destino:'MECHATRONICS',aplicacao:'MECHATRONICS',centroCusto:'MECHATRONICS'};
+        }
+        if(ehFrota100(dest)){
+          return {...m,destino:canonFrota100(dest)};
+        }
+        return m;
+      });
+  };
+
+  function periodosHistoricosRC100(){
+    const map={};
+    rcs.forEach(rc=>{
+      if(rc.status && rc.status!=='aprovado')return;
+      const nome=canonFrota100(rc.aplicacao||rc.destino||'');
+      const data=dataRC100(rc);
+      if(!nome||!data)return;
+      const key=n100(nome);
+      if(!map[key])map[key]={nome,primeira:data,ultima:data,centro:centro100(rc)};
+      if(data<map[key].primeira)map[key].primeira=data;
+      if(data>map[key].ultima)map[key].ultima=data;
+    });
+    return map;
+  }
+
+  function frotasPorMesRC100(){
+    const map={};
+    rcs.forEach(rc=>{
+      if(rc.status && rc.status!=='aprovado')return;
+      const nome=canonFrota100(rc.aplicacao||rc.destino||'');
+      const data=dataRC100(rc);
+      if(!nome||!data)return;
+      const cc=centro100(rc);
+      const mes=data.slice(0,7);
+      const key=`${cc}|${mes}`;
+      if(!map[key])map[key]=new Map();
+      map[key].set(n100(nome),nome);
+    });
+    return map;
+  }
+
+  function registroFrota100(nome){
+    const cn=n100(canonFrota100(nome));
+    return frotas.find(f=>n100(canonFrota100(f.nome))===cn)||null;
+  }
+
+  function periodoEstadia100(nome,historico){
+    const f=registroFrota100(nome);
+    const h=historico[n100(canonFrota100(nome))];
+
+    if(f){
+      const ini=iso100(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||f.dataAbertura||h?.primeira||'');
+      const encerrada=f.concluido===true
+        || n100(f.statusOperacional).includes('conclu')
+        || n100(f.statusOperacional).includes('encerr')
+        || n100(f.statusProjeto).includes('conclu');
+      let fim='';
+      if(encerrada){
+        // Saída real tem prioridade. Se registro legado não a possui, usa a última RC.
+        fim=iso100(f.dataConclusaoReal||f.dataSaidaReal||f.dataConclusao||h?.ultima||'');
+      }else{
+        fim=hojeISO();
+      }
+      return {inicio:ini,fim,fonte:'CADASTRO',aberta:!encerrada,registro:f};
+    }
+
+    // Frota histórica não cadastrada: período observável pelas RCs.
+    if(h?.primeira&&h?.ultima){
+      return {inicio:h.primeira,fim:h.ultima,fonte:'RCS_HISTORICAS',aberta:false,registro:null};
+    }
+    return {inicio:'',fim:'',fonte:'SEM_PERIODO',aberta:false,registro:null};
+  }
+
+  function diasSobrepostos100(ini,fim,filtroIni='',filtroFim=''){
+    if(!ini||!fim)return 0;
+    let a=new Date(ini+'T12:00:00'), b=new Date(fim+'T12:00:00');
+    if(isNaN(a)||isNaN(b)||b<a)return 0;
+    if(filtroIni){
+      const fi=new Date(filtroIni+'T12:00:00');
+      if(fi>a)a=fi;
+    }
+    if(filtroFim){
+      const ff=new Date(filtroFim+'T12:00:00');
+      if(ff<b)b=ff;
+    }
+    if(b<a)return 0;
+    return Math.floor((b-a)/86400000)+1;
+  }
+
+  function composicao100(movimentos,filtros){
+    const mapa={}, oficinaMes={}, presencas=frotasPorMesRC100(), hist=periodosHistoricosRC100();
+
+    function get(nome,cc){
+      nome=canonFrota100(nome);
+      const key=`${cc}|${n100(nome)}`;
+      if(!mapa[key])mapa[key]={nome,centro:cc,compras:0,baixas:0,oficinaRateada:0,estadia:0};
+      return mapa[key];
+    }
+
+    // Custos diretos já existentes.
+    movimentos.forEach(m=>{
+      const val=numeroSeguro(m.valorCusto), cc=centro100(m), dest=destinoCanonico100(m.destino);
+      if(ehOficina100(dest)){
+        const mes=m.mesCusto||iso100(m.dataCusto).slice(0,7);
+        if(mes){
+          const k=`${cc}|${mes}`;
+          oficinaMes[k]=(oficinaMes[k]||0)+val;
+        }
+        return;
+      }
+      if(!ehFrota100(dest))return;
+      const item=get(dest,cc);
+      if(m.tipoDocumento==='BAIXA_ESTOQUE')item.baixas+=val;
+      else item.compras+=val;
+    });
+
+    // Rateio mensal da Oficina para TODAS as frotas que aparecem nas RCs do mês,
+    // inclusive as antigas que não existem na coleção frotas.
+    Object.entries(oficinaMes).forEach(([k,total])=>{
+      const lista=[...(presencas[k]?.values()||[])];
+      if(!lista.length)return;
+      const cc=k.split('|')[0], parcela=total/lista.length;
+      lista.forEach(nome=>get(nome,cc).oficinaRateada+=parcela);
+    });
+
+    // Garante que toda frota histórica com período observável também possa receber estadia.
+    Object.values(hist).forEach(h=>get(h.nome,h.centro||'SANTOS'));
+    frotas.filter(f=>ehFrota100(f.nome)).forEach(f=>get(f.nome,centro100(f)));
+
+    // Estadia R$ 700/dia, uma única vez por frota.
+    Object.values(mapa).forEach(item=>{
+      const p=periodoEstadia100(item.nome,hist);
+      const dias=diasSobrepostos100(p.inicio,p.fim,filtros.dataIni||'',filtros.dataFim||'');
+      item.diasEstadia=dias;
+      item.valorDia=V100_DIARIA;
+      item.estadia=dias*V100_DIARIA;
+      item.periodoInicio=p.inicio;
+      item.periodoFim=p.fim;
+      item.periodoFonte=p.fonte;
+      item.aberta=p.aberta;
+      item.total=item.compras+item.baixas+item.oficinaRateada+item.estadia;
+      item.pCompras=item.total?item.compras/item.total*100:0;
+      item.pBaixas=item.total?item.baixas/item.total*100:0;
+      item.pOficina=item.total?item.oficinaRateada/item.total*100:0;
+      item.pEstadia=item.total?item.estadia/item.total*100:0;
+    });
+
+    return Object.values(mapa).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+  }
+
+  function grafico100(movimentos,filtros){
+    const comp=composicao100(movimentos,filtros);
+    const porDestino={};
+
+    movimentos.forEach(m=>{
+      const dest=destinoCanonico100(m.destino||'Sem destino')||'Sem destino';
+      if(ehTeste100(dest)||ehFrota100(dest))return;
+      porDestino[dest]=(porDestino[dest]||0)+numeroSeguro(m.valorCusto);
+    });
+
+    const linhas=[];
+    Object.entries(porDestino).forEach(([nome,total])=>linhas.push({
+      nome,total,generico:true,informativoOficina:ehOficina100(nome)
+    }));
+    comp.forEach(x=>linhas.push({...x,generico:false}));
+    linhas.sort((a,b)=>b.total-a.total);
+    const max=Math.max(1,...linhas.map(x=>x.total));
+
+    return `<div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><div>
+        <div class="card-title">Ranking de custo real por frota / destino</div>
+        <div class="card-sub">Frotas: compras/RC/NF + baixas + rateio mensal de Oficina + estadia de R$ 700/dia. Frotas históricas usam primeira e última RC quando não há cadastro de período.</div>
+      </div></div>
+
+      <div style="display:flex;gap:15px;flex-wrap:wrap;margin:10px 0 16px;font-size:11px">
+        <span><i style="display:inline-block;width:12px;height:12px;background:#3b82f6;border-radius:3px;margin-right:5px"></i>Compras / RC / NF</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#22c55e;border-radius:3px;margin-right:5px"></i>Baixa de estoque da frota</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#f59e0b;border-radius:3px;margin-right:5px"></i>Rateio Oficina</span>
+        <span><i style="display:inline-block;width:12px;height:12px;background:#a855f7;border-radius:3px;margin-right:5px"></i>Estadia — R$ 700/dia</span>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+      ${linhas.map((x,i)=>{
+        const largura=Math.max(1.2,x.total/max*100);
+        if(x.generico){
+          const nota=x.informativoOficina
+            ? '<div style="font-size:9px;color:#f59e0b">Informativo: já rateado às frotas; não somar novamente no total consolidado.</div>'
+            : '';
+          return `<div style="display:grid;grid-template-columns:36px minmax(160px,270px) 1fr 150px;gap:12px;align-items:center">
+            <div style="color:var(--text-muted);text-align:right">${i+1}º</div>
+            <div><strong>${x.nome}</strong>${nota}</div>
+            <div style="height:18px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden">
+              <div style="height:100%;width:${largura}%;background:var(--accent);border-radius:999px"></div>
+            </div>
+            <div style="text-align:right"><strong>${fmt.money(x.total)}</strong></div>
+          </div>`;
+        }
+        return `<div style="display:grid;grid-template-columns:36px minmax(160px,270px) 1fr 150px;gap:12px;align-items:center">
+          <div style="color:var(--text-muted);text-align:right">${i+1}º</div>
+          <div>
+            <strong>${x.nome}</strong>
+            <div style="font-size:9px;color:var(--text-muted)">${x.diasEstadia} dia(s) × ${fmt.money(V100_DIARIA)} · ${x.periodoFonte==='RCS_HISTORICAS'?'período pelas RCs':'período cadastrado'}${x.aberta?' · EM MANUTENÇÃO':''}</div>
+          </div>
+          <div>
+            <div style="height:18px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden">
+              <div style="height:100%;width:${largura}%;display:flex;overflow:hidden;border-radius:999px">
+                ${x.compras?`<div title="Compra ${fmt.money(x.compras)} (${x.pCompras.toFixed(1)}%)" style="width:${x.pCompras}%;background:#3b82f6"></div>`:''}
+                ${x.baixas?`<div title="Baixa ${fmt.money(x.baixas)} (${x.pBaixas.toFixed(1)}%)" style="width:${x.pBaixas}%;background:#22c55e"></div>`:''}
+                ${x.oficinaRateada?`<div title="Oficina ${fmt.money(x.oficinaRateada)} (${x.pOficina.toFixed(1)}%)" style="width:${x.pOficina}%;background:#f59e0b"></div>`:''}
+                ${x.estadia?`<div title="Estadia ${fmt.money(x.estadia)} (${x.pEstadia.toFixed(1)}%)" style="width:${x.pEstadia}%;background:#a855f7"></div>`:''}
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--text-muted);display:flex;gap:9px;flex-wrap:wrap;margin-top:4px">
+              <span>Compra ${x.pCompras.toFixed(1)}%</span><span>Baixa ${x.pBaixas.toFixed(1)}%</span><span>Oficina ${x.pOficina.toFixed(1)}%</span><span>Estadia ${x.pEstadia.toFixed(1)}%</span>
+            </div>
+          </div>
+          <div style="text-align:right"><strong>${fmt.money(x.total)}</strong></div>
+        </div>`;
+      }).join('')||'<div style="padding:18px;color:var(--text-muted)">Sem dados.</div>'}
+      </div>
+
+      <div style="margin-top:14px;padding:10px;border:1px solid #f59e0b;border-radius:8px;font-size:11px">
+        <strong>Total mensal:</strong> a linha OFICINA permanece visível, porém não entra novamente no total consolidado, pois já está diluída nas frotas.
+      </div>
+    </div>`;
+  }
+
+  const _renderCustos100=renderDashboardCustos;
+  renderDashboardCustos=function(){
+    const base=_renderCustos100();
+    const f=state.custosFilters||{};
+    let mov=getMovimentosCustos(recebimentosNF);
+    if(f.dataIni)mov=mov.filter(x=>(x.dataCusto||'')>=f.dataIni);
+    if(f.dataFim)mov=mov.filter(x=>(x.dataCusto||'')<=f.dataFim);
+    if(f.centroCusto)mov=mov.filter(x=>centro100(x)===f.centroCusto);
+    if(f.fornecedor)mov=mov.filter(x=>x.fornecedor===f.fornecedor);
+    if(f.destino)mov=mov.filter(x=>destinoCanonico100(x.destino)===destinoCanonico100(f.destino));
+    if(f.codigoContabil)mov=mov.filter(x=>x.codigoContabil===f.codigoContabil);
+
+    const novo=grafico100(mov,f);
+    return base.replace(
+      /<div class="card" style="margin-bottom:20px;">\s*<div class="card-header"><div>\s*<div class="card-title">Ranking de custo real por frota \/ destino<\/div>[\s\S]*?<\/div>\s*(?=<div style="display:grid;grid-template-columns:repeat\(auto-fit,minmax\(420px,1fr\)\);gap:20px;margin-bottom:20px">)/,
+      novo
+    );
+  };
+
+  // ---------- AÇÃO CLARA PARA ENCERRAR MANUTENÇÃO ----------
+  const _renderFrotas100=renderFrotas;
+  renderFrotas=function(){
+    let html=_renderFrotas100();
+    frotas.forEach(f=>{
+      if(!ehFrota100(f.nome))return;
+      const encerrada=f.concluido===true || n100(f.statusOperacional).includes('conclu') || n100(f.statusOperacional).includes('encerr');
+      if(encerrada)return;
+      const alvo=`data-status-frota="${f.id}">Status</button>`;
+      if(html.includes(alvo)){
+        html=html.replace(alvo,`${alvo} <button class="btn btn-accent btn-sm" data-encerrar-frota-v100="${f.id}">Encerrar / Saída</button>`);
+      }
+    });
+    return html;
+  };
+
+  document.addEventListener('click',async e=>{
+    const btn=e.target.closest('[data-encerrar-frota-v100]');
+    if(!btn)return;
+    const f=frotas.find(x=>x.id===btn.dataset.encerrarFrotaV100);
+    if(!f)return;
+    if(!['encarregado','gerente','admin'].includes(perfilAtual)){
+      showToast('Perfil sem permissão para encerrar manutenção.',true); return;
+    }
+    const data=prompt(`Data real de saída da ${f.nome}:`,hojeISO());
+    if(!data)return;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(data)){
+      showToast('Informe a data no formato AAAA-MM-DD.',true); return;
+    }
+    try{
+      await db.collection('frotas').doc(f.id).update({
+        statusOperacional:'CONCLUIDO',
+        concluido:true,
+        dataConclusaoReal:data,
+        alteradoPorUid:getUsuarioUid(),
+        alteradoPorEmail:getUsuarioEmail(),
+        alteradoPorNome:getUsuarioNome(),
+        alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+      });
+      showToast(`${f.nome}: manutenção encerrada em ${fmt.date(data)}. A estadia deixa de acumular após essa data.`);
+    }catch(err){
+      showToast('Erro ao encerrar manutenção: '+err.message,true);
+    }
+  });
 })();
 </script>
 
