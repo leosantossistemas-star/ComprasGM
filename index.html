@@ -369,7 +369,7 @@
 </head>
 <body>
 
-  <!-- ===== V9.1 — RH completo + Férias/ASO/Treinamentos + Frota livre no OT/Solicitação ===== -->
+  <!-- ===== V9.3 — ASO dinâmico + Dashboard RH + 3 Unidades ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -4832,6 +4832,8 @@ function gerarPDF(rcData) {
             <div class="field"><label>Centro</label><div>${getCentroCustoRegistro(sol)}</div></div>
             <div class="field"><label>Destino</label><div>${sol.destino || '—'}</div></div>
             <div class="field"><label>Data necessidade</label><div>${fmt.date(sol.dataNecessidade)}</div></div>
+            <div class="field"><label>Data prevista de saída</label><div>${fmt.date(sol.dataSaida || sol.dataPrevisaoSaida)}</div></div>
+            <div class="field"><label>Valor do serviço</label><div><strong>${fmt.money(numeroSeguro(sol.valorServico || sol.valorOrcamento))}</strong></div></div>
             <div class="field"><label>Status</label><div>${sol.arquivada?'Arquivada':(sol.convertida?'Convertida':'Pendente')}</div></div>
             <div class="field"><label>Criado por</label><div>${sol.criadoPorNome || sol.criadoPorEmail || '—'}</div></div>
           </div>
@@ -4872,13 +4874,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           <td>${getCentroCustoRegistro(sol)}</td>
           <td>${sol.destino || '—'}</td>
           <td>${fmt.date(sol.dataNecessidade)}</td>
+          <td>${fmt.date(sol.dataSaida || sol.dataPrevisaoSaida)}</td>
+          <td><strong>${fmt.money(numeroSeguro(sol.valorServico || sol.valorOrcamento))}</strong></td>
           <td>${sol.itens ? sol.itens.length : 0} itens</td>
           <td><span class="badge ${statusCls}">${status}</span></td>
           <td>${acoes.join(' ')}</td>
         </tr>`;
       }).join('');
       return `<div class="table-wrap"><table>
-        <thead><tr><th>Filial</th><th>Destino</th><th>Data Necessidade</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Filial</th><th>Destino</th><th>Data Necessidade</th><th>Data Saída</th><th>Valor Serviço</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
     }
@@ -4926,6 +4930,16 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
                 </div>
               </div>
               <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${dataNecessidadeValor}" required /></div>
+              <div class="field">
+                <label>Data prevista de saída *</label>
+                <input type="date" id="solDataSaida" required value="${data.dataSaida || data.dataPrevisaoSaida || (()=>{const f=getFrotaByNome(data.destino||'',getCentroCustoRegistro(data));return f?.dataPrevisaoSaida||'';})()}">
+              </div>
+              <div class="field">
+                <label>Valor do serviço *</label>
+                <input id="solValorServico" required inputmode="decimal"
+                       value="${numeroSeguro(data.valorServico || data.valorOrcamento || (()=>{const f=getFrotaByNome(data.destino||'',getCentroCustoRegistro(data));return f?.valorOrcamento||0;})()).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}"
+                       placeholder="0,00">
+              </div>
               ${perfilAtual==='admin' && isEdit ? `
               <div class="field">
                 <label>Status da solicitação *</label>
@@ -5067,6 +5081,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         data: hoje,
         fornecedor: '',
         prazoEntrega: sol.dataNecessidade || hoje,
+        dataPrevisaoSaida: sol.dataSaida || sol.dataPrevisaoSaida || '',
+        valorServico: numeroSeguro(sol.valorServico || sol.valorOrcamento),
+        valorOrcamento: numeroSeguro(sol.valorServico || sol.valorOrcamento),
         condPag: 'À vista',
         condicaoPagamento: 'A_VISTA',
         numeroParcelas: 1,
@@ -5116,10 +5133,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     async function salvarSolicitacaoHandler() {
       const getVal = (id) => document.getElementById(id)?.value || '';
       const centroCusto = centroCustoNormalizado(getVal('solCentroCusto'));
-      const destino = getVal('solDestino');
+      const destino = getVal('solDestino').trim();
       const dataNecessidade = getVal('solDataNecessidade');
-      if (!centroCusto || !destino || !dataNecessidade) {
-        showToast('Preencha filial, destino e data.', true);
+      const dataSaida = getVal('solDataSaida');
+      const valorServico = parseMoney(getVal('solValorServico'));
+      if (!centroCusto || !destino || !dataNecessidade || !dataSaida || valorServico <= 0) {
+        showToast('Preencha filial, frota/projeto, data de necessidade, data de saída e valor do serviço.', true);
         return;
       }
 
@@ -5148,10 +5167,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             nome:destino,
             centroCusto,
             tipoCadastro:centroCusto==='MECHATRONICS'?'PROJETO':'FROTA',
-            valorOrcamento:0,
+            valorOrcamento:valorServico,
             percentualLimite:20,
             dataEntrada:hojeISO(),
-            dataPrevisaoSaida:'',
+            dataPrevisaoSaida:dataSaida,
             statusOperacional:centroCusto==='MECHATRONICS'?'':'EM_MANUTENCAO',
             statusProjeto:centroCusto==='MECHATRONICS'?'PLANEJAMENTO':'',
             concluido:false,
@@ -5170,6 +5189,26 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }
       }
 
+      // Para frota/projeto já existente, Gerente/Admin também atualizam
+      // os dados econômicos e a previsão de saída diretamente pela Solicitação.
+      if (destinoRef && ['gerente','admin'].includes(perfilAtual)) {
+        try {
+          await db.collection('frotas').doc(destinoRef.id).set({
+            valorOrcamento: valorServico,
+            dataPrevisaoSaida: dataSaida,
+            cadastroIncompleto: false,
+            liberadaParaRC: true,
+            alteradoPorUid: getUsuarioUid(),
+            alteradoPorEmail: getUsuarioEmail(),
+            alteradoPorNome: getUsuarioNome(),
+            alteradoEm: firebase.firestore.FieldValue.serverTimestamp()
+          }, {merge:true});
+        } catch(err) {
+          showToast('Não foi possível atualizar os dados da frota: '+err.message, true);
+          return;
+        }
+      }
+
       const editId = getVal('solEditId');
       const origemCopiaId = getVal('solOrigemCopiaId');
       const origemOrcamentoId = getVal('solOrigemOrcamentoId');
@@ -5184,6 +5223,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         centroCusto,
         destino,
         dataNecessidade,
+        dataSaida,
+        dataPrevisaoSaida: dataSaida,
+        valorServico,
+        valorOrcamento: valorServico,
         itens,
         convertida: adminStatus ? adminStatus === 'CONVERTIDA' : (existente?.convertida || false),
         arquivada: adminStatus ? adminStatus === 'ARQUIVADA' : (existente?.arquivada || false),
@@ -5234,7 +5277,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V9.0';
+        if (versaoEl) versaoEl.textContent = 'V9.3';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -7615,6 +7658,632 @@ document.addEventListener('input',e=>{
     state.rhTreinoBusca=e.target.value;
     clearTimeout(window.__rhV91TreinoBusca);
     window.__rhV91TreinoBusca=setTimeout(render,250);
+  }
+});
+</script>
+
+
+<script>
+/* ============================================================
+   V9.2 — SOLICITAÇÃO RC + EMPRESA NO RH
+   ============================================================ */
+const RH_EMPRESAS_V92 = ['Cryotronics','Mechatronics','H2BR'];
+const RH_EMPRESA_MAP_V92 = {"DARIO SANTOS DE PAZ": "Mechatronics", "CASSIO RODRIGUES CARVALHO": "Mechatronics", "FABRICIO ROBERTO DA CRUZ SILVEIRA": "Mechatronics", "ADRIANO SOUSA DOS SANTOS": "Mechatronics", "EVANDRO JOSE DOS SANTOS": "Mechatronics", "EVANDRO JOSÉ DOS SANTOS": "Mechatronics", "LEONARDO ALVES DOS SANTOS": "Mechatronics", "SERGIO LUIS ROSSI": "Mechatronics", "DANIEL WAGNER FRANCISCO GONÇALVES": "Mechatronics", "ADELSON DOS SANTOS": "Cryotronics", "ALESSANDRA SILVA TRIGO": "Cryotronics", "EDSON BARRETO JUNIOR": "Cryotronics", "COSMO APARECIDO MACENA DA SILVA": "Cryotronics", "FABIO GONCALVES SILVA DE CARVALHO": "Cryotronics", "LEODATO FRANCISCO DOS SANTOS": "Cryotronics", "RAFAEL SANTIAGO GRAÇA": "Cryotronics", "YASMIN SANTIAGO DA CRUZ": "Cryotronics", "TIAGO OLIVEIRA DE JESUS": "Cryotronics", "TIAGO SOARES DA SILVA": "Cryotronics", "JOSE FERREIRA ALVES FILHO": "Cryotronics", "FIDEL RODRIGUEZ RODRIGUEZ": "Cryotronics", "CLAUDICELIO ALVES DA SILVA": "Cryotronics", "LEONARDO ALVES DA SILVA": "Cryotronics", "SIDNEI FRANCISCO DOS SANTOS": "Cryotronics", "ANTONIO CARLOS SANTOS DOS REIS": "Cryotronics", "EMERSON DE JESUS SANTOS": "Cryotronics", "GABRIEL DE ALMEIDA SANTOS": "Cryotronics", "IRVING SANTOS SILVA": "Cryotronics", "RAQUEL SENA CARNEIRO": "Cryotronics", "RICARDO DA SILVA ALVES": "Cryotronics", "RONED MACEDO DOS SANTOS RIOS": "Cryotronics"};
+let __rhEmpresaMigracaoV92=false;
+
+function empresaRHPorNomeV92(nome=''){
+  const n=normalize(nome);
+  const key=Object.keys(RH_EMPRESA_MAP_V92).find(k=>normalize(k)===n);
+  if(key) return RH_EMPRESA_MAP_V92[key];
+  const c=rhColaboradores.find(x=>normalize(x.nome||'')===n);
+  return c?.empresa||'';
+}
+function empresaRegistroRHV92(reg={}){
+  return reg.empresa || empresaRHPorNomeV92(reg.colaboradorNome||reg.nome||reg.colaboradorRetirada||'') || '—';
+}
+function filtroEmpresaRHV92(reg={}){
+  const f=state.rhEmpresaFiltro||'';
+  return !f || empresaRegistroRHV92(reg)===f;
+}
+function seletorEmpresaRHV92(){
+  return `<div class="field" style="min-width:220px">
+    <label>Empresa</label>
+    <select id="rhEmpresaFiltroV92">
+      <option value="">Todas as empresas</option>
+      ${RH_EMPRESAS_V92.map(x=>`<option value="${x}" ${state.rhEmpresaFiltro===x?'selected':''}>${x}</option>`).join('')}
+    </select>
+  </div>`;
+}
+async function migrarEmpresaColaboradoresV92(){
+  if(__rhEmpresaMigracaoV92 || !podeAcessarRH()) return;
+  __rhEmpresaMigracaoV92=true;
+  try{
+    const jobs=[];
+    rhColaboradores.forEach(c=>{
+      const emp=empresaRHPorNomeV92(c.nome||'');
+      if(emp && c.empresa!==emp){
+        jobs.push(db.collection('rh_colaboradores').doc(c.id).update({
+          empresa:emp,
+          empresaAtualizadaFonte:'PLANILHAS_RH_V92',
+          alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+        }));
+      }
+    });
+    if(jobs.length) await Promise.all(jobs);
+  }catch(err){console.error('Migração empresa RH V9.2',err);}
+}
+
+// Folha passa a carregar a empresa do colaborador.
+const __calcularFolhaRHV91 = calcularFolhaRH;
+calcularFolhaRH = function(c,mesAno){
+  const f=__calcularFolhaRHV91(c,mesAno);
+  return {...f,empresa:c.empresa||empresaRHPorNomeV92(c.nome)||'',unidade:c.unidade||f.unidade||''};
+};
+
+function renderRH(){
+  if(!podeAcessarRH()) return '<div class="card"><h3>Acesso negado</h3></div>';
+  setTimeout(migrarRHComplementarV91,0);
+  setTimeout(migrarEmpresaColaboradoresV92,0);
+  const tab=state.rhTab||'dashboard';
+  const ef=state.rhEmpresaFiltro||'';
+  let body='';
+
+  if(tab==='dashboard'){
+    const colabs=rhColaboradores.filter(c=>c.ativo!==false && filtroEmpresaRHV92(c));
+    const hoje=new Date();
+    const asos=rhAsos.filter(a=>filtroEmpresaRHV92(a));
+    const asosVenc=asos.filter(a=>{const v=a.vencimento;if(!v)return true;return new Date(v+'T12:00:00')<=new Date(hoje.getTime()+60*86400000);}).length;
+    const epi30=rhEntregasEpi.filter(e=>filtroEmpresaRHV92(e)).filter(e=>{const d=new Date(e.data||e.dataDocumento||0);return (hoje-d)<=30*86400000&&hoje>=d;}).length;
+    const folhas=rhFolhas.filter(f=>filtroEmpresaRHV92(f)).length;
+    body=`<div class="card" style="margin-bottom:16px"><div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">${seletorEmpresaRHV92()}</div></div>
+      <div class="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Colaboradores</div><div class="kpi-value accent">${colabs.length}</div></div>
+        <div class="kpi-card"><div class="kpi-label">ASOs vencidos / 60 dias</div><div class="kpi-value">${asosVenc}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Entregas de EPI — 30 dias</div><div class="kpi-value">${epi30}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Folhas registradas</div><div class="kpi-value">${folhas}</div></div>
+      </div>
+      <div class="card" style="margin-top:16px"><div class="card-title">RH por empresa</div>
+      <div class="card-sub">O vínculo empresarial acompanha o colaborador nas telas de folha, férias, ASO, treinamentos e EPI.</div></div>`;
+  }
+
+  else if(tab==='colaboradores'){
+    const q=normalize(state.rhBusca||'');
+    const list=rhColaboradores.filter(c=>c.ativo!==false&&filtroEmpresaRHV92(c))
+      .filter(c=>!q||normalize([c.nome,c.cpf,c.cargo,c.matricula,c.cbo,c.unidade,c.empresa].join(' ')).includes(q))
+      .sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+    body=`<div class="card">
+      <div class="card-header"><div><div class="card-title">Colaboradores</div><div class="card-sub">${list.length} registro(s)</div></div><button class="btn btn-accent" id="rhNovoColab">+ Novo Colaborador</button></div>
+      <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px">${seletorEmpresaRHV92()}<div class="field" style="min-width:360px;flex:1"><label>Buscar</label><input id="rhBuscaColab" value="${state.rhBusca||''}" placeholder="Nome, CPF, cargo, matrícula..."></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Nome</th><th>CPF</th><th>Matrícula</th><th>Cargo</th><th>Nível</th><th>Empresa</th><th>Unidade</th><th>Salário</th><th>ASO</th><th>Ações</th></tr></thead>
+      <tbody>${list.map(c=>`<tr><td><strong>${c.nome||'—'}</strong></td><td>${c.cpf||'—'}</td><td>${c.matricula||'—'}</td><td>${c.cargo||'—'}</td><td>${c.nivel||'—'}</td><td><strong>${c.empresa||'—'}</strong></td><td>${c.unidade||'—'}</td><td>${fmt.money(numeroSeguro(c.salario))}</td><td>${c.aso_data?fmt.date(c.aso_data):'Sem ASO'}</td><td><button class="btn btn-ghost btn-sm" data-rh-editar-colab="${c.id}">Editar</button><button class="btn btn-danger btn-sm" data-rh-excluir-colab="${c.id}">Excluir</button></td></tr>`).join('')}</tbody></table></div>
+    </div>`;
+  }
+
+  else if(tab==='cargos'){
+    body=`<div class="card"><div class="card-header"><div><div class="card-title">Plano de Cargos e Salários</div><div class="card-sub">Estrutura de cargos do grupo. O vínculo da empresa é definido no cadastro individual do colaborador.</div></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Cargo</th><th>Júnior</th><th>Pleno</th><th>Sênior</th></tr></thead><tbody>${rhCargos.map(c=>`<tr><td>${c.nome}</td><td>${fmt.money(numeroSeguro(c.junior?.salarioInicial))}</td><td>${fmt.money(numeroSeguro(c.pleno?.salarioInicial))}</td><td>${fmt.money(numeroSeguro(c.senior?.salarioInicial))}</td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+
+  else if(tab==='folha'){
+    const mes=new Date().toISOString().slice(0,7);
+    const list=rhFolhas.filter(f=>filtroEmpresaRHV92(f)).slice().sort((a,b)=>String(b.mesAno||'').localeCompare(String(a.mesAno||''))).slice(0,150);
+    body=`<div class="card"><div class="card-header"><div><div class="card-title">Folha de Pagamento</div><div class="card-sub">Todos os lançamentos identificam a empresa do vínculo.</div></div></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">${seletorEmpresaRHV92()}<div class="field"><label>Mês/Ano</label><input type="month" id="rhFolhaMes" value="${mes}"></div><button class="btn btn-accent" id="rhProcessarFolha">Processar e salvar folha</button></div>
+      <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>Empresa</th><th>Competência</th><th>Colaborador</th><th>Bruto</th><th>INSS</th><th>IRRF</th><th>Líquido</th><th>FGTS</th></tr></thead><tbody>
+      ${list.map(f=>`<tr><td><strong>${empresaRegistroRHV92(f)}</strong></td><td>${f.mesAno||`${f.ano}-${String(f.mes||1).padStart(2,'0')}`}</td><td>${f.nome||'—'}</td><td>${fmt.money(numeroSeguro(f.proventos))}</td><td>${fmt.money(numeroSeguro(f.inss))}</td><td>${fmt.money(numeroSeguro(f.irrf))}</td><td><strong>${fmt.money(numeroSeguro(f.liquido))}</strong></td><td>${fmt.money(numeroSeguro(f.fgts))}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  }
+
+  else if(tab==='ferias'){
+    const list=rhFerias.filter(f=>filtroEmpresaRHV92(f)).slice().sort((a,b)=>String(b.inicio||b.inicioAq||'').localeCompare(String(a.inicio||a.inicioAq||'')));
+    body=`<div class="card"><div class="card-header"><div><div class="card-title">Férias Programadas / Histórico</div><div class="card-sub">Histórico carregado, inclusive registros antigos.</div></div><button class="btn btn-accent" data-rhv91-nova-ferias>+ Registrar Férias</button></div>
+      <div style="margin-bottom:12px">${seletorEmpresaRHV92()}</div>
+      <div class="table-wrap"><table><thead><tr><th>Empresa</th><th>Matrícula</th><th>Colaborador</th><th>Função</th><th>Período aquisitivo</th><th>Limite gozo</th><th>Início férias</th><th>Fim</th><th>Dias</th><th>Status</th><th>Observação</th><th>Ações</th></tr></thead>
+      <tbody>${list.map(f=>`<tr><td><strong>${empresaRegistroRHV92(f)}</strong></td><td>${f.matricula||'—'}</td><td><strong>${f.colaboradorNome||f.nome||'—'}</strong></td><td>${f.funcao||'—'}</td><td>${fmt.date(f.inicioAq)} → ${fmt.date(f.fimAq)}</td><td>${fmt.date(f.limiteGozo)}</td><td>${fmt.date(f.inicio)}</td><td>${fmt.date(f.fim)}</td><td>${f.diasFerias||'—'}</td><td>${f.status||'Registrado'}</td><td>${f.observacao||'—'}</td><td><button class="btn btn-ghost btn-sm" data-rhv91-editar-ferias="${f.id}">Editar</button><button class="btn btn-danger btn-sm" data-rhv91-excluir-ferias="${f.id}">Excluir</button></td></tr>`).join('')||'<tr><td colspan="12">Nenhum registro.</td></tr>'}</tbody></table></div>
+    </div>`;
+  }
+
+  else if(tab==='aso'){
+    const list=rhAsos.filter(a=>filtroEmpresaRHV92(a)).slice().sort((a,b)=>String(a.colaboradorNome||'').localeCompare(String(b.colaboradorNome||''),'pt-BR'));
+    body=`<div class="card"><div class="card-header"><div><div class="card-title">Controle de ASO</div><div class="card-sub">ASOs carregados da planilha com edição e exclusão.</div></div><button class="btn btn-accent" data-rhv91-novo-aso>+ Registrar ASO</button></div>
+      <div style="margin-bottom:12px">${seletorEmpresaRHV92()}</div>
+      <div class="table-wrap"><table><thead><tr><th>Empresa</th><th>Colaborador</th><th>Último ASO</th><th>Validade</th><th>Vencimento</th><th>Realizado 2024</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody>${list.map(a=>{const st=statusASOV91(a);return `<tr><td><strong>${empresaRegistroRHV92(a)}</strong></td><td><strong>${a.colaboradorNome||'—'}</strong></td><td>${fmt.date(a.ultimoASO)}</td><td>${a.validadeAnos||1} ano(s)</td><td>${fmt.date(a.vencimento)}</td><td>${a.dataRealizada2024?fmt.date(a.dataRealizada2024):'—'}</td><td><span class="badge ${st.classe}">${st.texto}</span></td><td><button class="btn btn-ghost btn-sm" data-rhv91-editar-aso="${a.id}">Editar</button><button class="btn btn-danger btn-sm" data-rhv91-excluir-aso="${a.id}">Excluir</button></td></tr>`;}).join('')||'<tr><td colspan="8">Nenhum ASO.</td></tr>'}</tbody></table></div>
+    </div>`;
+  }
+
+  else if(tab==='treinamentos'){
+    // reutiliza a matriz V9.1, mas com empresa como dimensão obrigatória
+    if((state.rhTreinoModo||'controle')==='matriz'){
+      body=renderTreinamentosV91();
+    } else {
+      const ativos=rhColaboradores.filter(c=>c.ativo!==false&&filtroEmpresaRHV92(c)).sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+      const q=normalize(state.rhTreinoBusca||''); const fc=state.rhTreinoColab||''; const fs=state.rhTreinoStatus||''; const rows=[];
+      ativos.forEach(c=>{if(fc&&c.id!==fc)return; RH_MATRIZ_TREINAMENTOS_V91.forEach(tr=>{if(q&&!normalize([c.nome,c.cargo,c.empresa,tr.codigo,tr.descricao,tr.escopo].join(' ')).includes(q))return;const st=statusTreinoV91(c,tr);if(fs&&st.codigo!==fs)return;rows.push({c,tr,st,reg:registroTreinoV91(c,tr),regra:regraTreinoV91(c,tr)});});});
+      body=`<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-accent" data-rhv91-treino-modo="controle">Controle por Colaborador</button><button class="btn btn-ghost" data-rhv91-treino-modo="matriz">Matriz Original</button></div>
+      <div class="card"><div class="card-header"><div><div class="card-title">Controle de Treinamentos</div><div class="card-sub">Empresa + colaborador + função + treinamento + data / não aplicável.</div></div></div>
+      <div class="filters-grid">${seletorEmpresaRHV92()}<div class="field"><label>Colaborador</label><select id="rhV91TreinoColab"><option value="">Todos</option>${ativos.map(c=>`<option value="${c.id}" ${fc===c.id?'selected':''}>${c.nome} — ${c.cargo||'Sem cargo'}</option>`).join('')}</select></div><div class="field"><label>Buscar</label><input id="rhV91TreinoBusca" value="${state.rhTreinoBusca||''}" placeholder="NR, procedimento, nome, cargo..."></div><div class="field"><label>Status</label><select id="rhV91TreinoStatus"><option value="">Todos</option><option value="PENDENTE" ${fs==='PENDENTE'?'selected':''}>Pendente</option><option value="REALIZADO" ${fs==='REALIZADO'?'selected':''}>Realizado</option><option value="NA" ${fs==='NA'?'selected':''}>Não aplicável</option><option value="SEM_REGRA" ${fs==='SEM_REGRA'?'selected':''}>Sem regra</option></select></div></div>
+      <div class="table-wrap" style="max-height:650px"><table><thead><tr><th>Empresa</th><th>Colaborador</th><th>Função</th><th>Treinamento</th><th>Descrição</th><th>Regra Matriz</th><th>Data</th><th>Status</th><th>Ação</th></tr></thead>
+      <tbody>${rows.slice(0,1200).map(x=>`<tr><td><strong>${x.c.empresa||'—'}</strong></td><td><strong>${x.c.nome}</strong></td><td>${x.c.cargo||'—'}</td><td>${x.tr.codigo}</td><td>${x.tr.descricao}</td><td>${x.regra||'—'}</td><td><input type="date" class="rh-v91-treino-data" data-colab="${x.c.id}" data-treino="${treinoKeyV91(x.tr.codigo)}" value="${x.reg.data||''}" style="min-width:145px"></td><td><span class="badge ${x.st.classe}">${x.st.texto}</span></td><td><button class="btn btn-ghost btn-sm" data-rhv91-na-colab="${x.c.id}" data-rhv91-na-treino="${treinoKeyV91(x.tr.codigo)}">${x.st.codigo==='NA'&&x.reg.status==='NA_MANUAL'?'Reativar':'Não Aplicável'}</button></td></tr>`).join('')||'<tr><td colspan="9">Nenhum treinamento.</td></tr>'}</tbody></table></div></div>`;
+    }
+  }
+
+  else if(tab==='cct'){
+    body=`<div class="card"><div class="card-header"><div><div class="card-title">Acordos Coletivos (CCT)</div><div class="card-sub">CCT por empresa e unidade.</div></div><button class="btn btn-accent" id="rhV92NovaCCT">+ Nova CCT</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Empresa</th><th>Unidade</th><th>Ano</th><th>Piso</th><th>VR/dia</th><th>% Desc VR</th><th>Creche</th><th>% VT</th></tr></thead>
+      <tbody>${rhCcts.filter(c=>!ef||!c.empresa||c.empresa===ef).map(c=>`<tr><td>${c.empresa||'Grupo / não definido'}</td><td>${c.unidade||'—'}</td><td>${c.ano||'—'}</td><td>${fmt.money(numeroSeguro(c.piso))}</td><td>${fmt.money(numeroSeguro(c.vr))}</td><td>${c.desc_vr||0}%</td><td>${fmt.money(numeroSeguro(c.creche))}</td><td>${c.vt||0}%</td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+
+  else if(tab==='epi'){
+    const list=rhEntregasEpi.filter(e=>filtroEmpresaRHV92(e)).slice().sort((a,b)=>String(b.data||b.dataDocumento||'').localeCompare(String(a.data||a.dataDocumento||'')));
+    body=`<div class="card"><div class="card-header"><div><div class="card-title">Entrega de EPIs</div><div class="card-sub">A empresa é obtida pelo vínculo do colaborador.</div></div></div>
+      <div style="margin-bottom:12px">${seletorEmpresaRHV92()}</div>
+      <div class="table-wrap"><table><thead><tr><th>Empresa</th><th>Data</th><th>Colaborador</th><th>Código</th><th>EPI</th><th>Qtd.</th><th>Valor Unit.</th><th>Total</th><th>Destino</th><th>Entregue por</th></tr></thead>
+      <tbody>${list.map(e=>`<tr><td><strong>${empresaRegistroRHV92(e)}</strong></td><td>${fmt.date(e.data||e.dataDocumento)}</td><td><strong>${e.colaboradorNome||e.colaboradorRetirada||'—'}</strong></td><td>${e.codigo||'—'}</td><td>${e.descricao||e.epi||'—'}</td><td>${e.quantidade||0}</td><td>${fmt.money(numeroSeguro(e.valorUnitario))}</td><td>${fmt.money(numeroSeguro(e.valorTotal))}</td><td>${e.destino||'—'}</td><td>${e.criadoPorNome||e.criadoPorEmail||'—'}</td></tr>`).join('')||'<tr><td colspan="10">Nenhuma entrega.</td></tr>'}</tbody></table></div></div>`;
+  }
+
+  else {
+    body=`<div class="card"><div class="card-title">Relatórios e Exportação RH</div><div style="margin:12px 0">${seletorEmpresaRHV92()}</div><p style="color:var(--text-muted);margin:10px 0">As exportações mantêm a coluna Empresa para permitir separação por vínculo.</p><div style="display:flex;gap:10px"><button class="btn btn-accent" id="rhExportColab">Exportar colaboradores CSV</button><button class="btn btn-ghost" id="rhExportEPI">Exportar EPIs CSV</button></div></div>`;
+  }
+  return rhSubnav()+body;
+};
+
+// Modal de colaborador com as 3 empresas
+abrirModalColaboradorRH = function(id=''){
+  const c=id?rhColaboradores.find(x=>x.id===id):{};
+  document.getElementById('modalRHColab')?.remove();
+  const d=document.createElement('div'); d.className='modal-overlay active'; d.id='modalRHColab';
+  d.innerHTML=`<div class="modal" style="max-width:980px"><div class="modal-header"><h2>${id?'Editar':'Novo'} Colaborador</h2><button class="modal-close" onclick="document.getElementById('modalRHColab')?.remove()">×</button></div>
+  <form id="formRHColab"><div class="form-grid">
+    <div class="field field-full"><label>Nome *</label><input id="rhcNome" required value="${c.nome||''}"></div>
+    <div class="field"><label>Empresa do vínculo *</label><select id="rhcEmpresa" required>${RH_EMPRESAS_V92.map(x=>`<option value="${x}" ${c.empresa===x?'selected':''}>${x}</option>`).join('')}</select></div>
+    <div class="field"><label>Unidade</label><select id="rhcUnidade"><option ${c.unidade==='Santos/SP'?'selected':''}>Santos/SP</option><option ${c.unidade==='Camaçari/BA'?'selected':''}>Camaçari/BA</option></select></div>
+    <div class="field"><label>CPF *</label><input id="rhcCPF" required value="${c.cpf||''}"></div>
+    <div class="field"><label>PIS</label><input id="rhcPIS" value="${c.pis||''}"></div>
+    <div class="field"><label>Nascimento</label><input type="date" id="rhcNasc" value="${c.nasc||''}"></div>
+    <div class="field"><label>Admissão *</label><input type="date" id="rhcAdmissao" required value="${c.admissao||''}"></div>
+    <div class="field"><label>Cargo *</label><input id="rhcCargo" required value="${c.cargo||''}"></div>
+    <div class="field"><label>Nível</label><select id="rhcNivel"><option ${c.nivel==='Júnior'?'selected':''}>Júnior</option><option ${c.nivel==='Pleno'?'selected':''}>Pleno</option><option ${c.nivel==='Sênior'?'selected':''}>Sênior</option></select></div>
+    <div class="field"><label>Faixa</label><input id="rhcFaixa" value="${c.faixa||'1'}"></div>
+    <div class="field"><label>Salário *</label><input id="rhcSalario" required value="${numeroSeguro(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}"></div>
+    <div class="field"><label>Matrícula</label><input id="rhcMatricula" value="${c.matricula||''}"></div>
+    <div class="field"><label>CBO</label><input id="rhcCBO" value="${c.cbo||''}"></div>
+    <div class="field"><label>Departamento</label><input id="rhcDepartamento" value="${c.departamento||''}"></div>
+    <div class="field"><label>Dependentes</label><input type="number" id="rhcDependentes" value="${c.dependentes||0}"></div>
+    <div class="field"><label>Pensão %</label><input type="number" step="0.01" id="rhcPensao" value="${c.pensao||0}"></div>
+    <div class="field"><label>Jornada h/sem</label><input type="number" id="rhcJornada" value="${c.jornada||44}"></div>
+    <div class="field"><label>Data ASO</label><input type="date" id="rhcASO" value="${c.aso_data||''}"></div>
+    <div class="field"><label>Validade ASO (anos)</label><input type="number" min="1" id="rhcASOVal" value="${c.aso_validade||1}"></div>
+  </div><div class="form-actions"><button class="btn btn-accent" type="submit">Salvar</button><button class="btn btn-ghost" type="button" onclick="document.getElementById('modalRHColab')?.remove()">Cancelar</button></div></form></div>`;
+  document.body.appendChild(d);
+  document.getElementById('formRHColab').addEventListener('submit',async e=>{
+    e.preventDefault(); const val=x=>document.getElementById(x)?.value||'';
+    const payload={nome:val('rhcNome').trim(),empresa:val('rhcEmpresa'),unidade:val('rhcUnidade'),cpf:val('rhcCPF').trim(),pis:val('rhcPIS').trim(),nasc:val('rhcNasc'),admissao:val('rhcAdmissao'),cargo:val('rhcCargo').trim(),nivel:val('rhcNivel'),faixa:val('rhcFaixa'),salario:parseMoney(val('rhcSalario')),matricula:val('rhcMatricula'),cbo:val('rhcCBO'),departamento:val('rhcDepartamento'),dependentes:Number(val('rhcDependentes'))||0,pensao:Number(val('rhcPensao'))||0,jornada:Number(val('rhcJornada'))||44,aso_data:val('rhcASO'),aso_validade:Number(val('rhcASOVal'))||1,ativo:true,alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()};
+    try{if(id)await db.collection('rh_colaboradores').doc(id).update(payload);else await db.collection('rh_colaboradores').add({...payload,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});d.remove();showToast('Colaborador salvo.');}catch(err){showToast(err.message,true);}
+  });
+};
+
+// Ao digitar/selecionar uma frota existente na Solicitação, carrega saída + valor automaticamente.
+document.addEventListener('change',e=>{
+  if(e.target.id==='solDestino' || e.target.id==='solCentroCusto'){
+    setTimeout(()=>{
+      const destino=document.getElementById('solDestino')?.value||'';
+      const cc=centroCustoNormalizado(document.getElementById('solCentroCusto')?.value||'');
+      const f=getFrotaByNome(destino,cc);
+      if(f){
+        const ds=document.getElementById('solDataSaida');
+        const vs=document.getElementById('solValorServico');
+        if(ds && !ds.value) ds.value=f.dataPrevisaoSaida||'';
+        if(vs && (!parseMoney(vs.value))) vs.value=numeroSeguro(f.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      }
+    },0);
+  }
+  if(e.target.id==='rhEmpresaFiltroV92'){state.rhEmpresaFiltro=e.target.value;render();}
+});
+
+// Nova CCT com empresa explícita
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('#rhV92NovaCCT');
+  if(!b)return;
+  const empresa=prompt('Empresa: Cryotronics, Mechatronics ou H2BR',state.rhEmpresaFiltro||'Cryotronics');
+  if(!empresa)return;
+  const unidade=prompt('Unidade: Santos/SP ou Camaçari/BA','Santos/SP');
+  if(!unidade)return;
+  const ano=Number(prompt('Ano vigência','2026'))||2026;
+  const piso=Number(prompt('Piso salarial','1500'))||0;
+  try{await db.collection('rh_ccts').add({empresa,unidade,ano,piso,vr:25,desc_vr:5,creche:300,peric:0,sind:1,vt:6,criadoPorUid:getUsuarioUid(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()});}
+  catch(err){showToast(err.message,true);}
+});
+</script>
+
+
+<script>
+/* ============================================================
+   V9.3 — ASO DINÂMICO + DASHBOARD RH + 3 UNIDADES
+   ============================================================ */
+
+const RH_UNIDADES_V93 = ['SANTOS','CAMAÇARI','MECHATRONICS'];
+const RH_UNIDADE_IMPORT_V93 = {"DARIO SANTOS DE PAZ": "MECHATRONICS", "CASSIO RODRIGUES CARVALHO": "MECHATRONICS", "ADRIANO SOUSA DOS SANTOS": "MECHATRONICS", "EVANDRO JOSE DOS SANTOS": "MECHATRONICS", "LEONARDO ALVES DOS SANTOS": "MECHATRONICS", "DANIEL WAGNER FRANCISCO GONÇALVES": "MECHATRONICS", "FIDEL RODRIGUEZ RODRIGUEZ": "SANTOS", "LEODATO FRANCISCO DOS SANTOS": "SANTOS", "TIAGO OLIVEIRA DE JESUS": "SANTOS", "FABIO GONCALVES SILVA DE CARVALHO": "SANTOS", "COSMO APARECIDO MACENA DA SILVA": "SANTOS", "TIAGO SOARES DA SILVA": "SANTOS", "JOSE FERREIRA ALVES FILHO": "SANTOS", "ADELSON DOS SANTOS": "SANTOS", "ALESSANDRA SILVA TRIGO": "SANTOS", "SIDNEI FRANCISCO DOS SANTOS": "SANTOS", "Antonio Carlos Santos dos Reis": "CAMAÇARI", "Emerson de Jesus Santos": "CAMAÇARI", "Gabriel de Almeida Santos": "CAMAÇARI", "Irving Santos Silva": "CAMAÇARI", "Raquel Sena Carneiro": "CAMAÇARI", "Ricardo da Silva Alves": "CAMAÇARI", "Roned Macedo dos Santos Rios": "CAMAÇARI"};
+let __rhUnidadeMigracaoV93=false;
+
+function normalizarUnidadeRHV93(v=''){
+  const n=normalize(v);
+  if(n.includes('mechatronics')) return 'MECHATRONICS';
+  if(n.includes('camacari')) return 'CAMAÇARI';
+  if(n.includes('santos')) return 'SANTOS';
+  return '';
+}
+
+function unidadeRHPorNomeV93(nome=''){
+  const key=Object.keys(RH_UNIDADE_IMPORT_V93).find(k=>normalize(k)===normalize(nome));
+  if(key) return RH_UNIDADE_IMPORT_V93[key];
+  const c=rhColaboradores.find(x=>normalize(x.nome||'')===normalize(nome));
+  return normalizarUnidadeRHV93(c?.unidade||c?.empresa||'') || '';
+}
+
+function unidadeRegistroRHV93(reg={}){
+  return normalizarUnidadeRHV93(reg.unidade||reg.filial||reg.empresa||'')
+      || unidadeRHPorNomeV93(reg.colaboradorNome||reg.nome||reg.colaboradorRetirada||'')
+      || '—';
+}
+
+function filtroUnidadeRHV93(reg={}){
+  const f=state.rhUnidadeFiltro||'';
+  return !f || unidadeRegistroRHV93(reg)===f;
+}
+
+function seletorUnidadeRHV93(){
+  return `<div class="field" style="min-width:230px">
+    <label>Empresa / Unidade</label>
+    <select id="rhUnidadeFiltroV93">
+      <option value="">Todas</option>
+      ${RH_UNIDADES_V93.map(x=>`<option value="${x}" ${state.rhUnidadeFiltro===x?'selected':''}>${x}</option>`).join('')}
+    </select>
+  </div>`;
+}
+
+async function migrarUnidadesRHV93(){
+  if(__rhUnidadeMigracaoV93 || !podeAcessarRH()) return;
+  __rhUnidadeMigracaoV93=true;
+  try{
+    const jobs=[];
+    rhColaboradores.forEach(c=>{
+      const unidade=unidadeRHPorNomeV93(c.nome||'') || normalizarUnidadeRHV93(c.unidade||c.empresa||'');
+      if(unidade && c.unidade!==unidade){
+        jobs.push(db.collection('rh_colaboradores').doc(c.id).set({
+          unidade,
+          unidadeAtualizadaFonte:'V93_PLANILHAS_RH',
+          alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+        },{merge:true}));
+      }
+    });
+    if(jobs.length) await Promise.all(jobs);
+  }catch(err){ console.error('Migração unidade RH V9.3',err); }
+}
+
+// ---------- ASO: próximo exame SEM DATA CONGELADA ----------
+function adicionarAnosRHV93(dataISO,anos){
+  if(!dataISO) return '';
+  const d=new Date(dataISO+'T12:00:00');
+  if(Number.isNaN(d.getTime())) return '';
+  d.setFullYear(d.getFullYear()+(Number(anos)||1));
+  return d.toISOString().slice(0,10);
+}
+
+function proximoASORHV93(a={}){
+  return adicionarAnosRHV93(a.ultimoASO||a.aso_data||'', Number(a.validadeAnos||a.aso_validade||1));
+}
+
+statusASOV91 = function(a){
+  const prox=proximoASORHV93(a);
+  if(!a?.ultimoASO && !a?.aso_data) return {texto:'Sem ASO',classe:'badge-danger',proximo:''};
+  if(!prox) return {texto:'Sem cálculo',classe:'badge-pending',proximo:''};
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const d=new Date(prox+'T12:00:00');
+  const lim=new Date(hoje.getTime()+60*86400000);
+  if(d<hoje) return {texto:'Vencido',classe:'badge-danger',proximo:prox};
+  if(d<=lim) return {texto:'Vence em até 60 dias',classe:'badge-pending',proximo:prox};
+  return {texto:'Vigente',classe:'badge-ok',proximo:prox};
+};
+
+modalASOV91 = function(id=''){
+  const a=id?rhAsos.find(x=>x.id===id):{};
+  document.getElementById('modalRHV91')?.remove();
+  const d=document.createElement('div'); d.className='modal-overlay active'; d.id='modalRHV91';
+  const uni=unidadeRegistroRHV93(a)!=='—'?unidadeRegistroRHV93(a):'SANTOS';
+  d.innerHTML=`<div class="modal" style="max-width:820px">
+    <div class="modal-header"><h2>${id?'Editar':'Registrar'} ASO</h2><button class="modal-close" onclick="document.getElementById('modalRHV91')?.remove()">×</button></div>
+    <form id="formASOV91"><div class="form-grid">
+      <div class="field"><label>Empresa / Unidade *</label>
+        <select id="avUnidade" required>${RH_UNIDADES_V93.map(x=>`<option value="${x}" ${uni===x?'selected':''}>${x}</option>`).join('')}</select>
+      </div>
+      <div class="field field-full"><label>Colaborador *</label><input id="avNome" required value="${a.colaboradorNome||''}" list="avListaColab"><datalist id="avListaColab">${rhColaboradores.map(c=>`<option value="${c.nome}"></option>`).join('')}</datalist></div>
+      <div class="field"><label>Data do último ASO *</label><input type="date" id="avUltimo" required value="${a.ultimoASO||a.aso_data||''}"></div>
+      <div class="field"><label>Periodicidade *</label>
+        <select id="avValidade" required>
+          <option value="1" ${Number(a.validadeAnos||a.aso_validade||1)===1?'selected':''}>Anual — a cada 1 ano</option>
+          <option value="2" ${Number(a.validadeAnos||a.aso_validade||1)===2?'selected':''}>Bienal — a cada 2 anos</option>
+        </select>
+      </div>
+      <div class="field field-full">
+        <label>Próximo ASO (calculado automaticamente)</label>
+        <div id="avProximo" style="padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft);font-weight:700">—</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Essa data não é digitada nem congelada: é sempre recalculada pela data do último ASO + periodicidade.</div>
+      </div>
+    </div><div class="form-actions"><button class="btn btn-accent">Salvar</button><button type="button" class="btn btn-ghost" onclick="document.getElementById('modalRHV91')?.remove()">Cancelar</button></div></form>
+  </div>`;
+  document.body.appendChild(d);
+
+  const atualiza=()=>{
+    const dt=document.getElementById('avUltimo')?.value||'';
+    const anos=Number(document.getElementById('avValidade')?.value||1);
+    const p=adicionarAnosRHV93(dt,anos);
+    document.getElementById('avProximo').textContent=p?fmt.date(p):'—';
+  };
+  document.getElementById('avUltimo').addEventListener('change',atualiza);
+  document.getElementById('avValidade').addEventListener('change',atualiza);
+  atualiza();
+
+  document.getElementById('formASOV91').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const v=x=>document.getElementById(x)?.value||'';
+    const p={
+      unidade:v('avUnidade'),
+      empresa:v('avUnidade'),
+      colaboradorNome:v('avNome').trim(),
+      ultimoASO:v('avUltimo'),
+      validadeAnos:Number(v('avValidade'))||1,
+      // vencimento não é mais persistido como data fixa
+      vencimento:firebase.firestore.FieldValue.delete(),
+      alteradoPorUid:getUsuarioUid(),
+      alteradoPorNome:getUsuarioNome(),
+      alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+    };
+    try{
+      if(id) await db.collection('rh_asos').doc(id).update(p);
+      else await db.collection('rh_asos').add({...p,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+      d.remove(); showToast('ASO salvo. Próximo exame será calculado automaticamente.');
+    }catch(err){showToast(err.message,true);}
+  });
+};
+
+// Férias: 3 unidades no cadastro
+modalFeriasV91 = function(id=''){
+  const f=id?rhFerias.find(x=>x.id===id):{};
+  document.getElementById('modalRHV91')?.remove();
+  const d=document.createElement('div'); d.className='modal-overlay active'; d.id='modalRHV91';
+  const uni=unidadeRegistroRHV93(f)!=='—'?unidadeRegistroRHV93(f):'SANTOS';
+  d.innerHTML=`<div class="modal" style="max-width:920px">
+    <div class="modal-header"><h2>${id?'Editar':'Registrar'} Férias</h2><button class="modal-close" onclick="document.getElementById('modalRHV91')?.remove()">×</button></div>
+    <form id="formFeriasV91"><div class="form-grid">
+      <div class="field"><label>Empresa / Unidade *</label><select id="fvUnidade" required>${RH_UNIDADES_V93.map(x=>`<option value="${x}" ${uni===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div class="field"><label>Matrícula</label><input id="fvMatricula" value="${f.matricula||''}"></div>
+      <div class="field field-full"><label>Colaborador *</label><input id="fvNome" required value="${f.colaboradorNome||f.nome||''}" list="fvListaColab"><datalist id="fvListaColab">${rhColaboradores.map(c=>`<option value="${c.nome}"></option>`).join('')}</datalist></div>
+      <div class="field"><label>Função</label><input id="fvFuncao" value="${f.funcao||''}"></div>
+      <div class="field"><label>Início período aquisitivo</label><input type="date" id="fvInicioAq" value="${f.inicioAq||''}"></div>
+      <div class="field"><label>Fim período aquisitivo</label><input type="date" id="fvFimAq" value="${f.fimAq||''}"></div>
+      <div class="field"><label>Limite de gozo</label><input type="date" id="fvLimite" value="${f.limiteGozo||''}"></div>
+      <div class="field"><label>Início das férias *</label><input type="date" id="fvInicio" required value="${f.inicio||''}"></div>
+      <div class="field"><label>Fim das férias *</label><input type="date" id="fvFim" required value="${f.fim||''}"></div>
+      <div class="field"><label>Dias</label><input type="number" id="fvDias" value="${f.diasFerias||30}"></div>
+      <div class="field"><label>Status</label><select id="fvStatus"><option ${f.status==='Programada'?'selected':''}>Programada</option><option ${f.status==='Férias concedidas'?'selected':''}>Férias concedidas</option><option ${f.status==='Cancelada'?'selected':''}>Cancelada</option></select></div>
+      <div class="field field-full"><label>Observação</label><textarea id="fvObs">${f.observacao||''}</textarea></div>
+    </div><div class="form-actions"><button class="btn btn-accent">Salvar</button><button type="button" class="btn btn-ghost" onclick="document.getElementById('modalRHV91')?.remove()">Cancelar</button></div></form>
+  </div>`;
+  document.body.appendChild(d);
+  document.getElementById('formFeriasV91').addEventListener('submit',async e=>{
+    e.preventDefault(); const v=x=>document.getElementById(x)?.value||'';
+    const uni=v('fvUnidade');
+    const p={unidade:uni,empresa:uni,filial:uni,colaboradorNome:v('fvNome').trim(),matricula:v('fvMatricula'),funcao:v('fvFuncao'),inicioAq:v('fvInicioAq'),fimAq:v('fvFimAq'),limiteGozo:v('fvLimite'),inicio:v('fvInicio'),fim:v('fvFim'),diasFerias:Number(v('fvDias'))||0,status:v('fvStatus'),observacao:v('fvObs'),alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()};
+    try{if(id)await db.collection('rh_ferias').doc(id).update(p);else await db.collection('rh_ferias').add({...p,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});d.remove();showToast('Férias salvas.');}catch(err){showToast(err.message,true);}
+  });
+};
+
+// Treinamentos: validade individual, próxima reciclagem e vencimento real
+function proximoTreinoV93(reg={}){
+  if(!reg.data || !Number(reg.validadeMeses)) return '';
+  const d=new Date(reg.data+'T12:00:00');
+  d.setMonth(d.getMonth()+Number(reg.validadeMeses));
+  return d.toISOString().slice(0,10);
+}
+function statusTreinoV91(c,tr){
+  const reg=registroTreinoV91(c,tr);
+  if(reg.status==='NA_MANUAL') return {codigo:'NA',texto:'Não aplicável (manual)',classe:'badge-pending'};
+  const regra=regraTreinoV91(c,tr);
+  if(regra==='NA' && !reg.data) return {codigo:'NA',texto:'Não aplicável (matriz)',classe:'badge-pending'};
+  if(!reg.data){
+    if(!regra) return {codigo:'SEM_REGRA',texto:'Sem regra definida',classe:'badge-pending'};
+    return {codigo:'PENDENTE',texto:'Pendente',classe:'badge-danger'};
+  }
+  const prox=proximoTreinoV93(reg);
+  if(prox){
+    const hoje=new Date(); hoje.setHours(0,0,0,0);
+    if(new Date(prox+'T12:00:00')<hoje) return {codigo:'VENCIDO',texto:'Vencido',classe:'badge-danger',proximo:prox};
+    return {codigo:'REALIZADO',texto:'Em dia',classe:'badge-ok',proximo:prox};
+  }
+  return {codigo:'REALIZADO',texto:'Realizado — validade não definida',classe:'badge-ok',proximo:''};
+};
+
+function feriasAtuaisV93(){
+  const hoje=hojeISO();
+  const ids=new Set();
+  const regs=[];
+  rhFerias.forEach(f=>{
+    if(!filtroUnidadeRHV93(f)) return;
+    if((f.status||'').toLowerCase().includes('cancel')) return;
+    if(f.inicio && f.fim && f.inicio<=hoje && f.fim>=hoje){
+      const nome=f.colaboradorNome||f.nome||'';
+      ids.add(normalize(nome));
+      regs.push(f);
+    }
+  });
+  return {ids,regs};
+}
+
+function graficoBarrasSimplesV93(items,maxVal=1){
+  if(!items.length) return '<div style="padding:16px;color:var(--text-muted)">Nenhum registro.</div>';
+  return `<div style="display:grid;gap:10px">${items.map(x=>{
+    const pct=Math.max(4,Math.min(100,(x.valor/maxVal)*100));
+    return `<div><div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;margin-bottom:4px"><span>${x.label}</span><strong>${x.texto??x.valor}</strong></div><div style="height:12px;background:#0b0f0c;border:1px solid var(--border);border-radius:999px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--accent);border-radius:999px"></div></div></div>`;
+  }).join('')}</div>`;
+}
+
+function dashboardRHV93(){
+  const ativos=rhColaboradores.filter(c=>c.ativo!==false&&filtroUnidadeRHV93(c));
+  const fer=feriasAtuaisV93();
+  const deFerias=ativos.filter(c=>fer.ids.has(normalize(c.nome||'')));
+  const ativosTrab=Math.max(0,ativos.length-deFerias.length);
+
+  let venc=0, pend=0, emDia=0;
+  ativos.forEach(c=>RH_MATRIZ_TREINAMENTOS_V91.forEach(tr=>{
+    const st=statusTreinoV91(c,tr);
+    if(st.codigo==='VENCIDO') venc++;
+    else if(st.codigo==='PENDENTE') pend++;
+    else if(st.codigo==='REALIZADO') emDia++;
+  }));
+
+  const totPessoas=Math.max(1,ativos.length);
+  const pessoasFerias=deFerias.map(c=>{
+    const f=fer.regs.find(x=>normalize(x.colaboradorNome||x.nome||'')===normalize(c.nome||''));
+    let dias=1;
+    if(f?.inicio&&f?.fim) dias=Math.max(1,Math.ceil((new Date(f.fim+'T12:00:00')-new Date(f.inicio+'T12:00:00'))/86400000)+1);
+    return {label:c.nome,valor:dias,texto:`${dias} dias`};
+  });
+  const maxDias=Math.max(1,...pessoasFerias.map(x=>x.valor));
+
+  return `
+    <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">${seletorUnidadeRHV93()}</div></div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">Colaboradores ativos</div><div class="kpi-value accent">${ativos.length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Em férias hoje</div><div class="kpi-value">${deFerias.length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Treinamentos vencidos</div><div class="kpi-value">${venc}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Treinamentos pendentes</div><div class="kpi-value">${pend}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px;margin-top:16px">
+      <div class="card">
+        <div class="card-title">Colaboradores — Ativos x Em Férias</div>
+        <div class="card-sub">Situação na data de hoje.</div>
+        <div style="margin-top:18px">
+          ${graficoBarrasSimplesV93([
+            {label:'Ativos trabalhando',valor:ativosTrab,texto:String(ativosTrab)},
+            {label:'Em férias',valor:deFerias.length,texto:String(deFerias.length)}
+          ],totPessoas)}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Treinamentos — Situação</div>
+        <div class="card-sub">Vencido somente quando existe data do treinamento e validade em meses definida.</div>
+        <div style="margin-top:18px">
+          ${graficoBarrasSimplesV93([
+            {label:'Vencidos',valor:venc,texto:String(venc)},
+            {label:'Pendentes',valor:pend,texto:String(pend)},
+            {label:'Em dia / realizados',valor:emDia,texto:String(emDia)}
+          ],Math.max(1,venc,pend,emDia))}
+        </div>
+      </div>
+
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-title">Pessoal de Férias</div>
+        <div class="card-sub">Colaboradores cujo período de férias contém a data de hoje.</div>
+        <div style="margin-top:18px">${graficoBarrasSimplesV93(pessoasFerias,maxDias)}</div>
+      </div>
+    </div>`;
+}
+
+// Novo render completo do RH com unidade correta
+const __renderRHV92=renderRH;
+renderRH=function(){
+  if(!podeAcessarRH()) return '<div class="card"><h3>Acesso negado</h3></div>';
+  setTimeout(migrarRHComplementarV91,0);
+  setTimeout(migrarUnidadesRHV93,0);
+  const tab=state.rhTab||'dashboard';
+
+  if(tab==='dashboard') return rhSubnav()+dashboardRHV93();
+
+  if(tab==='aso'){
+    const list=rhAsos.filter(a=>filtroUnidadeRHV93(a)).slice().sort((a,b)=>String(a.colaboradorNome||'').localeCompare(String(b.colaboradorNome||''),'pt-BR'));
+    return rhSubnav()+`<div class="card"><div class="card-header"><div><div class="card-title">Controle de ASO</div><div class="card-sub">Próximo ASO calculado automaticamente: último ASO + periodicidade anual/bienal.</div></div><button class="btn btn-accent" data-rhv91-novo-aso>+ Registrar ASO</button></div>
+      <div style="margin-bottom:12px">${seletorUnidadeRHV93()}</div>
+      <div class="table-wrap"><table><thead><tr><th>Empresa / Unidade</th><th>Colaborador</th><th>Último ASO</th><th>Periodicidade</th><th>Próximo ASO</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+      ${list.map(a=>{const st=statusASOV91(a);return `<tr><td><strong>${unidadeRegistroRHV93(a)}</strong></td><td><strong>${a.colaboradorNome||'—'}</strong></td><td>${fmt.date(a.ultimoASO||a.aso_data)}</td><td>${Number(a.validadeAnos||a.aso_validade||1)===2?'2 anos':'1 ano'}</td><td><strong>${fmt.date(st.proximo)}</strong></td><td><span class="badge ${st.classe}">${st.texto}</span></td><td><button class="btn btn-ghost btn-sm" data-rhv91-editar-aso="${a.id}">Editar</button><button class="btn btn-danger btn-sm" data-rhv91-excluir-aso="${a.id}">Excluir</button></td></tr>`;}).join('')||'<tr><td colspan="7">Nenhum ASO.</td></tr>'}
+      </tbody></table></div></div>`;
+  }
+
+  if(tab==='ferias'){
+    const list=rhFerias.filter(f=>filtroUnidadeRHV93(f)).slice().sort((a,b)=>String(b.inicio||b.inicioAq||'').localeCompare(String(a.inicio||a.inicioAq||'')));
+    return rhSubnav()+`<div class="card"><div class="card-header"><div><div class="card-title">Férias Programadas / Histórico</div><div class="card-sub">Todas as unidades: Santos, Camaçari e Mechatronics.</div></div><button class="btn btn-accent" data-rhv91-nova-ferias>+ Registrar Férias</button></div><div style="margin-bottom:12px">${seletorUnidadeRHV93()}</div>
+    <div class="table-wrap"><table><thead><tr><th>Empresa / Unidade</th><th>Matrícula</th><th>Colaborador</th><th>Função</th><th>Período aquisitivo</th><th>Limite gozo</th><th>Início</th><th>Fim</th><th>Dias</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+    ${list.map(f=>`<tr><td><strong>${unidadeRegistroRHV93(f)}</strong></td><td>${f.matricula||'—'}</td><td><strong>${f.colaboradorNome||f.nome||'—'}</strong></td><td>${f.funcao||'—'}</td><td>${fmt.date(f.inicioAq)} → ${fmt.date(f.fimAq)}</td><td>${fmt.date(f.limiteGozo)}</td><td>${fmt.date(f.inicio)}</td><td>${fmt.date(f.fim)}</td><td>${f.diasFerias||'—'}</td><td>${f.status||'—'}</td><td><button class="btn btn-ghost btn-sm" data-rhv91-editar-ferias="${f.id}">Editar</button><button class="btn btn-danger btn-sm" data-rhv91-excluir-ferias="${f.id}">Excluir</button></td></tr>`).join('')}
+    </tbody></table></div></div>`;
+  }
+
+  if(tab==='treinamentos'){
+    if((state.rhTreinoModo||'controle')==='matriz') return rhSubnav()+renderTreinamentosV91();
+    const ativos=rhColaboradores.filter(c=>c.ativo!==false&&filtroUnidadeRHV93(c)).sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+    const q=normalize(state.rhTreinoBusca||''); const fc=state.rhTreinoColab||''; const fs=state.rhTreinoStatus||''; const rows=[];
+    ativos.forEach(c=>{if(fc&&c.id!==fc)return;RH_MATRIZ_TREINAMENTOS_V91.forEach(tr=>{if(q&&!normalize([c.nome,c.cargo,c.unidade,tr.codigo,tr.descricao].join(' ')).includes(q))return;const st=statusTreinoV91(c,tr);if(fs&&st.codigo!==fs)return;rows.push({c,tr,st,reg:registroTreinoV91(c,tr),regra:regraTreinoV91(c,tr)});});});
+    return rhSubnav()+`<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-accent" data-rhv91-treino-modo="controle">Controle por Colaborador</button><button class="btn btn-ghost" data-rhv91-treino-modo="matriz">Matriz Original</button></div>
+      <div class="card"><div class="card-header"><div><div class="card-title">Controle de Treinamentos</div><div class="card-sub">Data + validade individual em meses. Só há treinamento vencido quando a validade foi definida.</div></div></div>
+      <div class="filters-grid">${seletorUnidadeRHV93()}<div class="field"><label>Colaborador</label><select id="rhV91TreinoColab"><option value="">Todos</option>${ativos.map(c=>`<option value="${c.id}" ${fc===c.id?'selected':''}>${c.nome} — ${c.cargo||''}</option>`).join('')}</select></div><div class="field"><label>Buscar</label><input id="rhV91TreinoBusca" value="${state.rhTreinoBusca||''}"></div><div class="field"><label>Status</label><select id="rhV91TreinoStatus"><option value="">Todos</option><option value="VENCIDO" ${fs==='VENCIDO'?'selected':''}>Vencido</option><option value="PENDENTE" ${fs==='PENDENTE'?'selected':''}>Pendente</option><option value="REALIZADO" ${fs==='REALIZADO'?'selected':''}>Realizado/Em dia</option><option value="NA" ${fs==='NA'?'selected':''}>Não aplicável</option></select></div></div>
+      <div class="table-wrap" style="max-height:650px"><table><thead><tr><th>Unidade</th><th>Colaborador</th><th>Função</th><th>Treinamento</th><th>Data</th><th>Validade (meses)</th><th>Próxima reciclagem</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+      ${rows.slice(0,1200).map(x=>`<tr><td><strong>${unidadeRegistroRHV93(x.c)}</strong></td><td>${x.c.nome}</td><td>${x.c.cargo||'—'}</td><td><strong>${x.tr.codigo}</strong><br><small>${x.tr.descricao}</small></td><td><input type="date" class="rh-v91-treino-data" data-colab="${x.c.id}" data-treino="${treinoKeyV91(x.tr.codigo)}" value="${x.reg.data||''}" style="min-width:140px"></td><td><input type="number" min="0" class="rh-v93-treino-validade" data-colab="${x.c.id}" data-treino="${treinoKeyV91(x.tr.codigo)}" value="${x.reg.validadeMeses||''}" placeholder="Ex.: 12" style="width:95px"></td><td>${x.st.proximo?fmt.date(x.st.proximo):'—'}</td><td><span class="badge ${x.st.classe}">${x.st.texto}</span></td><td><button class="btn btn-ghost btn-sm" data-rhv91-na-colab="${x.c.id}" data-rhv91-na-treino="${treinoKeyV91(x.tr.codigo)}">${x.st.codigo==='NA'&&x.reg.status==='NA_MANUAL'?'Reativar':'Não Aplicável'}</button></td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  }
+
+  // Para demais abas, aproveita estrutura V9.2 e corrige filtro/nomes via pós-processamento.
+  let html=__renderRHV92();
+  html=html.replaceAll('H2BR','MECHATRONICS');
+  html=html.replaceAll('Todas as empresas','Todas');
+  return html;
+};
+
+// Colaborador: unidade = SANTOS / CAMAÇARI / MECHATRONICS
+abrirModalColaboradorRH = function(id=''){
+  const c=id?rhColaboradores.find(x=>x.id===id):{};
+  document.getElementById('modalRHColab')?.remove();
+  const d=document.createElement('div'); d.className='modal-overlay active'; d.id='modalRHColab';
+  const uni=normalizarUnidadeRHV93(c.unidade||c.empresa||'')||'SANTOS';
+  d.innerHTML=`<div class="modal" style="max-width:980px"><div class="modal-header"><h2>${id?'Editar':'Novo'} Colaborador</h2><button class="modal-close" onclick="document.getElementById('modalRHColab')?.remove()">×</button></div>
+  <form id="formRHColab"><div class="form-grid">
+    <div class="field field-full"><label>Nome *</label><input id="rhcNome" required value="${c.nome||''}"></div>
+    <div class="field"><label>Empresa / Unidade *</label><select id="rhcUnidade" required>${RH_UNIDADES_V93.map(x=>`<option value="${x}" ${uni===x?'selected':''}>${x}</option>`).join('')}</select></div>
+    <div class="field"><label>CPF *</label><input id="rhcCPF" required value="${c.cpf||''}"></div>
+    <div class="field"><label>PIS</label><input id="rhcPIS" value="${c.pis||''}"></div>
+    <div class="field"><label>Nascimento</label><input type="date" id="rhcNasc" value="${c.nasc||''}"></div>
+    <div class="field"><label>Admissão *</label><input type="date" id="rhcAdmissao" required value="${c.admissao||''}"></div>
+    <div class="field"><label>Cargo *</label><input id="rhcCargo" required value="${c.cargo||''}"></div>
+    <div class="field"><label>Nível</label><select id="rhcNivel"><option ${c.nivel==='Júnior'?'selected':''}>Júnior</option><option ${c.nivel==='Pleno'?'selected':''}>Pleno</option><option ${c.nivel==='Sênior'?'selected':''}>Sênior</option></select></div>
+    <div class="field"><label>Faixa</label><input id="rhcFaixa" value="${c.faixa||'1'}"></div>
+    <div class="field"><label>Salário *</label><input id="rhcSalario" required value="${numeroSeguro(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}"></div>
+    <div class="field"><label>Matrícula</label><input id="rhcMatricula" value="${c.matricula||''}"></div>
+    <div class="field"><label>CBO</label><input id="rhcCBO" value="${c.cbo||''}"></div>
+    <div class="field"><label>Departamento</label><input id="rhcDepartamento" value="${c.departamento||''}"></div>
+    <div class="field"><label>Dependentes</label><input type="number" id="rhcDependentes" value="${c.dependentes||0}"></div>
+    <div class="field"><label>Pensão %</label><input type="number" step="0.01" id="rhcPensao" value="${c.pensao||0}"></div>
+    <div class="field"><label>Jornada h/sem</label><input type="number" id="rhcJornada" value="${c.jornada||44}"></div>
+  </div><div class="form-actions"><button class="btn btn-accent" type="submit">Salvar</button><button class="btn btn-ghost" type="button" onclick="document.getElementById('modalRHColab')?.remove()">Cancelar</button></div></form></div>`;
+  document.body.appendChild(d);
+  document.getElementById('formRHColab').addEventListener('submit',async e=>{
+    e.preventDefault();const val=x=>document.getElementById(x)?.value||'';
+    const unidade=val('rhcUnidade');
+    const payload={nome:val('rhcNome').trim(),unidade,empresa:unidade,cpf:val('rhcCPF').trim(),pis:val('rhcPIS').trim(),nasc:val('rhcNasc'),admissao:val('rhcAdmissao'),cargo:val('rhcCargo').trim(),nivel:val('rhcNivel'),faixa:val('rhcFaixa'),salario:parseMoney(val('rhcSalario')),matricula:val('rhcMatricula'),cbo:val('rhcCBO'),departamento:val('rhcDepartamento'),dependentes:Number(val('rhcDependentes'))||0,pensao:Number(val('rhcPensao'))||0,jornada:Number(val('rhcJornada'))||44,ativo:true,alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()};
+    try{if(id)await db.collection('rh_colaboradores').doc(id).update(payload);else await db.collection('rh_colaboradores').add({...payload,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});d.remove();showToast('Colaborador salvo.');}catch(err){showToast(err.message,true);}
+  });
+};
+
+// Eventos V9.3
+document.addEventListener('change',async e=>{
+  if(e.target.id==='rhUnidadeFiltroV93'){state.rhUnidadeFiltro=e.target.value;render();return;}
+  if(e.target.classList.contains('rh-v93-treino-validade')){
+    const c=rhColaboradores.find(x=>x.id===e.target.dataset.colab);
+    if(!c)return;
+    const k=e.target.dataset.treino,atual=c.treinamentos?.[k]||{};
+    const meses=Math.max(0,Number(e.target.value)||0);
+    const treinos={...(c.treinamentos||{}),[k]:{...atual,validadeMeses:meses||null,alteradoEm:new Date().toISOString(),alteradoPor:getUsuarioNome()}};
+    await db.collection('rh_colaboradores').doc(c.id).update({treinamentos:treinos});
+    return;
   }
 });
 </script>
