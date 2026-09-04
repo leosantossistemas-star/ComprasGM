@@ -467,7 +467,7 @@
 </head>
 <body>
 
-  <!-- ===== V9.4 — Security Hardened ===== -->
+  <!-- ===== V9.5 — Custos Reais + Compliance EPI + Planejamento RH ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -595,6 +595,11 @@
           <div class="field"><label>Marca</label><input type="text" id="editMarca" /></div>
           <div class="field"><label>Modelo</label><input type="text" id="editModelo" /></div>
           <div class="field"><label>Tipo Material</label><input type="text" id="editTipoMat" /></div>
+          <div class="field"><label>É EPI? *</label>
+            <select id="editEhEPI"><option value="NAO">NÃO</option><option value="SIM">SIM</option></select>
+          </div>
+          <div class="field epi-edit-field" style="display:none"><label>Número do CA *</label><input type="text" id="editCANumero" placeholder="Ex.: 12345" /></div>
+          <div class="field epi-edit-field" style="display:none"><label>Validade do CA *</label><input type="date" id="editCAValidade" /></div>
           <div class="field"><label>Dimensões</label><input type="text" id="editDimensoes" /></div>
           <div class="field"><label>Cor</label><input type="text" id="editCor" /></div>
           <div class="field"><label>Peso</label><input type="text" id="editPeso" /></div>
@@ -922,7 +927,7 @@
         throw new Error('Este usuário está inativo.');
       }
 
-      if (!['admin', 'gerente', 'encarregado', 'usuario'].includes(dados.perfil)) {
+      if (!['admin', 'gerente', 'encarregado', 'usuario', 'rh'].includes(dados.perfil)) {
         throw new Error('Perfil de acesso inválido no Firestore.');
       }
 
@@ -943,7 +948,8 @@
           admin: 'Administrador',
           gerente: 'Gerente',
           encarregado: 'Encarregado',
-          usuario: 'Usuário'
+          usuario: 'Usuário',
+          rh: 'Recursos Humanos'
         };
         label.textContent = `${nomes[perfilAtual] || perfilAtual} — ${getUsuarioNome()}`;
       }
@@ -3314,20 +3320,20 @@
         });
       }
 
-      if (pf.dataIni) {
-        lista = lista.filter(n => {
-          const d = String(n.dataDocumento || '').slice(0,10);
-          return d && d >= pf.dataIni;
-        });
-      }
-      if (pf.dataFim) {
-        lista = lista.filter(n => {
-          const d = String(n.dataDocumento || '').slice(0,10);
-          return d && d <= pf.dataFim;
-        });
-      }
+      const vencimentosNF = n => {
+        const parcelas = Array.isArray(n?.parcelas) ? n.parcelas : [];
+        const vs = parcelas.map(p=>String(p.vencimento||'').slice(0,10)).filter(Boolean);
+        if (!vs.length && n?.vencimento) vs.push(String(n.vencimento).slice(0,10));
+        return vs;
+      };
+      if (pf.dataIni) lista = lista.filter(n => vencimentosNF(n).some(d=>d >= pf.dataIni));
+      if (pf.dataFim) lista = lista.filter(n => vencimentosNF(n).some(d=>d <= pf.dataFim));
 
-      lista.sort((a,b)=>String(b.dataDocumento||'').localeCompare(String(a.dataDocumento||'')));
+      lista.sort((a,b)=>{
+        const av=vencimentosNF(a).sort()[0]||'9999-12-31';
+        const bv=vencimentosNF(b).sort()[0]||'9999-12-31';
+        return av.localeCompare(bv);
+      });
 
       const pendentes = lista.filter(n=>statusPagamentoNF(n)==='PENDENTE');
       const pagos = lista.filter(n=>statusPagamentoNF(n)==='PAGO');
@@ -3345,13 +3351,13 @@
           <div class="card-header">
             <div>
               <div class="card-title">Filtros de pagamento</div>
-              <div class="card-sub">Pesquise uma NF específica ou selecione livremente um período por data.</div>
+              <div class="card-sub">Pesquise uma NF específica ou filtre pelo período de VENCIMENTO da NF.</div>
             </div>
           </div>
           <div class="filters-grid">
             <div class="field"><label>Pesquisar NF / RC / fornecedor / destino</label><input id="pagFiltroBusca" value="${pf.busca||''}" placeholder="Ex.: NF 972153 ou 972153"></div>
-            <div class="field"><label>Data inicial</label><input type="date" id="pagFiltroDataIni" value="${pf.dataIni||''}"></div>
-            <div class="field"><label>Data final</label><input type="date" id="pagFiltroDataFim" value="${pf.dataFim||''}"></div>
+            <div class="field"><label>Vencimento inicial</label><input type="date" id="pagFiltroDataIni" value="${pf.dataIni||''}"></div>
+            <div class="field"><label>Vencimento final</label><input type="date" id="pagFiltroDataFim" value="${pf.dataFim||''}"></div>
             <div class="field" style="align-self:end;display:flex;gap:8px;flex-wrap:wrap">
               <button type="button" class="btn btn-accent" id="pagAplicarFiltros">Aplicar filtros</button>
               <button type="button" class="btn btn-ghost" id="pagLimparFiltros">Limpar filtros</button>
@@ -3477,7 +3483,7 @@
       document.querySelectorAll('.nav-btn').forEach(btn => {
         const sec = btn.dataset.section;
         if (perfil === 'rh') {
-          btn.closest('li').style.display = sec === 'rh' ? '' : 'none';
+          btn.closest('li').style.display = (sec === 'rh' || sec === 'recebimentoNFs') ? '' : 'none';
         } else if (sec !== 'pagamentosNF' && sec !== 'orcamentoTecnico' && sec !== 'rh') {
           btn.closest('li').style.display = '';
         }
@@ -3646,6 +3652,7 @@
                        placeholder="Digite código, número, descrição, marca ou fornecedor..." required>
                 <div id="baixaMaterialResultados" style="display:none;position:absolute;z-index:160;left:0;right:0;top:68px;max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.5)"></div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Digite apenas uma parte e clique no resultado desejado.</div>
+                <div id="baixaCAInfo" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px"></div>
               </div>
               <div class="field"><label>Quantidade *</label><input type="number" min="0.0001" step="0.0001" id="baixaQuantidade" required value="${baixaEd.quantidade||baixaEd.itensRecebidos?.[0]?.quantidade||1}"></div>
               <div class="field"><label>Valor unitário *</label><input type="number" min="0" step="0.01" id="baixaValorUnitario" required value="${numeroSeguro(baixaEd.valorUnitario||baixaEd.itensRecebidos?.[0]?.valorUnitario)||''}"></div>
@@ -3778,6 +3785,11 @@
               <div class="field"><label>Marca</label><input type="text" id="novoMarca" /></div>
               <div class="field"><label>Modelo</label><input type="text" id="novoModelo" /></div>
               <div class="field"><label>Tipo Material</label><input type="text" id="novoTipoMat" /></div>
+              <div class="field"><label>É EPI? *</label>
+                <select id="novoEhEPI"><option value="NAO">NÃO</option><option value="SIM">SIM</option></select>
+              </div>
+              <div class="field epi-novo-field" style="display:none"><label>Número do CA *</label><input type="text" id="novoCANumero" placeholder="Ex.: 12345" /></div>
+              <div class="field epi-novo-field" style="display:none"><label>Validade do CA *</label><input type="date" id="novoCAValidade" /></div>
               <div class="field"><label>Dimensões</label><input type="text" id="novoDimensoes" /></div>
               <div class="field"><label>Cor</label><input type="text" id="novoCor" /></div>
               <div class="field"><label>Peso</label><input type="text" id="novoPeso" /></div>
@@ -4781,7 +4793,7 @@ function gerarPDF(rcData) {
         body=`<div class="card"><div class="card-header"><div><div class="card-title">Acordos Coletivos (CCT)</div></div><button class="btn btn-accent" id="rhNovaCCT">+ Nova CCT</button></div><div class="table-wrap"><table><thead><tr><th>Unidade</th><th>Ano</th><th>Piso</th><th>VR/dia</th><th>% Desc VR</th><th>Creche</th><th>% VT</th></tr></thead><tbody>${rhCcts.map(c=>`<tr><td>${c.unidade}</td><td>${c.ano}</td><td>${fmt.money(numeroSeguro(c.piso))}</td><td>${fmt.money(numeroSeguro(c.vr))}</td><td>${c.desc_vr||0}%</td><td>${fmt.money(numeroSeguro(c.creche))}</td><td>${c.vt||0}%</td></tr>`).join('')}</tbody></table></div></div>`;
       } else if(tab==='epi'){
         const list=rhEntregasEpi.slice().sort((a,b)=>String(b.data||b.dataDocumento||'').localeCompare(String(a.data||a.dataDocumento||'')));
-        body=`<div class="card"><div class="card-header"><div><div class="card-title">Entrega de EPIs</div><div class="card-sub">Alimentação automática pelas baixas de almoxarifado do tipo EPI.</div></div></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Colaborador</th><th>Código</th><th>EPI</th><th>Qtd.</th><th>Valor Unit.</th><th>Total</th><th>Destino</th><th>Entregue por</th></tr></thead><tbody>${list.map(e=>`<tr><td>${fmt.date(e.data||e.dataDocumento)}</td><td><strong>${e.colaboradorNome||e.colaboradorRetirada||'—'}</strong></td><td>${e.codigo||'—'}</td><td>${e.descricao||e.epi||'—'}</td><td>${e.quantidade||0}</td><td>${fmt.money(numeroSeguro(e.valorUnitario))}</td><td>${fmt.money(numeroSeguro(e.valorTotal))}</td><td>${e.destino||'—'}</td><td>${e.criadoPorNome||e.criadoPorEmail||'—'}</td></tr>`).join('')||'<tr><td colspan="9">Nenhuma entrega registrada.</td></tr>'}</tbody></table></div></div>`;
+        body=`<div class="card"><div class="card-header"><div><div class="card-title">Entrega de EPIs</div><div class="card-sub">Alimentação automática pelas baixas de almoxarifado do tipo EPI.</div></div></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Colaborador</th><th>Código</th><th>EPI</th><th>CA</th><th>Validade CA</th><th>Qtd.</th><th>Valor Unit.</th><th>Total</th><th>Destino</th><th>Entregue por</th></tr></thead><tbody>${list.map(e=>`<tr><td>${fmt.date(e.data||e.dataDocumento)}</td><td><strong>${e.colaboradorNome||e.colaboradorRetirada||'—'}</strong></td><td>${e.codigo||'—'}</td><td>${e.descricao||e.epi||'—'}</td><td>${e.caNumero||'—'}</td><td>${e.caValidade?fmt.date(e.caValidade):'—'}</td><td>${e.quantidade||0}</td><td>${fmt.money(numeroSeguro(e.valorUnitario))}</td><td>${fmt.money(numeroSeguro(e.valorTotal))}</td><td>${e.destino||'—'}</td><td>${e.criadoPorNome||e.criadoPorEmail||'—'}</td></tr>`).join('')||'<tr><td colspan="9">Nenhuma entrega registrada.</td></tr>'}</tbody></table></div></div>`;
       } else {
         body=`<div class="card"><div class="card-title">Relatórios e Exportação RH</div><p style="color:var(--text-muted);margin:10px 0">Exporte os colaboradores e as entregas de EPI em CSV.</p><div style="display:flex;gap:10px"><button class="btn btn-accent" id="rhExportColab">Exportar colaboradores CSV</button><button class="btn btn-ghost" id="rhExportEPI">Exportar EPIs CSV</button></div></div>`;
       }
@@ -5372,7 +5384,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V9.4';
+        if (versaoEl) versaoEl.textContent = 'V9.5';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -5634,6 +5646,17 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const custo=numeroSeguro(material.custoUnitario);
         if(unit && custo)unit.value=custo.toFixed(2);
         if(fornecedor)fornecedor.value=material.fornecedor||'';
+        const caInfo=document.getElementById('baixaCAInfo');
+        const tipo=document.getElementById('baixaTipo')?.value||'MATERIAL';
+        if(caInfo){
+          if(tipo==='EPI'){
+            const vencido = !!material.caValidade && material.caValidade < hojeISO();
+            caInfo.style.display='';
+            caInfo.innerHTML = material.ehEPI===true
+              ? `<strong>CA ${material.caNumero||'NÃO INFORMADO'}</strong> · Validade: <strong>${material.caValidade?fmt.date(material.caValidade):'NÃO INFORMADA'}</strong> ${vencido?'<span class="badge badge-danger">CA VENCIDO — ENTREGA BLOQUEADA</span>':'<span class="badge badge-ok">CA VÁLIDO</span>'}`
+              : '<span class="badge badge-danger">Este material não está cadastrado como EPI.</span>';
+          } else caInfo.style.display='none';
+        }
         if(baixaResultados){baixaResultados.style.display='none';baixaResultados.innerHTML='';}
         atualizarBaixaTotal();
         return true;
@@ -5732,6 +5755,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if (!centro) return showToast('Selecione o centro/empresa.', true);
         if (!destino) return showToast('Selecione o local de uso/destino.', true);
         if (!colaborador) return showToast('Informe o colaborador que retirou/recebeu o item.', true);
+        if (tipoBaixa === 'EPI') {
+          if (material.ehEPI !== true) return showToast('O item selecionado não está cadastrado como EPI.', true);
+          if (!material.caNumero || !material.caValidade) return showToast('EPI sem número/validade de CA. Corrija o cadastro do material antes da entrega.', true);
+          const dataEntrega = document.getElementById('baixaData')?.value || hojeISO();
+          if (material.caValidade < dataEntrega) return showToast(`ENTREGA BLOQUEADA: CA ${material.caNumero} vencido em ${fmt.date(material.caValidade)}.`, true);
+        }
 
         const codigoContabil = tipoBaixa === 'EPI' ? '3.2.1.03' : '3.2.1.05';
         const conta = PLANO_CONTAS.find(c=>c.codigo===codigoContabil);
@@ -5770,7 +5799,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           statusPagamento: '',
           condicaoPagamento: '',
           condicaoCompra: 'BAIXA DE ALMOXARIFADO',
-          origem: 'baixa_almoxarifado_v8_2'
+          origem: 'baixa_almoxarifado_v9_5',
+          caNumero: tipoBaixa === 'EPI' ? (material.caNumero || '') : '',
+          caValidade: tipoBaixa === 'EPI' ? (material.caValidade || '') : ''
         };
 
         if (!editId) {
@@ -5794,6 +5825,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               await db.collection('rh_entregas_epi').add({
                 origem:'BAIXA_ALMOXARIFADO', tipoBaixa:'EPI', data:registro.dataDocumento, dataDocumento:registro.dataDocumento,
                 colaboradorNome:colaborador, colaboradorRetirada:colaborador, codigo:matCod, descricao:desc, quantidade:qtd, valorUnitario:unit, valorTotal:total, destino, centroCusto:centro, fornecedor,
+                caNumero: material.caNumero || '', caValidade: material.caValidade || '',
                 criadoPorUid:getUsuarioUid(), criadoPorEmail:getUsuarioEmail(), criadoPorNome:getUsuarioNome(), criadoEm:firebase.firestore.FieldValue.serverTimestamp()
               });
             } catch(epiErr) { console.error('Falha ao alimentar RH/EPI:',epiErr); showToast('Baixa salva, mas o histórico RH do EPI não pôde ser gravado: '+epiErr.message,true); }
@@ -7091,6 +7123,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           marca: getVal('editMarca'),
           modelo: getVal('editModelo'),
           tipoMaterial: getVal('editTipoMat'),
+          ehEPI: getVal('editEhEPI') === 'SIM',
+          caNumero: getVal('editEhEPI') === 'SIM' ? getVal('editCANumero').trim() : '',
+          caValidade: getVal('editEhEPI') === 'SIM' ? getVal('editCAValidade') : '',
           dimensoes: getVal('editDimensoes'),
           cor: getVal('editCor'),
           peso: getVal('editPeso'),
@@ -7111,6 +7146,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           codigoFornecedor: getVal('editCodFornecedor'),
           moeda: getVal('editMoeda'),
         };
+
+        if (newData.ehEPI && (!newData.caNumero || !newData.caValidade)) {
+          showToast('Para EPI, informe obrigatoriamente o número do CA e a validade do CA.', true);
+          return;
+        }
 
         const custoUnitNum = parseMoney(getVal('editCustoUnit'));
         const estMin = getNum('editEstMin');
@@ -7151,6 +7191,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const marca = getVal('novoMarca');
       const modelo = getVal('novoModelo');
       const tipoMaterial = getVal('novoTipoMat');
+      const ehEPI = getVal('novoEhEPI') === 'SIM';
+      const caNumero = getVal('novoCANumero').trim();
+      const caValidade = getVal('novoCAValidade');
+      if (ehEPI && (!caNumero || !caValidade)) {
+        showToast('Para EPI, informe obrigatoriamente o número do CA e a validade do CA.', true);
+        return;
+      }
       const dimensoes = getVal('novoDimensoes');
       const cor = getVal('novoCor');
       const peso = getVal('novoPeso');
@@ -7194,6 +7241,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         marca,
         modelo,
         tipoMaterial,
+        ehEPI,
+        caNumero: ehEPI ? caNumero : '',
+        caValidade: ehEPI ? caValidade : '',
         dimensoes,
         cor,
         peso,
@@ -7246,6 +7296,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('editMarca').value = item.marca || '';
       document.getElementById('editModelo').value = item.modelo || '';
       document.getElementById('editTipoMat').value = item.tipoMaterial || '';
+      document.getElementById('editEhEPI').value = item.ehEPI === true ? 'SIM' : 'NAO';
+      document.getElementById('editCANumero').value = item.caNumero || '';
+      document.getElementById('editCAValidade').value = item.caValidade || '';
+      document.querySelectorAll('.epi-edit-field').forEach(el=>el.style.display=item.ehEPI===true?'':'none');
       document.getElementById('editDimensoes').value = item.dimensoes || '';
       document.getElementById('editCor').value = item.cor || '';
       document.getElementById('editPeso').value = item.peso || '';
@@ -7301,10 +7355,18 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
         iniciarListenersRH();
-        document.getElementById("sidebarSource").textContent = "RH em tempo real - Firebase Firestore";
+        db.collection('recebimentos_nf').onSnapshot((snapshot) => {
+          const list=[]; snapshot.forEach(doc=>list.push({id:doc.id,...doc.data()}));
+          recebimentosNF=mesclarHistoricoComFirestore(list);
+          if(state.section==='recebimentoNFs') render();
+        }, error => { console.error('Erro no listener RH de recebimentos NF:', error); showToast('Erro ao carregar recebimentos de NF: '+error.message,true); });
+        document.getElementById("sidebarSource").textContent = "RH + Recebimento NFs - Firebase Firestore";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
         render();
-        document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>{if(btn.dataset.section!=='rh')return;state.section='rh';render();}));
+        document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>{
+          if(!['rh','recebimentoNFs'].includes(btn.dataset.section))return;
+          state.section=btn.dataset.section; render();
+        }));
         document.getElementById("btnResetFilters")?.addEventListener("click",()=>{state.rhBusca='';render();});
         document.getElementById("btnExportCSV")?.style.setProperty('display','none');
         document.getElementById("btnExportDataJS")?.style.setProperty('display','none');
@@ -7913,8 +7975,8 @@ function renderRH(){
     const list=rhEntregasEpi.filter(e=>filtroEmpresaRHV92(e)).slice().sort((a,b)=>String(b.data||b.dataDocumento||'').localeCompare(String(a.data||a.dataDocumento||'')));
     body=`<div class="card"><div class="card-header"><div><div class="card-title">Entrega de EPIs</div><div class="card-sub">A empresa é obtida pelo vínculo do colaborador.</div></div></div>
       <div style="margin-bottom:12px">${seletorEmpresaRHV92()}</div>
-      <div class="table-wrap"><table><thead><tr><th>Empresa</th><th>Data</th><th>Colaborador</th><th>Código</th><th>EPI</th><th>Qtd.</th><th>Valor Unit.</th><th>Total</th><th>Destino</th><th>Entregue por</th></tr></thead>
-      <tbody>${list.map(e=>`<tr><td><strong>${empresaRegistroRHV92(e)}</strong></td><td>${fmt.date(e.data||e.dataDocumento)}</td><td><strong>${e.colaboradorNome||e.colaboradorRetirada||'—'}</strong></td><td>${e.codigo||'—'}</td><td>${e.descricao||e.epi||'—'}</td><td>${e.quantidade||0}</td><td>${fmt.money(numeroSeguro(e.valorUnitario))}</td><td>${fmt.money(numeroSeguro(e.valorTotal))}</td><td>${e.destino||'—'}</td><td>${e.criadoPorNome||e.criadoPorEmail||'—'}</td></tr>`).join('')||'<tr><td colspan="10">Nenhuma entrega.</td></tr>'}</tbody></table></div></div>`;
+      <div class="table-wrap"><table><thead><tr><th>Empresa</th><th>Data</th><th>Colaborador</th><th>Código</th><th>EPI</th><th>CA</th><th>Validade CA</th><th>Qtd.</th><th>Valor Unit.</th><th>Total</th><th>Destino</th><th>Entregue por</th></tr></thead>
+      <tbody>${list.map(e=>`<tr><td><strong>${empresaRegistroRHV92(e)}</strong></td><td>${fmt.date(e.data||e.dataDocumento)}</td><td><strong>${e.colaboradorNome||e.colaboradorRetirada||'—'}</strong></td><td>${e.codigo||'—'}</td><td>${e.descricao||e.epi||'—'}</td><td>${e.caNumero||'—'}</td><td>${e.caValidade?fmt.date(e.caValidade):'—'}</td><td>${e.quantidade||0}</td><td>${fmt.money(numeroSeguro(e.valorUnitario))}</td><td>${fmt.money(numeroSeguro(e.valorTotal))}</td><td>${e.destino||'—'}</td><td>${e.criadoPorNome||e.criadoPorEmail||'—'}</td></tr>`).join('')||'<tr><td colspan="10">Nenhuma entrega.</td></tr>'}</tbody></table></div></div>`;
   }
 
   else {
@@ -8393,6 +8455,209 @@ window.RH_SECURITY_V94 = {
   xssSanitizer: true,
   csvFormulaProtection: true
 };
+</script>
+
+
+<script>
+/* ============================================================
+   V9.5 — CUSTOS REAIS + COMPLIANCE EPI + PLANEJAMENTO RH
+   ============================================================ */
+(function(){
+  'use strict';
+
+  // -------- Campos condicionais EPI --------
+  function bindCamposEPI(){
+    const bind=(selId, cls)=>{
+      const sel=document.getElementById(selId);
+      if(!sel || sel.dataset.v95Bind)return;
+      sel.dataset.v95Bind='1';
+      const upd=()=>document.querySelectorAll(cls).forEach(el=>el.style.display=sel.value==='SIM'?'':'none');
+      sel.addEventListener('change',upd); upd();
+    };
+    bind('novoEhEPI','.epi-novo-field');
+    bind('editEhEPI','.epi-edit-field');
+  }
+
+  // -------- Recebimento NFs somente leitura para RH --------
+  const _renderRecebimentoNFsV94 = renderRecebimentoNFs;
+  renderRecebimentoNFs = function(){
+    if(getPerfil()!=='rh') return _renderRecebimentoNFsV94();
+    const f=state.nfFilters||{};
+    let lista=recebimentosNF.slice();
+    if(f.busca){
+      const q=normalize(f.busca);
+      lista=lista.filter(n=>[
+        n.numeroNF,n.rcNumero,n.fornecedor,n.destino,n.descricao,n.colaboradorRetirada,
+        ...(n.itensRecebidos||[]).flatMap(i=>[i.codigo,i.descricao])
+      ].some(v=>normalize(v||'').includes(q)));
+    }
+    lista.sort((a,b)=>String(b.dataDocumento||'').localeCompare(String(a.dataDocumento||'')));
+    return `<div class="card" style="margin-bottom:16px;border:1px solid var(--accent)">
+      <div class="card-title">Recebimento de NFs — Consulta RH</div>
+      <div class="card-sub">Acesso somente leitura. O perfil RH não pode criar, editar, excluir ou alterar pagamentos.</div>
+    </div>
+    <div class="card">
+      <div class="filters-grid" style="margin-bottom:16px">
+        <div class="field" style="grid-column:span 2"><label>Pesquisar NF / RC / fornecedor / material / colaborador</label>
+          <input id="rhNFFiltroBuscaV95" value="${f.busca||''}" placeholder="Digite para pesquisar...">
+        </div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Data</th><th>NF/Documento</th><th>RC</th><th>Fornecedor</th><th>Destino</th><th>Materiais</th><th>Colaborador</th><th>Valor</th><th>Vencimento(s)</th></tr></thead>
+        <tbody>${lista.map(n=>{
+          const itens=n.itensRecebidos||[];
+          const mats=itens.length?itens.map(i=>`${i.codigo||''} — ${i.descricao||''}`).join('<br>'):(n.descricao||'—');
+          return `<tr><td>${fmt.date(n.dataDocumento)}</td><td><strong>${n.numeroNF||'—'}</strong></td><td>${n.rcNumero||'—'}</td>
+          <td>${n.fornecedor||'—'}</td><td>${n.destino||'—'}</td><td>${mats}</td><td>${n.colaboradorRetirada||'—'}</td>
+          <td><strong>${fmt.money(numeroSeguro(n.valorTotal))}</strong></td><td>${n.tipoDocumento==='NF'?vencimentosTextoNF(n):'—'}</td></tr>`;
+        }).join('')||'<tr><td colspan="9">Nenhum recebimento encontrado.</td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+  };
+
+  // -------- ASO com semáforo explícito --------
+  statusASOV91 = function(a){
+    const proximo=proximoASORHV93(a);
+    if(!proximo) return {texto:'Sem ASO',classe:'badge-pending',proximo:''};
+    const hoje=hojeISO();
+    const lim=new Date(hoje+'T12:00:00'); lim.setDate(lim.getDate()+60);
+    const limISO=lim.toISOString().slice(0,10);
+    if(proximo < hoje) return {texto:'VENCIDO',classe:'badge-danger',proximo};
+    if(proximo <= limISO) return {texto:'VENCE EM ATÉ 2 MESES',classe:'badge-pending',proximo};
+    return {texto:'OK',classe:'badge-ok',proximo};
+  };
+
+  // -------- Calendário anual de férias: semanas x funcionários --------
+  function inicioSemanaISO(ano,semana){
+    const jan4=new Date(ano,0,4,12);
+    const day=jan4.getDay()||7;
+    const mon=new Date(jan4); mon.setDate(jan4.getDate()-day+1+(semana-1)*7);
+    return mon;
+  }
+  function isoLocal(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+  function sobrepoeFerias(f,ini,fim){
+    if(!f?.inicio||!f?.fim||normalize(f.status||'').includes('cancel'))return false;
+    return f.inicio<=fim && f.fim>=ini;
+  }
+  const _renderFeriasV91V94=renderFeriasV91;
+  renderFeriasV91=function(){
+    const ano=Number(state.rhFeriasAnoV95||new Date().getFullYear());
+    const ativos=rhColaboradores.filter(c=>c.ativo!==false).sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+    const semanas=Array.from({length:53},(_,i)=>i+1);
+    const matriz=`<div class="card" style="margin-bottom:18px">
+      <div class="card-header"><div><div class="card-title">Planejamento Anual de Férias — ${ano}</div>
+        <div class="card-sub">Linhas = semanas do ano · Colunas = funcionários. Célula marcada indica férias programadas naquela semana.</div></div>
+        <div class="field" style="min-width:130px"><label>Ano</label><input type="number" id="rhFeriasAnoV95" value="${ano}" min="2020" max="2100"></div>
+      </div>
+      <div class="table-wrap" style="max-height:620px"><table style="font-size:11px">
+        <thead><tr><th style="position:sticky;left:0;z-index:4;background:var(--surface)">Semana</th><th>Período</th>${ativos.map(c=>`<th style="min-width:90px;writing-mode:vertical-rl;transform:rotate(180deg);height:135px">${c.nome||'—'}</th>`).join('')}</tr></thead>
+        <tbody>${semanas.map(s=>{
+          const iniD=inicioSemanaISO(ano,s), fimD=new Date(iniD); fimD.setDate(iniD.getDate()+6);
+          const ini=isoLocal(iniD), fim=isoLocal(fimD);
+          return `<tr><td style="position:sticky;left:0;background:var(--surface);z-index:2"><strong>S${String(s).padStart(2,'0')}</strong></td>
+            <td style="white-space:nowrap">${fmt.date(ini)}–${fmt.date(fim)}</td>
+            ${ativos.map(c=>{
+              const fs=rhFerias.filter(f=>normalize(f.colaboradorNome||f.nome||'')===normalize(c.nome||'') && sobrepoeFerias(f,ini,fim));
+              return `<td style="text-align:center;background:${fs.length?'rgba(163,255,0,.18)':'transparent'}">${fs.length?'🏖️':''}</td>`;
+            }).join('')}</tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>`;
+    return matriz+_renderFeriasV91V94();
+  };
+
+  // -------- Rateio mensal do custo de OFICINA --------
+  function destinoEhOficinaV95(v){return normalize(v||'').includes('oficina');}
+  function frotaRealPorDestinoV95(destino,centro){
+    const n=normalize(destino||'');
+    if(!n || ['oficina','estoque','epi','administrativo','despesas administrativas','sem destino'].some(x=>n===normalize(x))) return null;
+    return frotas.find(f=>normalize(f.nome||'')===n && (!centro || getCentroCustoRegistro(f)===centro)) || null;
+  }
+  function calcularRateioOficinaV95(movimentos){
+    const meses={};
+    movimentos.forEach(m=>{
+      const mes=m.mesCusto||String(m.dataCusto||'').slice(0,7);
+      if(!mes)return;
+      const cc=getCentroCustoRegistro(m);
+      const key=`${cc}|${mes}`;
+      if(!meses[key]) meses[key]={mes,cc,oficina:0,frotas:new Set()};
+      if(destinoEhOficinaV95(m.destino)) meses[key].oficina+=numeroSeguro(m.valorCusto);
+      const fr=frotaRealPorDestinoV95(m.destino,cc);
+      if(fr) meses[key].frotas.add(fr.nome);
+    });
+    const rateios={}, detalhes=[];
+    Object.values(meses).forEach(x=>{
+      const nomes=[...x.frotas];
+      const parcela=nomes.length?x.oficina/nomes.length:0;
+      nomes.forEach(nome=>{
+        rateios[nome]=(rateios[nome]||0)+parcela;
+        detalhes.push({mes:x.mes,centro:x.cc,frota:nome,custoOficina:x.oficina,qtdFrotas:nomes.length,parcela});
+      });
+    });
+    return {rateios,detalhes,oficinaTotal:Object.values(meses).reduce((s,x)=>s+x.oficina,0)};
+  }
+
+  const _renderDashboardCustosV94=renderDashboardCustos;
+  renderDashboardCustos=function(){
+    const base=_renderDashboardCustosV94();
+    const f=state.custosFilters||{};
+    let movimentos=getMovimentosCustos(recebimentosNF);
+    if(f.dataIni) movimentos=movimentos.filter(x=>(x.dataCusto||'')>=f.dataIni);
+    if(f.dataFim) movimentos=movimentos.filter(x=>(x.dataCusto||'')<=f.dataFim);
+    if(f.centroCusto) movimentos=movimentos.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
+    if(f.fornecedor) movimentos=movimentos.filter(x=>x.fornecedor===f.fornecedor);
+    if(f.codigoContabil) movimentos=movimentos.filter(x=>x.codigoContabil===f.codigoContabil);
+
+    const r=calcularRateioOficinaV95(movimentos);
+    const diretos={};
+    movimentos.forEach(m=>{
+      const fr=frotaRealPorDestinoV95(m.destino,getCentroCustoRegistro(m));
+      if(fr) diretos[fr.nome]=(diretos[fr.nome]||0)+numeroSeguro(m.valorCusto);
+    });
+    const nomes=[...new Set([...Object.keys(diretos),...Object.keys(r.rateios)])].sort((a,b)=>(diretos[b]||0)+(r.rateios[b]||0)-((diretos[a]||0)+(r.rateios[a]||0)));
+    const card=`<div class="card" style="margin-bottom:20px;border:2px solid var(--accent)">
+      <div class="card-header"><div><div class="card-title">Custo Real por Carreta — com Rateio Mensal de Oficina</div>
+      <div class="card-sub">Oficina é dividida igualmente entre as frotas identificadas nas RCs/movimentos de cada mês. O valor de Oficina permanece visível, mas NÃO é somado novamente ao consolidado.</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Frota</th><th>Custo Direto</th><th>Rateio Oficina</th><th>Custo Real da Frota</th></tr></thead>
+      <tbody>${nomes.map(n=>`<tr><td><strong>${n}</strong></td><td>${fmt.money(diretos[n]||0)}</td><td>${fmt.money(r.rateios[n]||0)}</td><td><strong style="color:var(--accent)">${fmt.money((diretos[n]||0)+(r.rateios[n]||0))}</strong></td></tr>`).join('')||'<tr><td colspan="4">Sem frotas no período.</td></tr>'}</tbody>
+      <tfoot><tr><td><strong>OFICINA (informativo)</strong></td><td colspan="2">100% rateada; não acumula novamente</td><td><strong>${fmt.money(r.oficinaTotal)}</strong></td></tr></tfoot>
+      </table></div>
+      <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:800">Auditoria do rateio mês a mês</summary>
+        <div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>Mês</th><th>Centro</th><th>Frota</th><th>Oficina no mês</th><th>Frotas no mês</th><th>Parcela da frota</th></tr></thead>
+        <tbody>${r.detalhes.map(d=>`<tr><td>${d.mes}</td><td>${d.centro}</td><td>${d.frota}</td><td>${fmt.money(d.custoOficina)}</td><td>${d.qtdFrotas}</td><td><strong>${fmt.money(d.parcela)}</strong></td></tr>`).join('')||'<tr><td colspan="6">Sem rateio no período.</td></tr>'}</tbody></table></div>
+      </details>
+    </div>`;
+    return card+base;
+  };
+
+  // -------- Eventos pós-render --------
+  const _bindDynamicV95=window.bindDynamicEvents;
+  if(typeof _bindDynamicV95==='function'){
+    window.bindDynamicEvents=function(){
+      const r=_bindDynamicV95.apply(this,arguments);
+      bindCamposEPI();
+      const ano=document.getElementById('rhFeriasAnoV95');
+      if(ano&&!ano.dataset.bindV95){ano.dataset.bindV95='1';ano.addEventListener('change',e=>{state.rhFeriasAnoV95=e.target.value;render();});}
+      const nf=document.getElementById('rhNFFiltroBuscaV95');
+      if(nf&&!nf.dataset.bindV95){nf.dataset.bindV95='1';nf.addEventListener('input',e=>{state.nfFilters=state.nfFilters||{};state.nfFilters.busca=e.target.value;render();});}
+      return r;
+    };
+  }
+
+  // fallback global: campos condicionais após qualquer render
+  const _renderV95=render;
+  render=function(){
+    const r=_renderV95.apply(this,arguments);
+    setTimeout(bindCamposEPI,0);
+    setTimeout(()=>{
+      const ano=document.getElementById('rhFeriasAnoV95');
+      if(ano&&!ano.dataset.bindV95){ano.dataset.bindV95='1';ano.addEventListener('change',e=>{state.rhFeriasAnoV95=e.target.value;render();});}
+      const nf=document.getElementById('rhNFFiltroBuscaV95');
+      if(nf&&!nf.dataset.bindV95){nf.dataset.bindV95='1';nf.addEventListener('input',e=>{state.nfFilters=state.nfFilters||{};state.nfFilters.busca=e.target.value;render();});}
+    },0);
+    return r;
+  };
+})();
 </script>
 
 </body>
