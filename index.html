@@ -467,7 +467,7 @@
 </head>
 <body>
 
-  <!-- ===== V9.8 — Composição de Custos + Diária de Manutenção ===== -->
+  <!-- ===== V9.9 — Custos Proporcionais + Férias Progressivas ===== -->
   <!-- ===== TELA DE LOGIN ===== -->
   <div id="loginScreen">
     <div class="login-box">
@@ -5384,7 +5384,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V9.8';
+        if (versaoEl) versaoEl.textContent = 'V9.9';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -9387,6 +9387,305 @@ window.RH_SECURITY_V94 = {
       return result;
     };
   }
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V9.9 — CORREÇÃO DE CUSTOS + BARRA PROGRESSIVA DE FÉRIAS
+   ============================================================ */
+(function(){
+  'use strict';
+
+  const V99_DIARIA_PADRAO = 700;
+
+  function v99Norm(v){ return normalize(String(v||'')).replace(/\s+/g,' ').trim(); }
+  function v99Centro(obj){ return getCentroCustoRegistro(obj); }
+  function v99MesRC(rc){ return String(rc.dataAprovacao||rc.data||rc.dataCriacao||'').slice(0,7); }
+  function v99DestinoRC(rc){ return clean(rc.aplicacao||rc.destino||''); }
+
+  function v99EhFrota(v){
+    const n=v99Norm(v);
+    if(!n)return false;
+    if(frotas.some(f=>v99Norm(f.nome)===n))return true;
+    return /^frota\b/.test(n);
+  }
+  function v99EhOficina(v){ return v99Norm(v).includes('oficina'); }
+  function v99EhEstoque(v){ return v99Norm(v)==='estoque'; }
+
+  function v99NomeFrota(destino,centro){
+    const n=v99Norm(destino), cc=centro||'';
+    const f=frotas.find(x=>v99Norm(x.nome)===n && (!cc || v99Centro(x)===cc))
+      || frotas.find(x=>v99Norm(x.nome)===n);
+    return f ? clean(f.nome) : clean(destino);
+  }
+
+  function v99DataInicioFrota(f){
+    return String(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||f.dataAbertura||'').slice(0,10);
+  }
+  function v99DataFimFrota(f){
+    const concluida = f.concluido===true
+      || v99Norm(f.statusOperacional).includes('conclu')
+      || v99Norm(f.statusProjeto).includes('conclu');
+    if(concluida){
+      return String(f.dataConclusaoReal||f.dataSaidaReal||f.dataConclusao||f.dataPrevisaoSaida||'').slice(0,10);
+    }
+    return hojeISO();
+  }
+  function v99DiasInclusive(ini,fim){
+    if(!ini||!fim)return 0;
+    const a=new Date(ini+'T12:00:00'), b=new Date(fim+'T12:00:00');
+    if(isNaN(a)||isNaN(b)||b<a)return 0;
+    return Math.floor((b-a)/86400000)+1;
+  }
+  function v99ValorDiariaFrota(f){
+    const v=numeroSeguro(f.valorDiariaManutencao ?? f.valorDiaria ?? f.diariaManutencao ?? V99_DIARIA_PADRAO);
+    return v>0?v:V99_DIARIA_PADRAO;
+  }
+
+  function v99FrotasPresentesPorMes(){
+    const presentes={};
+    rcs.forEach(rc=>{
+      const mes=v99MesRC(rc); if(!mes)return;
+      const destino=v99DestinoRC(rc);
+      // REGRA: somente frotas recebem rateio. ESTOQUE e OFICINA nunca recebem.
+      if(!v99EhFrota(destino) || v99EhEstoque(destino) || v99EhOficina(destino))return;
+      const cc=v99Centro(rc), nome=v99NomeFrota(destino,cc), k=`${cc}|${mes}`;
+      if(!presentes[k])presentes[k]=new Map();
+      presentes[k].set(v99Norm(nome),nome);
+    });
+    return presentes;
+  }
+
+  function v99Composicao(movimentos){
+    const mapa={}, oficinaMes={}, presentes=v99FrotasPresentesPorMes();
+
+    function get(nome,cc){
+      const k=`${cc}|${v99Norm(nome)}`;
+      if(!mapa[k])mapa[k]={nome,centro:cc,compras:0,baixas:0,oficinaRateada:0,estadia:0};
+      return mapa[k];
+    }
+
+    // Os custos diretos já existentes continuam exatamente como estavam:
+    // NF/RC = compra; BAIXA_ESTOQUE = baixa apontada para a própria frota.
+    movimentos.forEach(m=>{
+      const cc=v99Centro(m);
+      if(v99EhOficina(m.destino)){
+        const mes=m.mesCusto||String(m.dataCusto||'').slice(0,7);
+        if(mes){
+          const k=`${cc}|${mes}`;
+          oficinaMes[k]=(oficinaMes[k]||0)+numeroSeguro(m.valorCusto);
+        }
+        return;
+      }
+      if(!v99EhFrota(m.destino))return;
+      const nome=v99NomeFrota(m.destino,cc), item=get(nome,cc);
+      if(m.tipoDocumento==='BAIXA_ESTOQUE') item.baixas+=numeroSeguro(m.valorCusto);
+      else item.compras+=numeroSeguro(m.valorCusto);
+    });
+
+    // Rateio da Oficina: SOMENTE entre frotas identificadas nas RCs daquele mês.
+    Object.entries(oficinaMes).forEach(([k,totalOficina])=>{
+      const lista=[...(presentes[k]?.values()||[])];
+      if(!lista.length)return;
+      const cc=k.split('|')[0], parcela=totalOficina/lista.length;
+      lista.forEach(nome=>get(nome,cc).oficinaRateada+=parcela);
+    });
+
+    // Estadia: cálculo gerencial. Não cria lançamento financeiro e não duplica custo.
+    frotas.forEach(f=>{
+      const nome=clean(f.nome||'');
+      if(!nome || !v99EhFrota(nome))return;
+      const ini=v99DataInicioFrota(f), fim=v99DataFimFrota(f);
+      if(!ini||!fim)return;
+      const dias=v99DiasInclusive(ini,fim);
+      if(!dias)return;
+      const valorDia=v99ValorDiariaFrota(f);
+      const item=get(nome,v99Centro(f));
+      item.estadia=dias*valorDia;
+      item.diasEstadia=dias;
+      item.valorDia=valorDia;
+    });
+
+    return Object.values(mapa).map(x=>{
+      x.total=x.compras+x.baixas+x.oficinaRateada+x.estadia;
+      x.pCompras=x.total?100*x.compras/x.total:0;
+      x.pBaixas=x.total?100*x.baixas/x.total:0;
+      x.pOficina=x.total?100*x.oficinaRateada/x.total:0;
+      x.pEstadia=x.total?100*x.estadia/x.total:0;
+      return x;
+    }).filter(x=>x.total>0);
+  }
+
+  function v99GraficoCustos(movimentos){
+    // Mantém todos os destinos genéricos exatamente como já estavam no Dashboard.
+    const porDestino={};
+    movimentos.forEach(m=>{
+      const d=clean(m.destino||'Sem destino')||'Sem destino';
+      porDestino[d]=(porDestino[d]||0)+numeroSeguro(m.valorCusto);
+    });
+
+    const comp=v99Composicao(movimentos);
+    const porFrotaNorm=new Map(comp.map(x=>[v99Norm(x.nome),x]));
+
+    // Remove do ranking original somente as linhas de frotas, pois serão recolocadas
+    // com Oficina rateada + Estadia. ESTOQUE, OFICINA e demais destinos permanecem.
+    const linhas=[];
+    Object.entries(porDestino).forEach(([nome,valor])=>{
+      if(v99EhFrota(nome))return;
+      linhas.push({
+        nome, total:valor, generico:true,
+        informativoOficina:v99EhOficina(nome),
+        compras:valor, baixas:0, oficinaRateada:0, estadia:0
+      });
+    });
+    comp.forEach(x=>linhas.push({...x,generico:false}));
+
+    linhas.sort((a,b)=>b.total-a.total);
+    const maxTotal=Math.max(1,...linhas.map(x=>x.total));
+
+    const legendas=`<div style="display:flex;gap:16px;flex-wrap:wrap;margin:10px 0 16px;font-size:11px">
+      <span><i style="display:inline-block;width:12px;height:12px;background:#3b82f6;border-radius:3px;margin-right:5px"></i>Compras / RC / NF</span>
+      <span><i style="display:inline-block;width:12px;height:12px;background:#22c55e;border-radius:3px;margin-right:5px"></i>Baixa de estoque da frota</span>
+      <span><i style="display:inline-block;width:12px;height:12px;background:#f59e0b;border-radius:3px;margin-right:5px"></i>Rateio de Oficina</span>
+      <span><i style="display:inline-block;width:12px;height:12px;background:#a855f7;border-radius:3px;margin-right:5px"></i>Estadia / diária</span>
+      <span><i style="display:inline-block;width:12px;height:12px;background:var(--accent);border-radius:3px;margin-right:5px"></i>Outros destinos mantidos</span>
+    </div>`;
+
+    const rows=linhas.map((x,i)=>{
+      const larguraTotal=Math.max(1.2,(x.total/maxTotal)*100);
+      if(x.generico){
+        const nota=x.informativoOficina
+          ? `<div style="font-size:9px;color:#f59e0b;margin-top:3px">Informativo — já diluído nas frotas; não somar novamente no consolidado.</div>`
+          : '';
+        return `<div style="display:grid;grid-template-columns:36px minmax(155px,260px) 1fr 150px;gap:12px;align-items:center">
+          <div style="color:var(--text-muted);text-align:right">${i+1}º</div>
+          <div><strong>${x.nome}</strong>${nota}</div>
+          <div style="height:18px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden">
+            <div style="height:100%;width:${larguraTotal}%;background:var(--accent);border-radius:999px"></div>
+          </div>
+          <div style="text-align:right"><strong>${fmt.money(x.total)}</strong></div>
+        </div>`;
+      }
+
+      // Barra externa proporcional ao total. Dentro dela, os segmentos representam a composição percentual.
+      return `<div style="display:grid;grid-template-columns:36px minmax(155px,260px) 1fr 150px;gap:12px;align-items:center">
+        <div style="color:var(--text-muted);text-align:right">${i+1}º</div>
+        <div>
+          <strong>${x.nome}</strong>
+          ${x.estadia>0?`<div style="font-size:9px;color:var(--text-muted);margin-top:3px">${x.diasEstadia} dia(s) × ${fmt.money(x.valorDia)}</div>`:''}
+        </div>
+        <div>
+          <div style="height:18px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden">
+            <div style="height:100%;width:${larguraTotal}%;display:flex;overflow:hidden;border-radius:999px">
+              ${x.compras>0?`<div title="Compras/RC/NF: ${fmt.money(x.compras)} — ${x.pCompras.toFixed(1)}%" style="height:100%;width:${x.pCompras}%;background:#3b82f6"></div>`:''}
+              ${x.baixas>0?`<div title="Baixas da frota: ${fmt.money(x.baixas)} — ${x.pBaixas.toFixed(1)}%" style="height:100%;width:${x.pBaixas}%;background:#22c55e"></div>`:''}
+              ${x.oficinaRateada>0?`<div title="Rateio Oficina: ${fmt.money(x.oficinaRateada)} — ${x.pOficina.toFixed(1)}%" style="height:100%;width:${x.pOficina}%;background:#f59e0b"></div>`:''}
+              ${x.estadia>0?`<div title="Estadia: ${fmt.money(x.estadia)} — ${x.pEstadia.toFixed(1)}%" style="height:100%;width:${x.pEstadia}%;background:#a855f7"></div>`:''}
+            </div>
+          </div>
+          <div style="display:flex;gap:9px;flex-wrap:wrap;font-size:9px;margin-top:4px;color:var(--text-muted)">
+            <span>Compra ${x.pCompras.toFixed(1)}%</span>
+            <span>Baixa ${x.pBaixas.toFixed(1)}%</span>
+            <span>Oficina ${x.pOficina.toFixed(1)}%</span>
+            <span>Estadia ${x.pEstadia.toFixed(1)}%</span>
+          </div>
+        </div>
+        <div style="text-align:right"><strong>${fmt.money(x.total)}</strong></div>
+      </div>`;
+    }).join('');
+
+    return `<div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><div>
+        <div class="card-title">Ranking de custo real por frota / destino</div>
+        <div class="card-sub">As RCs e baixas já existentes permanecem como custo direto da frota. Foram acrescentados apenas Rateio de Oficina e Estadia. ESTOQUE e OFICINA não recebem rateio.</div>
+      </div></div>
+      ${legendas}
+      ${linhas.length?`<div style="display:flex;flex-direction:column;gap:12px">${rows}</div>`:`<div style="padding:22px;color:var(--text-muted)">Sem dados para os filtros selecionados.</div>`}
+      <div style="margin-top:14px;padding:10px;border:1px solid #f59e0b;border-radius:8px;font-size:11px">
+        <strong>Regra do total consolidado:</strong> a linha OFICINA continua visível como informação, porém seu valor não deve ser somado novamente ao total geral porque já foi distribuído entre as frotas.
+      </div>
+    </div>`;
+  }
+
+  const _renderCustosV98V99=renderDashboardCustos;
+  renderDashboardCustos=function(){
+    const base=_renderCustosV98V99();
+    const f=state.custosFilters||{};
+    let movimentos=getMovimentosCustos(recebimentosNF);
+    if(f.dataIni)movimentos=movimentos.filter(x=>(x.dataCusto||'')>=f.dataIni);
+    if(f.dataFim)movimentos=movimentos.filter(x=>(x.dataCusto||'')<=f.dataFim);
+    if(f.centroCusto)movimentos=movimentos.filter(x=>v99Centro(x)===f.centroCusto);
+    if(f.fornecedor)movimentos=movimentos.filter(x=>x.fornecedor===f.fornecedor);
+    if(f.destino)movimentos=movimentos.filter(x=>x.destino===f.destino);
+    if(f.codigoContabil)movimentos=movimentos.filter(x=>x.codigoContabil===f.codigoContabil);
+
+    const novo=v99GraficoCustos(movimentos);
+    return base.replace(
+      /<div class="card" style="margin-bottom:20px;">\s*<div class="card-header"><div>\s*<div class="card-title">Ranking de custo real por frota \/ destino<\/div>[\s\S]*?<\/div>\s*(?=<div style="display:grid;grid-template-columns:repeat\(auto-fit,minmax\(420px,1fr\)\);gap:20px;margin-bottom:20px">)/,
+      novo
+    );
+  };
+
+  // ---------------- FÉRIAS: BARRA TIPO "CARGA" ----------------
+  function v99DiasFeriasProgresso(f){
+    if(!f?.inicio||!f?.fim)return {total:0,decorridos:0,pct:0};
+    const total=Math.max(1,v99DiasInclusive(f.inicio,f.fim));
+    const hoje=hojeISO();
+    let decorridos=0;
+    if(hoje>=f.inicio){
+      decorridos=Math.min(total,Math.max(0,v99DiasInclusive(f.inicio,hoje)));
+    }
+    return {total,decorridos,pct:Math.max(0,Math.min(100,decorridos/total*100))};
+  }
+
+  function v99CardPessoalFerias(){
+    const ativos=rhColaboradores.filter(c=>c.ativo!==false&&filtroUnidadeRHV93(c));
+    const fer=feriasAtuaisV93();
+    const deFerias=ativos.filter(c=>fer.ids.has(normalize(c.nome||'')));
+
+    const rows=deFerias.map(c=>{
+      const f=fer.regs.find(x=>normalize(x.colaboradorNome||x.nome||'')===normalize(c.nome||''));
+      const pr=v99DiasFeriasProgresso(f);
+      // Cria divisões visuais proporcionais ao número total de dias do período.
+      const passo=100/Math.max(1,pr.total);
+      return `<div style="margin-bottom:18px">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:end;margin-bottom:6px">
+          <div>
+            <strong>${c.nome}</strong>
+            <div style="font-size:10px;color:var(--text-muted)">${fmt.date(f?.inicio)} → ${fmt.date(f?.fim)}</div>
+          </div>
+          <div style="text-align:right">
+            <strong>${pr.decorridos} de ${pr.total} dias</strong>
+            <div style="font-size:10px;color:var(--text-muted)">${pr.total-pr.decorridos} dia(s) restantes</div>
+          </div>
+        </div>
+        <div style="height:28px;position:relative;border:2px solid #22c55e;border-radius:10px;background:#050806;overflow:hidden">
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(to right,transparent 0,transparent calc(${passo}% - 1px),rgba(255,255,255,.18) calc(${passo}% - 1px),rgba(255,255,255,.18) ${passo}%);z-index:2;pointer-events:none"></div>
+          <div style="height:100%;width:${pr.pct}%;background:#22c55e;position:relative;z-index:1"></div>
+          <div style="position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:white;text-shadow:0 1px 2px #000">${pr.decorridos}/${pr.total} dias</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="card" style="grid-column:1/-1">
+      <div class="card-title">Pessoal de Férias</div>
+      <div class="card-sub">A barra representa o período total de férias. A parte preenchida mostra quantos dias já transcorreram; a parte escura mostra os dias restantes.</div>
+      <div style="margin-top:18px">${rows||'<div style="padding:12px;color:var(--text-muted)">Nenhum colaborador está de férias hoje.</div>'}</div>
+    </div>`;
+  }
+
+  // Substitui apenas o card Pessoal de Férias do dashboard RH.
+  const _dashboardRHV96V99=dashboardRHV93;
+  dashboardRHV93=function(){
+    const base=_dashboardRHV96V99();
+    const novo=v99CardPessoalFerias();
+    return base.replace(
+      /<div class="card" style="grid-column:1\/-1">\s*<div class="card-title">Pessoal de Férias<\/div>[\s\S]*?<\/div>\s*<\/div>(?=\s*<\/div>|\s*<div class="card" style="grid-column:1\/-1;margin-top:16px">)/,
+      novo
+    );
+  };
 })();
 </script>
 
