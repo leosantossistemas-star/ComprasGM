@@ -1142,6 +1142,7 @@ auth.onAuthStateChanged(async (user) => {
           // Importação histórica autorizada pelo usuário.
           // É idempotente: se o lote já existir no Firestore, nada é duplicado.
           setTimeout(() => importarHistoricoEmbutidoSeNecessario(), 1200);
+          setTimeout(() => reconciliarRCsFornecidasV111(), 2600);
         }
       } catch (err) {
         console.error('Erro ao carregar perfil:', err);
@@ -1993,6 +1994,69 @@ auth.onAuthStateChanged(async (user) => {
         return { ok:false, motivo:`Limite financeiro excedido. Disponível para "${frota.nome}": ${fmt.money(Math.max(0, disponivel))}.` };
       }
       return { ok:true, disponivel };
+    }
+
+    const RECONCILIACAO_RCS_V111 = [{"numero":"RC 0022","numeroOriginal":"022","data":"2026-08-24","dataAprovacao":"2026-08-24","empresa":"Cryotronics","fornecedor":"ANJO CHAPAS","solicitante":"Josué","aplicacao":"FROTA 3093","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"28 DIAS","prazoPagamentoDias":28,"observacoes":"FATURAMENTO 28 DIAS","itens":[{"descricao":"CHAPA AÇO CARBONO MICATA","qtd":2,"valorUnit":205.0,"total":410.0}],"total":410.0,"documentId":"recon_v111_022","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-24","vencimento":"2026-09-21","vencimentos":["2026-09-21"],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0021","numeroOriginal":"021","data":"2026-08-24","dataAprovacao":"2026-08-24","empresa":"Cryotronics","fornecedor":"RED CASA","solicitante":"Josué","aplicacao":"ESTOQUE","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"30 DIAS","prazoPagamentoDias":30,"observacoes":"Destino informado como estoque; Compra para almoxarifado informada como NÃO.","itens":[{"descricao":"DIISCO DE FLAP 4\"","qtd":20,"valorUnit":10.5,"total":210.0}],"total":210.0,"documentId":"recon_v111_021","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-24","vencimento":"2026-09-23","vencimentos":["2026-09-23"],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0019","numeroOriginal":"019","data":"2026-08-24","dataAprovacao":"2026-08-24","empresa":"Cryotronics","fornecedor":"DUARTE","solicitante":"Josué","aplicacao":"FROTA 683","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"No texto fornecido, o campo OS aparece como FROTA 638 enquanto Destino/Aplicação aparece como FROTA 683.","itens":[{"descricao":"PARAFUSO 1/4 INOX CX","qtd":1,"valorUnit":73.1,"total":73.1},{"descricao":"ARRUELA 1/4 INOX CX","qtd":1,"valorUnit":16.52,"total":16.52},{"descricao":"PORCA 1/4 INOX CX","qtd":1,"valorUnit":43.94,"total":43.94},{"descricao":"DOBRADIÇA AÇO INOX","qtd":10,"valorUnit":43.7,"total":437.0}],"total":570.56,"documentId":"recon_v111_019","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-24","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0015","numeroOriginal":"015","data":"2026-08-21","dataAprovacao":"2026-08-21","empresa":"Cryotronics","fornecedor":"BILLMAKER","solicitante":"Josué","aplicacao":"FROTA 368","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"30/60 DIAS","prazoPagamentoDias":30,"observacoes":"Foi considerada a última ocorrência fornecida pelo usuário para a RC 0015, com fornecedor BILLMAKER. Uma ocorrência anterior do texto citava fornecedor 291.","itens":[{"descricao":"INDICADOR DE NÍVEL ITT BARTON 0 a 150 inH²O","qtd":1,"valorUnit":210.0,"total":210.0},{"descricao":"MANÔMETRO ANALÓGICO 0 a 350 psi/ 0 a 6 bar","qtd":2,"valorUnit":150.0,"total":300.0},{"descricao":"VÁLVULA DE SEGURANÇA SPR41","qtd":8,"valorUnit":130.0,"total":1040.0},{"descricao":"VÁLVULA DE SEGURANÇA GROFE SAA40 1.1/2\"","qtd":3,"valorUnit":230.0,"total":690.0}],"total":2240.0,"documentId":"recon_v111_015","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-21","vencimentos":["2026-09-20","2026-10-20"],"vencimento":"2026-09-20","status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0013","numeroOriginal":"013","data":"2026-08-21","dataAprovacao":"2026-08-21","empresa":"Cryotronics","fornecedor":"SUPRINDO SOLDAS","solicitante":"Josué","aplicacao":"ESTOQUE","centroCusto":"SANTOS","compraAlmoxarifado":true,"condPag":"30 DIAS","prazoPagamentoDias":30,"observacoes":"","itens":[{"descricao":"GEL DECAPANTE APASSIVANTE AMAZONIA | 1,50 KG","qtd":6,"valorUnit":56.8,"total":340.8}],"total":340.8,"documentId":"recon_v111_013","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-21","vencimento":"2026-09-20","vencimentos":["2026-09-20"],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0012","numeroOriginal":"012","data":"2026-08-21","dataAprovacao":"2026-08-21","empresa":"Cryotronics","fornecedor":"291","solicitante":"Josué","aplicacao":"OFICINA","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"O texto fornecido também contém a referência 'whate martins' logo após esta RC; fornecedor principal preservado como 291 por ser o valor explícito do campo Fornecedor.","itens":[{"descricao":"Argonio Gas Cil K 7M3","qtd":21,"valorUnit":53.64,"total":1126.44}],"total":1126.52,"documentId":"recon_v111_012","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-21","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0011","numeroOriginal":"011","data":"2026-08-20","dataAprovacao":"2026-08-20","empresa":"Mechatronics","fornecedor":"ANJO CHAPAS","solicitante":"Josué","aplicacao":"FROTA 368","centroCusto":"MECHATRONICS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"","itens":[{"descricao":"CHAPA DE AÇO CARBONO 1100X1000 1/4","qtd":1,"valorUnit":1300.0,"total":1300.0}],"total":1300.0,"documentId":"recon_v111_011","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-20","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0010","numeroOriginal":"010","data":"2026-08-20","dataAprovacao":"2026-08-20","empresa":"Cryotronics","fornecedor":"MERCADO LIVREQ","solicitante":"Josué","aplicacao":"FROTA 368","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"","itens":[{"descricao":"Parafuso pino rei M14 aço 10.9","qtd":8,"valorUnit":6.23,"total":49.84}],"total":49.84,"documentId":"recon_v111_010","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-20","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0009","numeroOriginal":"009","data":"2026-08-20","dataAprovacao":"2026-08-20","empresa":"Cryotronics","fornecedor":"291","solicitante":"Josué","aplicacao":"FROTA 410","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"","itens":[{"descricao":"CRY-0484 - Chapa de inox 5/8","qtd":1,"valorUnit":984.0,"total":984.0}],"total":984.0,"documentId":"recon_v111_009","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-20","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0008","numeroOriginal":"008","data":"2026-08-20","dataAprovacao":"2026-08-20","empresa":"Cryotronics","fornecedor":"MERCADO LIVREQ","solicitante":"Josué","aplicacao":"ESTOQUE-CRYO","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"Destino informado como estoque-CRYO; Compra para almoxarifado informada como NÃO.","itens":[{"descricao":"Pendente De Luz Com Pino De Tomada Sem Lâmpada","qtd":4,"valorUnit":33.5,"total":134.0},{"descricao":"Caneta Marcador Permanente Retroprojetor Cd Dvd Azul","qtd":4,"valorUnit":26.18,"total":104.72}],"total":238.72,"documentId":"recon_v111_008","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-20","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0007","numeroOriginal":"007","data":"2026-08-19","dataAprovacao":"2026-08-19","empresa":"Cryotronics","fornecedor":"BIADOLA","solicitante":"Josué","aplicacao":"ESTOQUE","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"Destino informado como estoque; Compra para almoxarifado informada como NÃO.","itens":[{"descricao":"LONA PLASTICA PRETA 4X100M","qtd":2,"valorUnit":179.0,"total":358.0}],"total":358.0,"documentId":"recon_v111_007","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-19","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0006","numeroOriginal":"006","data":"2026-08-19","dataAprovacao":"2026-08-19","empresa":"Cryotronics","fornecedor":"291","solicitante":"Josué","aplicacao":"ESTOQUE","centroCusto":"SANTOS","compraAlmoxarifado":true,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"","itens":[{"descricao":"CRY-0188 - Tungstênio 2.4 azul","qtd":20,"valorUnit":37.0,"total":740.0}],"total":740.0,"documentId":"recon_v111_006","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-19","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true},{"numero":"RC 0004","numeroOriginal":"004","data":"2026-08-19","dataAprovacao":"2026-08-19","empresa":"Cryotronics","fornecedor":"LIRORAL","solicitante":"Josué","aplicacao":"FROTA 410","centroCusto":"SANTOS","compraAlmoxarifado":false,"condPag":"NÃO INFORMADO","prazoPagamentoDias":0,"observacoes":"","itens":[{"descricao":"CRY-0486 - BARRA CHATA INOX 304 3/16 X 2","qtd":4,"valorUnit":378.11,"total":1512.44},{"descricao":"CHAPA INOX 304 1/4\" 2000X1200","qtd":1,"valorUnit":3782.25,"total":3782.25},{"descricao":"CRY-0485 - Chapa de AÇO CARBONO","qtd":1,"valorUnit":816.96,"total":816.96}],"total":6111.65,"documentId":"recon_v111_004","prazoEntrega":"HISTÓRICO","dataBase":"2026-08-19","vencimento":"","vencimentos":[],"status":"aprovado","diasAprovacao":0,"compraDentroPrazo":"SIM","origem":"reconciliacao_rcs_usuario_v111","importBatchId":"reconciliacao_rcs_usuario_v111","importado":true}];
+
+    function numeroRCNormalizadoV111(v) {
+      const m=String(v||'').toUpperCase().match(/(\d{1,4})/);
+      return m ? 'RC '+String(parseInt(m[1],10)).padStart(4,'0') : String(v||'').trim().toUpperCase();
+    }
+
+    async function reconciliarRCsFornecidasV111() {
+      if (perfilAtual !== 'admin') return;
+      try {
+        const cfgRef=db.collection('configuracoes').doc('reconciliacao_rcs_v111');
+        const cfg=await cfgRef.get();
+        if(cfg.exists && cfg.data()?.concluido===true) return;
+
+        const snap=await db.collection('requisicoes').get();
+        const existentes=new Set();
+        snap.forEach(d=>{
+          const x=d.data()||{};
+          existentes.add(numeroRCNormalizadoV111(x.numero||x.numeroRC||x.rcNumero||d.id));
+        });
+
+        const faltantes=RECONCILIACAO_RCS_V111.filter(r=>!existentes.has(numeroRCNormalizadoV111(r.numero)));
+        if(!faltantes.length){
+          await cfgRef.set({
+            concluido:true,adicionadas:0,totalVerificadas:RECONCILIACAO_RCS_V111.length,
+            dataISO:new Date().toISOString(),executadoPor:getUsuarioEmail(),
+            observacao:'Nenhuma RC faltante entre as RCs fornecidas pelo usuário.'
+          });
+          console.log('Reconciliação V11.1: nenhuma RC faltante.');
+          return;
+        }
+
+        for(let p=0;p<faltantes.length;p+=400){
+          const batch=db.batch();
+          faltantes.slice(p,p+400).forEach(r=>{
+            const payload={...r,
+              criadoPor:'admin',
+              criadoPorUid:getUsuarioUid(),
+              criadoPorEmail:getUsuarioEmail(),
+              criadoPorNome:getUsuarioNome(),
+              importadoEm:firebase.firestore.FieldValue.serverTimestamp()
+            };
+            delete payload.documentId;
+            batch.set(db.collection('requisicoes').doc(r.documentId),payload,{merge:false});
+          });
+          await batch.commit();
+        }
+
+        await cfgRef.set({
+          concluido:true,
+          adicionadas:faltantes.length,
+          numerosAdicionados:faltantes.map(r=>r.numero),
+          totalVerificadas:RECONCILIACAO_RCS_V111.length,
+          dataISO:new Date().toISOString(),
+          executadoPor:getUsuarioEmail()
+        });
+        showToast(`Reconciliação concluída: ${faltantes.length} RC(s) ausente(s) adicionada(s).`);
+      } catch(err) {
+        console.error('Erro na reconciliação V11.1:',err);
+        showToast('Erro ao reconciliar RCs fornecidas: '+err.message,true);
+      }
     }
 
     /* ============================================================
@@ -5496,7 +5560,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.0';
+        if (versaoEl) versaoEl.textContent = 'V11.1';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -11369,6 +11433,9 @@ function renderControleAcessoV104(){
   </div>
   <div class="card" style="margin-top:18px;border:1px solid #4ea1ff">
     <div class="card-title">Backup Geral do Sistema</div>
+    <div style="margin-bottom:12px;padding:10px;border:1px solid var(--border);border-radius:10px;font-size:11px;color:var(--text-muted)">
+      <strong>Reconciliação de RCs:</strong> a V11.1 verifica automaticamente as RCs históricas fornecidas e adiciona somente as que não existirem em Firestore, sem sobrescrever RCs já cadastradas.
+    </div>
     <div class="card-sub">Salva na sua máquina um arquivo JSON com uma cópia dos dados do sistema. Recomendado fazer periodicamente e guardar os arquivos por data.</div>
     <div style="margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:10px;font-size:11px;color:var(--text-muted)">O backup é somente leitura: não altera nem apaga dados do Firebase.</div>
     <div style="margin-top:14px"><button class="btn btn-accent" id="btnBackupGeralV110">💾 Fazer backup agora</button></div>
@@ -11669,7 +11736,7 @@ function renderAlmoxarifadoV107(){
  const f=state.almoxFilters||{}, pode=podeMovAlmox107(), busca=nA107(f.busca||'');
  let itens=almoxItensV107.filter(i=>(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||i.categoria===f.categoria)&&(!busca||nA107(`${i.codigoMaterial} ${i.codigoImportacao} ${i.nome} ${i.localArmazenamento}`).includes(busca)));
  const cats=['MAQUINA','FERRAMENTA','INSUMO','EPI'];
- const baixos=itensDash.filter(i=>numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<=numeroSeguro(i.estoqueMinimo));
+ const baixos=almoxItensV107.filter(i=>numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<=numeroSeguro(i.estoqueMinimo));
  const movs=almoxMovV107.filter(m=>(!f.centro||nomeEstoqueFisicoV109(m.estoqueFisico||m.centroCusto)===f.centro)&&(!f.dataIni||m.data>=f.dataIni)&&(!f.dataFim||m.data<=f.dataFim)).sort((a,b)=>String(b.data).localeCompare(String(a.data)));
  return `<div class="kpi-grid">
  ${cats.map(c=>`<div class="kpi-card"><div class="kpi-label">${c==='MAQUINA'?'Máquinas':c==='FERRAMENTA'?'Ferramentas':c==='INSUMO'?'Insumos':'EPIs'}</div><div class="kpi-value">${almoxItensV107.filter(i=>i.categoria===c).length}</div></div>`).join('')}
