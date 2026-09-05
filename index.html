@@ -5560,7 +5560,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.1';
+        if (versaoEl) versaoEl.textContent = 'V11.2';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -11184,6 +11184,15 @@ window.RH_SECURITY_V94 = {
       return result;
     };
   }
+
+  // V11.2 — compatibilidade entre blocos:
+  // V10.3 redefine o Dashboard Custos Explodidos em outro <script>.
+  // Estes helpers eram locais ao IIFE V10.2 e, por isso, ficavam invisíveis.
+  window.normalizarMemoria102 = normalizarMemoria102;
+  window.canonDestino102 = canonDestino102;
+  window.composicaoFrotas102 = composicaoFrotas102;
+  window.graficoComponente102 = graficoComponente102;
+  window.V102_CORES = V102_CORES;
 })();
 </script>
 
@@ -11233,7 +11242,7 @@ window.RH_SECURITY_V94 = {
       if(f.dataIni&&d<f.dataIni)return;
       if(f.dataFim&&d>f.dataFim)return;
 
-      const dest=canonDestino102(rc.aplicacao||rc.destino||'');
+      const dest=window.canonDestino102(rc.aplicacao||rc.destino||'');
       let cc=dest==='MECHATRONICS'?'MECHATRONICS':getCentroCustoRegistro(rc);
       cc=cc103(cc);
 
@@ -11314,7 +11323,7 @@ window.RH_SECURITY_V94 = {
 
   // Override final da aba Custos Explodidos.
   window.renderDashboardCustosExplodidosV102=function(){
-    normalizarMemoria102();
+    window.normalizarMemoria102();
 
     const f=state.custosFilters||{};
     let mov=getMovimentosCustos(recebimentosNF);
@@ -11323,7 +11332,7 @@ window.RH_SECURITY_V94 = {
     if(f.dataFim)mov=mov.filter(x=>(x.dataCusto||'')<=f.dataFim);
     if(f.centroCusto)mov=mov.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
 
-    const linhas=composicaoFrotas102(mov,f);
+    const linhas=window.composicaoFrotas102(mov,f);
 
     return `${filtroCentroExplodido103()}
       <div class="card" style="margin-bottom:20px">
@@ -11332,10 +11341,10 @@ window.RH_SECURITY_V94 = {
       </div>
       ${pizzaCompras103()}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:20px">
-        ${graficoComponente102('Compras / RC / NF por Frota','Compras efetivamente relacionadas a cada frota.',linhas,'compras',V102_CORES.compra)}
-        ${graficoComponente102('Baixas de Estoque por Frota','Materiais retirados do estoque e aplicados diretamente nas frotas.',linhas,'baixas',V102_CORES.baixa)}
-        ${graficoComponente102('Rateio de Oficina por Frota','Parcela mensal da Oficina distribuída somente entre as frotas presentes nas RCs do período.',linhas,'oficina',V102_CORES.oficina)}
-        ${graficoComponente102('Estadia por Frota','Custo de permanência conforme a regra de diária do centro de custo.',linhas,'estadia',V102_CORES.estadia)}
+        ${window.graficoComponente102('Compras / RC / NF por Frota','Compras efetivamente relacionadas a cada frota.',linhas,'compras',window.V102_CORES.compra)}
+        ${window.graficoComponente102('Baixas de Estoque por Frota','Materiais retirados do estoque e aplicados diretamente nas frotas.',linhas,'baixas',window.V102_CORES.baixa)}
+        ${window.graficoComponente102('Rateio de Oficina por Frota','Parcela mensal da Oficina distribuída somente entre as frotas presentes nas RCs do período.',linhas,'oficina',window.V102_CORES.oficina)}
+        ${window.graficoComponente102('Estadia por Frota','Custo de permanência conforme a regra de diária do centro de custo.',linhas,'estadia',window.V102_CORES.estadia)}
       </div>`;
   };
 
