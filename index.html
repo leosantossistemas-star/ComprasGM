@@ -499,6 +499,11 @@
       <li><button class="nav-btn active" data-section="dashboard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard Aprovações</button></li>
       <li><button class="nav-btn" data-section="dashboardCustos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-5 3 3 5-8"/></svg>Dashboard Custos</button></li>
       <li><button class="nav-btn" data-section="dashboardCustosExplodidos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M22 19V3"/></svg>Custos Explodidos</button></li>
+      <li id="navControleAcessoV104" style="display:none">
+        <button class="nav-btn" data-section="controleAcessoV104">
+          <span style="font-size:17px">🔐</span>Controle de Acesso
+        </button>
+      </li>
       <li><button class="nav-btn" data-section="materiais"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Materiais</button></li>
       <li><button class="nav-btn" data-section="categorias"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>Categorias</button></li>
       <li><button class="nav-btn" data-section="fornecedores"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Fornecedores</button></li>
@@ -1006,7 +1011,107 @@
       if (usuarioAtualPerfil) usuarioAtualPerfil.primeiroAcesso = false;
     }
 
-    auth.onAuthStateChanged(async (user) => {
+    
+    /* ============================================================
+       V10.4 — BLOQUEIO SIMPLES POR DISPOSITIVO + LOCAL
+       Aplicado SOMENTE a compras@cryotronics.com.br.
+       ============================================================ */
+    const USUARIOS_RESTRITOS_DISPOSITIVO_V104 = new Set([
+      'compras@cryotronics.com.br'
+    ]);
+
+    function getDeviceIdV104() {
+      const chave = 'cryotronics_device_v104';
+      let id = localStorage.getItem(chave);
+      if (!id) {
+        if (crypto?.randomUUID) id = crypto.randomUUID();
+        else id = 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2,12);
+        localStorage.setItem(chave, id);
+      }
+      return id;
+    }
+
+    function hashSimplesV104(texto) {
+      let h = 2166136261;
+      const s = String(texto || '');
+      for (let i=0;i<s.length;i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return (h >>> 0).toString(16).padStart(8,'0');
+    }
+
+    async function obterIPPublicoV104() {
+      const urls = [
+        'https://api64.ipify.org?format=json',
+        'https://api.ipify.org?format=json'
+      ];
+      for (const url of urls) {
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(()=>ctrl.abort(), 5000);
+          const r = await fetch(url, {cache:'no-store', signal:ctrl.signal});
+          clearTimeout(timer);
+          if (!r.ok) continue;
+          const d = await r.json();
+          if (d?.ip) return String(d.ip);
+        } catch(e) {}
+      }
+      return 'IP_INDISPONIVEL';
+    }
+
+    function acessoTemporarioValidoV104(dados) {
+      if (dados?.status !== 'TEMPORARIO') return false;
+      if (!dados?.liberadoAteISO) return false;
+      return new Date(dados.liberadoAteISO).getTime() > Date.now();
+    }
+
+    async function validarDispositivoUsuarioV104(user) {
+      const email = String(user?.email || '').trim().toLowerCase();
+      if (!USUARIOS_RESTRITOS_DISPOSITIVO_V104.has(email)) return true;
+
+      const deviceId = getDeviceIdV104();
+      const ip = await obterIPPublicoV104();
+      const assinatura = hashSimplesV104(deviceId + '|' + ip);
+      const docId = user.uid + '__' + assinatura;
+      const ref = db.collection('acesso_dispositivos').doc(docId);
+      const snap = await ref.get();
+
+      if (snap.exists) {
+        const d = snap.data() || {};
+        if (d.status === 'AUTORIZADO') return true;
+        if (acessoTemporarioValidoV104(d)) return true;
+        throw new Error(
+          d.status === 'REVOGADO' || d.status === 'NEGADO'
+            ? 'Acesso deste dispositivo/local foi negado ou revogado pelo Administrador.'
+            : 'Acesso aguardando liberação do Administrador.'
+        );
+      }
+
+      const ua = String(navigator.userAgent || '').slice(0,220);
+      const plataforma = String(navigator.platform || '').slice(0,100);
+
+      await ref.set({
+        uid: user.uid,
+        email,
+        nome: usuarioAtualPerfil?.nome || 'Compras',
+        perfil: 'usuario',
+        deviceId,
+        assinatura,
+        ip,
+        plataforma,
+        navegador: ua,
+        status: 'PENDENTE',
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoEmISO: new Date().toISOString()
+      });
+
+      throw new Error(
+        'Este computador/local ainda não está autorizado. A solicitação foi enviada ao Administrador. Após a liberação, faça o login novamente.'
+      );
+    }
+
+auth.onAuthStateChanged(async (user) => {
       const loginScreen = document.getElementById('loginScreen');
       const mainContent = document.getElementById('mainContent');
       const errorEl = document.getElementById('loginError');
@@ -1024,6 +1129,7 @@
       try {
         if (errorEl) errorEl.textContent = 'Carregando perfil...';
         await carregarPerfilUsuario(user);
+        await validarDispositivoUsuarioV104(user);
 
         loginScreen.classList.add('hidden');
         mainContent.classList.remove('hidden');
@@ -3038,7 +3144,7 @@
           <div class="filters-grid">
             <div class="field"><label>Vencimento inicial</label><input type="date" id="custoDataIni" value="${f.dataIni||''}"></div>
             <div class="field"><label>Vencimento final</label><input type="date" id="custoDataFim" value="${f.dataFim||''}"></div>
-            <div class="field"><label>Centro de custo</label><select id="custoCentro"><option value="">Santos + Camaçari</option>${CENTROS_CUSTO.map(c=>`<option value="${c}" ${f.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
+            <div class="field"><label>Centro de custo</label><select id="custoCentro"><option value="">Todas as unidades</option>${CENTROS_CUSTO.map(c=>`<option value="${c}" ${f.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
             <div class="field"><label>Fornecedor</label><select id="custoFornecedor"><option value="">Todos</option>${fornecedoresList.map(v=>`<option value="${v}" ${f.fornecedor===v?'selected':''}>${v}</option>`).join('')}</select></div>
             <div class="field"><label>Frota / Destino</label><select id="custoDestino"><option value="">Todos</option>${destinosList.map(v=>`<option value="${v}" ${f.destino===v?'selected':''}>${v}</option>`).join('')}</select></div>
             <div class="field"><label>Conta contábil</label><select id="custoConta"><option value="">Todas</option>${PLANO_CONTAS.map(c=>`<option value="${c.codigo}" ${f.codigoContabil===c.codigo?'selected':''}>${c.codigo} — ${c.descricao}</option>`).join('')}</select></div>
@@ -3475,7 +3581,9 @@
       const navPag = document.getElementById('navPagamentosNF');
       const navOT = document.getElementById('navOrcamentoTecnico');
       const navRH = document.getElementById('navRH');
+      const navControleAcessoV104 = document.getElementById('navControleAcessoV104');
 
+      if (navControleAcessoV104) navControleAcessoV104.style.display = perfil === 'admin' ? '' : 'none';
       if (navPag) navPag.style.display = ['gerente','admin'].includes(perfil) ? '' : 'none';
       if (navOT) navOT.style.display = ['encarregado','gerente','admin'].includes(perfil) ? '' : 'none';
       if (navRH) navRH.style.display = ['rh','gerente','admin'].includes(perfil) ? '' : 'none';
@@ -3485,6 +3593,8 @@
         const sec = btn.dataset.section;
         if (perfil === 'rh') {
           btn.closest('li').style.display = (sec === 'rh' || sec === 'recebimentoNFs') ? '' : 'none';
+        } else if (sec === 'controleAcessoV104') {
+          btn.closest('li').style.display = perfil === 'admin' ? '' : 'none';
         } else if (sec !== 'pagamentosNF' && sec !== 'orcamentoTecnico' && sec !== 'rh') {
           btn.closest('li').style.display = '';
         }
@@ -3496,6 +3606,7 @@
         if (state.section === 'rh' && !['gerente','admin'].includes(perfil)) state.section='dashboard';
         if (state.section === 'orcamentoTecnico' && !['encarregado','gerente','admin'].includes(perfil)) state.section='dashboard';
         if (state.section === 'pagamentosNF' && !['gerente','admin'].includes(perfil)) state.section='dashboard';
+        if (state.section === 'controleAcessoV104' && perfil !== 'admin') state.section='dashboard';
       }
     }
 
@@ -5370,6 +5481,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           dashboard: { title: 'Dashboard Aprovações', meta: 'Solicitações, RCs, aprovações e limites de compra' },
           dashboardCustos: { title: 'Dashboard Custos', meta: 'Custos reais por vencimento, frota, centro, fornecedor, estoque e conta contábil' },
           dashboardCustosExplodidos: { title: 'Dashboard Custos Explodidos', meta: 'Composição detalhada do custo das frotas e compras aprovadas por centro' },
+          controleAcessoV104: { title: 'Controle de Acesso', meta: 'Autorizações de dispositivo e local para o usuário de Compras' },
           materiais: { title: 'Materiais', meta: 'Lista completa com ações de edição e exclusão' },
           categorias: { title: 'Categorias', meta: 'Distribuição por categoria e subcategoria' },
           fornecedores: { title: 'Fornecedores', meta: 'Gerenciamento de fornecedores' },
@@ -5386,12 +5498,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V10.2';
+        if (versaoEl) versaoEl.textContent = 'V10.4';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
         else if (sec === 'dashboardCustos') html = renderDashboardCustos();
         else if (sec === 'dashboardCustosExplodidos') html = renderDashboardCustosExplodidosV102();
+        else if (sec === 'controleAcessoV104') html = renderControleAcessoV104();
         else if (sec === 'materiais') html = renderMateriais();
         else if (sec === 'categorias') html = renderCategorias();
         else if (sec === 'fornecedores') html = renderFornecedores();
@@ -10995,6 +11108,344 @@ window.RH_SECURITY_V94 = {
     };
   }
 })();
+</script>
+
+
+<script>
+/* ============================================================
+   V10.3 — FILTRO POR UNIDADE + TOTAL APROVADO LEGÍVEL
+   ============================================================ */
+(function(){
+  'use strict';
+
+  function cc103(v){
+    return centroCustoNormalizado(v)||String(v||'').toUpperCase();
+  }
+
+  function filtroCentroExplodido103(){
+    const atual=state.custosFilters?.centroCusto||'';
+    return `<div class="card" style="margin-bottom:20px;border:1px solid var(--accent)">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Filtros — Custos Explodidos</div>
+          <div class="card-sub">Selecione uma unidade para analisar isoladamente ou mantenha todas para visão consolidada.</div>
+        </div>
+      </div>
+      <div class="filters-grid">
+        <div class="field">
+          <label>Unidade / Centro de custo</label>
+          <select id="explCentro103">
+            <option value="" ${!atual?'selected':''}>Todas as unidades</option>
+            <option value="SANTOS" ${atual==='SANTOS'?'selected':''}>Santos</option>
+            <option value="CAMAÇARI" ${atual==='CAMAÇARI'?'selected':''}>Camaçari</option>
+            <option value="MECHATRONICS" ${atual==='MECHATRONICS'?'selected':''}>Mechatronics</option>
+          </select>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function comprasAprovadasCentro103(){
+    const f=state.custosFilters||{};
+    const tot={SANTOS:0,'CAMAÇARI':0,MECHATRONICS:0};
+
+    rcs.forEach(rc=>{
+      if(rc.status!=='aprovado')return;
+
+      const d=String(rc.dataAprovacao||rc.data||rc.dataBase||'').slice(0,10);
+      if(f.dataIni&&d<f.dataIni)return;
+      if(f.dataFim&&d>f.dataFim)return;
+
+      const dest=canonDestino102(rc.aplicacao||rc.destino||'');
+      let cc=dest==='MECHATRONICS'?'MECHATRONICS':getCentroCustoRegistro(rc);
+      cc=cc103(cc);
+
+      if(f.centroCusto && cc!==f.centroCusto)return;
+
+      if(!(cc in tot))tot[cc]=0;
+      tot[cc]+=numeroSeguro(rc.total);
+    });
+
+    return tot;
+  }
+
+  function pizzaCompras103(){
+    const f=state.custosFilters||{};
+    const tot=comprasAprovadasCentro103();
+    const totalReal=Object.values(tot).reduce((s,v)=>s+numeroSeguro(v),0);
+    const total=totalReal||1;
+
+    const s=100*numeroSeguro(tot.SANTOS)/total;
+    const c=100*numeroSeguro(tot['CAMAÇARI'])/total;
+    const m=100*numeroSeguro(tot.MECHATRONICS)/total;
+
+    const grad=totalReal>0
+      ? `conic-gradient(#3b82f6 0 ${s}%, #22c55e ${s}% ${s+c}%, #a855f7 ${s+c}% 100%)`
+      : 'conic-gradient(#263129 0 100%)';
+
+    const unidadeLabel=f.centroCusto
+      ? `Unidade selecionada: ${f.centroCusto}`
+      : 'Todas as unidades';
+
+    return `<div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Compras Realizadas e Aprovadas — ${unidadeLabel}</div>
+          <div class="card-sub">Somente RCs aprovadas. O filtro por unidade também é aplicado ao gráfico de pizza e aos gráficos explodidos.</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(300px,480px) 1fr;gap:30px;align-items:center;margin-top:15px">
+
+        <div>
+          <div style="
+            margin:0 auto 18px;
+            max-width:440px;
+            padding:16px 18px;
+            border:2px solid var(--accent);
+            border-radius:14px;
+            background:#0b100c;
+            text-align:center;
+            box-shadow:0 0 24px rgba(156,255,0,.08)">
+            <div style="font-size:12px;letter-spacing:.8px;color:#cbd5ce;font-weight:800">TOTAL APROVADO</div>
+            <div style="font-size:30px;line-height:1.25;color:#ffffff;font-weight:950;margin-top:4px">${fmt.money(totalReal)}</div>
+          </div>
+
+          <div style="aspect-ratio:1/1;width:min(100%,440px);margin:auto;border-radius:50%;background:${grad};position:relative;box-shadow:0 0 0 1px var(--border)">
+            <div style="position:absolute;inset:34%;border-radius:50%;background:#0b100c;box-shadow:0 0 0 2px rgba(255,255,255,.06) inset"></div>
+          </div>
+        </div>
+
+        <div>
+          <table>
+            <thead><tr><th>Centro</th><th>Valor aprovado</th><th>%</th></tr></thead>
+            <tbody>
+              ${(!f.centroCusto||f.centroCusto==='SANTOS')?`<tr><td>🔵 SANTOS</td><td><strong>${fmt.money(tot.SANTOS||0)}</strong></td><td>${s.toFixed(1)}%</td></tr>`:''}
+              ${(!f.centroCusto||f.centroCusto==='CAMAÇARI')?`<tr><td>🟢 CAMAÇARI</td><td><strong>${fmt.money(tot['CAMAÇARI']||0)}</strong></td><td>${c.toFixed(1)}%</td></tr>`:''}
+              ${(!f.centroCusto||f.centroCusto==='MECHATRONICS')?`<tr><td>🟣 MECHATRONICS</td><td><strong>${fmt.money(tot.MECHATRONICS||0)}</strong></td><td>${m.toFixed(1)}%</td></tr>`:''}
+            </tbody>
+          </table>
+
+          <div style="margin-top:16px;padding:12px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border)">
+            <div style="font-size:11px;color:var(--text-muted)">TOTAL APROVADO NO FILTRO</div>
+            <div style="font-size:24px;color:var(--accent);font-weight:900">${fmt.money(totalReal)}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Override final da aba Custos Explodidos.
+  window.renderDashboardCustosExplodidosV102=function(){
+    normalizarMemoria102();
+
+    const f=state.custosFilters||{};
+    let mov=getMovimentosCustos(recebimentosNF);
+
+    if(f.dataIni)mov=mov.filter(x=>(x.dataCusto||'')>=f.dataIni);
+    if(f.dataFim)mov=mov.filter(x=>(x.dataCusto||'')<=f.dataFim);
+    if(f.centroCusto)mov=mov.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
+
+    const linhas=composicaoFrotas102(mov,f);
+
+    return `${filtroCentroExplodido103()}
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-title">Dashboard Custos Explodidos</div>
+        <div class="card-sub">O custo total das carretas foi separado nos quatro componentes que formam o custo real. Santos = R$ 700/dia; Camaçari = diária somente quando definida no orçamento; Mechatronics = projetos sem regra de estadia.</div>
+      </div>
+      ${pizzaCompras103()}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:20px">
+        ${graficoComponente102('Compras / RC / NF por Frota','Compras efetivamente relacionadas a cada frota.',linhas,'compras',V102_CORES.compra)}
+        ${graficoComponente102('Baixas de Estoque por Frota','Materiais retirados do estoque e aplicados diretamente nas frotas.',linhas,'baixas',V102_CORES.baixa)}
+        ${graficoComponente102('Rateio de Oficina por Frota','Parcela mensal da Oficina distribuída somente entre as frotas presentes nas RCs do período.',linhas,'oficina',V102_CORES.oficina)}
+        ${graficoComponente102('Estadia por Frota','Custo de permanência conforme a regra de diária do centro de custo.',linhas,'estadia',V102_CORES.estadia)}
+      </div>`;
+  };
+
+  document.addEventListener('change',e=>{
+    if(e.target?.id==='explCentro103'){
+      state.custosFilters=state.custosFilters||{};
+      state.custosFilters.centroCusto=e.target.value||'';
+      render();
+    }
+  });
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V10.4 — PAINEL ADMINISTRATIVO DE DISPOSITIVOS
+   ============================================================ */
+var acessosDispositivosV104 = [];
+var unsubAcessosDispositivosV104 = null;
+
+function iniciarControleAcessoV104() {
+  if (getPerfil() !== 'admin') return;
+  if (unsubAcessosDispositivosV104) return;
+
+  unsubAcessosDispositivosV104 = db.collection('acesso_dispositivos')
+    .onSnapshot(snapshot => {
+      acessosDispositivosV104 = [];
+      snapshot.forEach(doc => acessosDispositivosV104.push({id:doc.id, ...doc.data()}));
+      acessosDispositivosV104.sort((a,b)=>
+        String(b.criadoEmISO||'').localeCompare(String(a.criadoEmISO||''))
+      );
+      if (state.section === 'controleAcessoV104') render();
+    }, err => {
+      console.error('Erro no controle de acesso:', err);
+      showToast('Erro ao carregar solicitações de acesso: ' + err.message, true);
+    });
+}
+
+function statusAcessoV104(d) {
+  if (d.status === 'AUTORIZADO') return {txt:'AUTORIZADO', cls:'badge-ok'};
+  if (d.status === 'TEMPORARIO') {
+    const ok = d.liberadoAteISO && new Date(d.liberadoAteISO).getTime() > Date.now();
+    return ok
+      ? {txt:'TEMPORÁRIO ATÉ ' + new Date(d.liberadoAteISO).toLocaleString('pt-BR'), cls:'badge-pending'}
+      : {txt:'TEMPORÁRIO EXPIRADO', cls:'badge-danger'};
+  }
+  if (d.status === 'PENDENTE') return {txt:'AGUARDANDO LIBERAÇÃO', cls:'badge-pending'};
+  if (d.status === 'REVOGADO') return {txt:'REVOGADO', cls:'badge-danger'};
+  if (d.status === 'NEGADO') return {txt:'NEGADO', cls:'badge-danger'};
+  return {txt:d.status||'—', cls:'badge-pending'};
+}
+
+function renderControleAcessoV104() {
+  if (getPerfil() !== 'admin') {
+    return '<div class="card"><h3>Acesso negado</h3><p>Somente o Administrador pode gerenciar dispositivos.</p></div>';
+  }
+
+  const pendentes = acessosDispositivosV104.filter(x=>x.status==='PENDENTE').length;
+  const autorizados = acessosDispositivosV104.filter(x=>x.status==='AUTORIZADO').length;
+
+  return `
+    <div class="card" style="margin-bottom:18px;border:1px solid var(--accent)">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Controle de Acesso do Usuário de Compras</div>
+          <div class="card-sub">
+            Restrição aplicada somente a <strong>compras@cryotronics.com.br</strong>.
+            Os demais perfis continuam acessando normalmente.
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi-grid" style="margin-top:14px">
+        <div class="kpi-card"><div class="kpi-label">Solicitações pendentes</div><div class="kpi-value">${pendentes}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Dispositivos/locais autorizados</div><div class="kpi-value accent">${autorizados}</div></div>
+      </div>
+
+      <div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--surface-2);font-size:12px">
+        <strong>Como funciona:</strong> se o usuário de Compras entrar em outro computador ou outra rede,
+        o sistema bloqueia o acesso e cria uma solicitação aqui.
+        O Administrador pode autorizar permanentemente, liberar por 24 horas ou negar/revogar.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Solicitações e dispositivos</div>
+      <div class="table-wrap" style="margin-top:14px">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Usuário</th>
+              <th>IP / Local</th>
+              <th>Dispositivo</th>
+              <th>Primeira tentativa</th>
+              <th>Liberação</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${acessosDispositivosV104.map(d=>{
+              const st=statusAcessoV104(d);
+              return `<tr>
+                <td><span class="badge ${st.cls}">${st.txt}</span></td>
+                <td><strong>${d.nome||'Compras'}</strong><div style="font-size:10px;color:var(--text-muted)">${d.email||'—'}</div></td>
+                <td><strong>${d.ip||'—'}</strong><div style="font-size:10px;color:var(--text-muted)">rede pública observada</div></td>
+                <td>
+                  <span class="code">${String(d.deviceId||'').slice(0,14)}…</span>
+                  <div style="font-size:9px;color:var(--text-muted);max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.plataforma||''} · ${d.navegador||''}</div>
+                </td>
+                <td>${d.criadoEmISO ? new Date(d.criadoEmISO).toLocaleString('pt-BR') : '—'}</td>
+                <td>
+                  ${d.autorizadoPorNome ? `<strong>${d.autorizadoPorNome}</strong>` : '—'}
+                  ${d.autorizadoEmISO ? `<div style="font-size:10px;color:var(--text-muted)">${new Date(d.autorizadoEmISO).toLocaleString('pt-BR')}</div>` : ''}
+                </td>
+                <td style="min-width:290px">
+                  <button class="btn btn-accent btn-sm" data-acesso-autorizar-v104="${d.id}">Autorizar dispositivo/local</button>
+                  <button class="btn btn-ghost btn-sm" data-acesso-24h-v104="${d.id}">Liberar 24h</button>
+                  <button class="btn btn-danger btn-sm" data-acesso-revogar-v104="${d.id}">${d.status==='AUTORIZADO'?'Revogar':'Negar'}</button>
+                </td>
+              </tr>`;
+            }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px">Nenhuma solicitação de acesso registrada.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function atualizarAcessoV104(id, modo) {
+  if (getPerfil() !== 'admin') {
+    showToast('Somente Administrador pode liberar dispositivos.', true);
+    return;
+  }
+  const d = acessosDispositivosV104.find(x=>x.id===id);
+  if (!d) return;
+
+  const payload = {
+    autorizadoPorUid: getUsuarioUid(),
+    autorizadoPorEmail: getUsuarioEmail(),
+    autorizadoPorNome: getUsuarioNome(),
+    autorizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    autorizadoEmISO: new Date().toISOString()
+  };
+
+  if (modo === 'AUTORIZADO') {
+    payload.status = 'AUTORIZADO';
+    payload.liberadoAteISO = '';
+  } else if (modo === 'TEMPORARIO') {
+    payload.status = 'TEMPORARIO';
+    payload.liberadoAteISO = new Date(Date.now() + 24*60*60*1000).toISOString();
+  } else {
+    payload.status = d.status === 'AUTORIZADO' ? 'REVOGADO' : 'NEGADO';
+    payload.liberadoAteISO = '';
+  }
+
+  try {
+    await db.collection('acesso_dispositivos').doc(id).update(payload);
+    showToast(
+      modo==='AUTORIZADO' ? 'Dispositivo/local autorizado.'
+      : modo==='TEMPORARIO' ? 'Acesso liberado por 24 horas.'
+      : 'Acesso negado/revogado.'
+    );
+  } catch(err) {
+    showToast('Erro ao atualizar acesso: ' + err.message, true);
+  }
+}
+
+document.addEventListener('click', e=>{
+  const a=e.target.closest('[data-acesso-autorizar-v104]');
+  if(a){ atualizarAcessoV104(a.dataset.acessoAutorizarV104,'AUTORIZADO'); return; }
+
+  const b=e.target.closest('[data-acesso-24h-v104]');
+  if(b){ atualizarAcessoV104(b.dataset.acesso24hV104,'TEMPORARIO'); return; }
+
+  const c=e.target.closest('[data-acesso-revogar-v104]');
+  if(c){ atualizarAcessoV104(c.dataset.acessoRevogarV104,'NEGAR'); }
+});
+
+auth.onAuthStateChanged(user=>{
+  if(user && getPerfil()==='admin') setTimeout(iniciarControleAcessoV104,250);
+  if(!user && unsubAcessosDispositivosV104){
+    try{unsubAcessosDispositivosV104();}catch(e){}
+    unsubAcessosDispositivosV104=null;
+    acessosDispositivosV104=[];
+  }
+});
 </script>
 
 </body>
