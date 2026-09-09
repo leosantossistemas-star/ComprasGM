@@ -1078,14 +1078,16 @@
       const cfgRef = db.collection('configuracoes').doc('acesso_compras_ip');
       const cfgSnap = await cfgRef.get();
       const ipAtual = await obterIPPublicoV104();
+      const deviceIdAtual = getDeviceIdV104();
 
-      // Primeiro acesso desta versão: captura silenciosamente o IP que
-      // o usuário de Compras já utiliza e mantém o acesso normal.
       if (!cfgSnap.exists) {
         await cfgRef.set({
           bloqueioAtivo: true,
           ipAutorizado: ipAtual,
+          deviceIdAutorizado: deviceIdAtual,
           liberadoAteISO: '',
+          acessoExternoLiberado: false,
+          modoCadastroDispositivo: false,
           usuarioRestrito: email,
           criadoAutomaticamente: true,
           criadoPorUid: user.uid,
@@ -1097,13 +1099,45 @@
 
       const cfg = cfgSnap.data() || {};
 
-      if (cfg.ipAutorizado && String(cfg.ipAutorizado) === String(ipAtual)) return true;
-      if (cfg.acessoExternoLiberado === true) return true;
+      // V11.3: depois que uma máquina é cadastrada, o dispositivo é a
+      // referência principal. Mudança do IP público da empresa não bloqueia
+      // o computador habitual.
+      if (cfg.deviceIdAutorizado && String(cfg.deviceIdAutorizado) === String(deviceIdAtual)) {
+        return true;
+      }
 
+      // Modo de cadastro acionado pelo Administrador: o próximo login do
+      // usuário Compras registra ESTE computador e o IP atual.
+      if (cfg.modoCadastroDispositivo === true) {
+        await cfgRef.set({
+          deviceIdAutorizado: deviceIdAtual,
+          ipAutorizado: ipAtual,
+          modoCadastroDispositivo: false,
+          dispositivoCadastradoEmISO: new Date().toISOString(),
+          dispositivoCadastradoPorUid: user.uid
+        }, {merge:true});
+        return true;
+      }
+
+      // Compatibilidade com instalações antigas: enquanto ainda não houver
+      // máquina autorizada, o IP antigo pode liberar e registra a máquina.
+      if (!cfg.deviceIdAutorizado && cfg.ipAutorizado &&
+          String(cfg.ipAutorizado) === String(ipAtual)) {
+        try {
+          await cfgRef.set({
+            deviceIdAutorizado: deviceIdAtual,
+            dispositivoCadastradoEmISO: new Date().toISOString(),
+            dispositivoCadastradoPorUid: user.uid
+          }, {merge:true});
+        } catch(e) {}
+        return true;
+      }
+
+      if (cfg.acessoExternoLiberado === true) return true;
       if (cfg.liberadoAteISO && new Date(cfg.liberadoAteISO).getTime() > Date.now()) return true;
 
       throw new Error(
-        'Acesso externo bloqueado. Este usuário só pode acessar pela rede/IP habitual da empresa.'
+        'Acesso bloqueado. Este computador não é a máquina autorizada do usuário de Compras.'
       );
     }
 
@@ -5560,7 +5594,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.2';
+        if (versaoEl) versaoEl.textContent = 'V11.3';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -11398,24 +11432,27 @@ function renderControleAcessoV104(){
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:18px">
       <div class="kpi-card"><div class="kpi-label">BLOQUEIO</div>
         <div class="kpi-value" style="color:${c.ipAutorizado?'#9cff00':'#94a3b8'}">${c.ipAutorizado?'ATIVO':'AGUARDANDO PRIMEIRO ACESSO'}</div></div>
-      <div class="kpi-card"><div class="kpi-label">IP AUTORIZADO</div>
-        <div class="kpi-value" style="font-size:20px">${c.ipAutorizado||'Não definido'}</div></div>
+      <div class="kpi-card"><div class="kpi-label">MÁQUINA AUTORIZADA</div>
+        <div class="kpi-value" style="font-size:17px">${c.deviceIdAutorizado?'CADASTRADA':'NÃO CADASTRADA'}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:6px">IP atual salvo: ${c.ipAutorizado||'—'}</div></div>
       <div class="kpi-card"><div class="kpi-label">LIBERAÇÃO TEMPORÁRIA</div>
         <div class="kpi-value" style="font-size:16px">${temp?'ATÉ '+new Date(c.liberadoAteISO).toLocaleString('pt-BR'):'NÃO'}</div></div>
     </div>
 
     <div style="margin-top:18px;padding:15px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2);line-height:1.6">
-      <strong>Funcionamento automático:</strong> o usuário de Compras continua entrando normalmente no local onde já trabalha.
-      No primeiro acesso desta versão, o sistema registra silenciosamente o IP atual como autorizado.
-      Depois disso, qualquer tentativa por outro IP é bloqueada. O Administrador só precisa agir se quiser
-      trocar o IP autorizado ou liberar acesso externo temporariamente.
+      <strong>Funcionamento:</strong> a máquina habitual do usuário Compras é a referência principal.
+      Assim, mesmo que o provedor altere o IP público da empresa, o computador autorizado continua entrando normalmente.
+      Para cadastrar ou trocar a máquina, clique em <strong>Cadastrar próximo acesso como máquina autorizada</strong>
+      e peça ao usuário para entrar uma vez no computador correto.
     </div>
 
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:20px">
-      <button class="btn btn-ghost" id="btnUsarIpAtualV105">📍 Trocar IP autorizado para este IP</button>
+      <button class="btn btn-ghost" id="btnCadastrarMaquinaV113">💻 Cadastrar próximo acesso como máquina autorizada</button>
+      <button class="btn btn-ghost" id="btnUsarIpAtualV105">📍 Atualizar IP autorizado para este IP</button>
       <button class="btn btn-accent" id="btnLiberar24V105">🔓 Liberar acesso externo por 24h</button>
     </div>
 
+    ${c.modoCadastroDispositivo?'<div style="margin-top:14px"><span class="badge badge-pending">AGUARDANDO LOGIN NA MÁQUINA QUE SERÁ AUTORIZADA</span></div>':''}
     <div style="margin-top:14px;font-size:11px;color:var(--text-muted)">
       Última alteração: ${c.atualizadoEmISO?new Date(c.atualizadoEmISO).toLocaleString('pt-BR'):'—'}
       ${c.atualizadoPorNome?' por '+c.atualizadoPorNome:''}
@@ -11524,6 +11561,15 @@ document.addEventListener('click',async e=>{
       const r=await gerarBackupGeralV110();
       showToast(`Backup salvo: ${r.nome} — ${r.total} registros${r.erros.length?' — atenção: '+r.erros.length+' coleção(ões) sem leitura':''}.`);
     }catch(err){showToast('Erro ao gerar backup: '+err.message,true);}
+    return;
+  }
+  if(e.target.closest('#btnCadastrarMaquinaV113')){
+    await salvarConfigAcessoV105({
+      modoCadastroDispositivo:true,
+      acessoExternoLiberado:false,
+      liberadoAteISO:''
+    });
+    showToast('Pronto. O próximo login do usuário Compras será cadastrado como a máquina autorizada.');
     return;
   }
   if(e.target.closest('#btnUsarIpAtualV105')){
