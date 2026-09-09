@@ -3081,17 +3081,17 @@ auth.onAuthStateChanged(async (user) => {
       const cond = ed?.condicaoPagamento || (
         String(ed?.condicaoCompra||'').toLowerCase().includes('fatur') ? 'PARCELADO' : 'A_VISTA'
       );
-      const qtd = Math.max(1, Number(ed?.numeroParcelas || ed?.parcelas?.length || (cond==='PARCELADO'?2:1)));
+      const qtd = Math.max(1, Math.min(120, Number(ed?.numeroParcelas || ed?.parcelas?.length || 1)));
       return `
         <div class="field"><label>Condição de pagamento *</label>
           <select id="nfCondicaoPagamento" required>
             <option value="A_VISTA" ${cond==='A_VISTA'?'selected':''}>À vista</option>
-            <option value="PARCELADO" ${cond==='PARCELADO'?'selected':''}>Parcelado</option>
+            <option value="PARCELADO" ${cond==='PARCELADO'?'selected':''}>Faturado / Parcelado</option>
           </select>
         </div>
         <div class="field" id="nfNumeroParcelasWrap" style="${cond==='PARCELADO'?'':'display:none'}">
           <label>Número de parcelas *</label>
-          <input type="number" id="nfNumeroParcelas" min="2" max="24" step="1" value="${cond==='PARCELADO'?qtd:2}">
+          <input type="number" id="nfNumeroParcelas" min="1" max="120" step="1" value="${cond==='PARCELADO'?qtd:1}">
         </div>
         <div class="field" style="grid-column:span 2" id="nfParcelasWrap">
           <div id="nfParcelasCampos"></div>
@@ -3115,7 +3115,7 @@ auth.onAuthStateChanged(async (user) => {
         return;
       }
 
-      const qtd = Math.max(2, Math.min(24, Number(document.getElementById('nfNumeroParcelas')?.value || registro?.numeroParcelas || 2)));
+      const qtd = Math.max(1, Math.min(120, Number(document.getElementById('nfNumeroParcelas')?.value || registro?.numeroParcelas || 1)));
       const existentes = Array.isArray(registro?.parcelas) && registro.parcelas.length ? registro.parcelas : (Array.isArray(registro?.parcelasPagamento) ? registro.parcelasPagamento : []);
       const totalVisualTexto = document.getElementById('nfValorTotalVisual')?.value || '';
       const total = parseMoney(totalVisualTexto || '0');
@@ -3125,7 +3125,7 @@ auth.onAuthStateChanged(async (user) => {
         <div class="card" style="padding:14px;margin:0;background:var(--surface-2)">
           <div style="font-weight:800;margin-bottom:10px">Cronograma das parcelas</div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
-            Informe o prazo de cada parcela em dias (ex.: 30, 60, 90). O vencimento é calculado a partir da data do documento e o valor é dividido igualmente.
+            Informe o prazo de cada parcela em dias (ex.: faturado 1x = 28 dias; 3x = 30, 60 e 90 dias). Cada vencimento é calculado automaticamente a partir da data da NF e o valor é dividido entre as parcelas.
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">
             ${Array.from({length:qtd},(_,i)=>{
@@ -3165,7 +3165,7 @@ auth.onAuthStateChanged(async (user) => {
       }
 
       const inputs=[...document.querySelectorAll('.nfParcelaPrazo')];
-      const qtd=inputs.length || Math.max(2,Number(document.getElementById('nfNumeroParcelas')?.value||2));
+      const qtd=inputs.length || Math.max(1,Math.min(120,Number(document.getElementById('nfNumeroParcelas')?.value||1)));
       // Ajusta centavos: última parcela recebe eventual diferença de arredondamento.
       const base=Math.floor((total/qtd)*100)/100;
       let acumulado=0;
@@ -4230,7 +4230,7 @@ auth.onAuthStateChanged(async (user) => {
                   <option value="PARCELADO" ${(data.condicaoPagamento || (String(data.condPag||'').toLowerCase().includes('vista')?'A_VISTA':'PARCELADO'))==='PARCELADO'?'selected':''}>Faturado / Parcelado</option>
                 </select>
               </div>
-              <div class="field" id="rcNumeroParcelasWrap"><label>Número de parcelas *</label><input type="number" min="2" max="24" step="1" id="rcNumeroParcelas" value="${data.numeroParcelas || (data.vencimentos?.length || 2)}" /></div>
+              <div class="field" id="rcNumeroParcelasWrap"><label>Número de parcelas *</label><input type="number" min="1" max="120" step="1" id="rcNumeroParcelas" value="${Math.max(1,Math.min(120,Number(data.numeroParcelas || data.vencimentos?.length || 1)))}" /></div>
               <div class="field"><label>Data Base *</label><input type="date" id="rcDataBase" value="${data.dataBase || data.data || today}" required /></div>
               <div class="field" style="grid-column:span 4"><div id="rcParcelasCampos"></div></div>
               <div class="field"><label>Solicitante *</label><input type="text" id="rcSolicitante" value="${data.solicitante || getUsuarioNome()}" required placeholder="Seu nome" /></div>
@@ -4430,7 +4430,7 @@ auth.onAuthStateChanged(async (user) => {
         box.innerHTML=`<div class="card" style="padding:12px;margin:0;background:var(--surface-2)"><strong>À vista</strong><div style="font-size:12px;color:var(--text-muted);margin-top:4px">Vencimento: ${fmt.date(dataBase)}</div></div>`;
         return;
       }
-      const qtd=Math.max(2,Math.min(24,Number(document.getElementById('rcNumeroParcelas')?.value || data?.numeroParcelas || 2)));
+      const qtd=Math.max(1,Math.min(120,Number(document.getElementById('rcNumeroParcelas')?.value || data?.numeroParcelas || 1)));
       const existentes=Array.isArray(data?.parcelasPagamento)?data.parcelasPagamento:[];
       box.innerHTML=`<div class="card" style="padding:14px;margin:0;background:var(--surface-2)"><div style="font-weight:800;margin-bottom:8px">Prazos de pagamento</div><div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Informe os prazos em dias. As datas são calculadas automaticamente e serão carregadas no recebimento da NF.</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">${Array.from({length:qtd},(_,i)=>{const ex=existentes[i]||{};const prazo=ex.prazoDias ?? ((i+1)*30);const venc=ex.vencimento || somarDiasISO(dataBase,prazo);return `<div class="field" style="margin:0"><label>Parcela ${i+1} — prazo (dias)</label><input type="number" min="0" step="1" class="rcParcelaPrazo" value="${prazo}"><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Vencimento: <strong class="rcParcelaVenc">${fmt.date(venc)}</strong></div></div>`;}).join('')}</div></div>`;
       box.querySelectorAll('.rcParcelaPrazo').forEach(inp=>inp.addEventListener('input',()=>{const venc=somarDiasISO(document.getElementById('rcDataBase')?.value||hojeISO(),inp.value);inp.closest('.field')?.querySelector('.rcParcelaVenc')?.replaceChildren(document.createTextNode(fmt.date(venc)));}));
@@ -4467,7 +4467,12 @@ auth.onAuthStateChanged(async (user) => {
       });
       document.getElementById('rcDataBase')?.addEventListener('change', () => montarCamposParcelasRC());
       document.getElementById('rcCondicaoPagamento')?.addEventListener('change', () => montarCamposParcelasRC());
-      document.getElementById('rcNumeroParcelas')?.addEventListener('input', () => montarCamposParcelasRC());
+      document.getElementById('rcNumeroParcelas')?.addEventListener('input', (e) => {
+        const bruto=Number(e.target.value || 1);
+        if(bruto>120) e.target.value=120;
+        if(bruto<1 && e.target.value!=='') e.target.value=1;
+        montarCamposParcelasRC();
+      });
       montarCamposParcelasRC();
       const filtrarDestinosPorCentro = () => {
         const centro = centroCustoNormalizado(document.getElementById('rcCentroCusto')?.value) || 'SANTOS';
@@ -5594,7 +5599,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.3';
+        if (versaoEl) versaoEl.textContent = 'V11.4';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -6101,7 +6106,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
         document.getElementById('nfDataDocumento')?.addEventListener('change', atualizarPagamento);
         document.getElementById('nfCondicaoPagamento')?.addEventListener('change', atualizarPagamento);
-        document.getElementById('nfNumeroParcelas')?.addEventListener('input', atualizarPagamento);
+        document.getElementById('nfNumeroParcelas')?.addEventListener('input', (e) => {
+          const bruto = Number(e.target.value || 1);
+          if (bruto > 120) e.target.value = 120;
+          if (bruto < 1 && e.target.value !== '') e.target.value = 1;
+          atualizarPagamento();
+        });
         montarCamposParcelasNF(ed || null);
 
         const carregarRC = () => {
@@ -6198,7 +6208,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const condRC=rc.condicaoPagamento || (normalize(rc.condPag||'').includes('vista')?'A_VISTA':'PARCELADO');
           if(condEl) condEl.value=condRC;
           const qtdRC=Number(rc.numeroParcelas || rc.parcelasPagamento?.length || rc.vencimentos?.length || 1);
-          if(qtdEl && qtdRC>1) qtdEl.value=qtdRC;
+          if(qtdEl && qtdRC>=1) qtdEl.value=Math.min(120,Math.max(1,qtdRC));
           montarCamposParcelasNF({condicaoPagamento:condRC,numeroParcelas:qtdRC,parcelas:Array.isArray(rc.parcelasPagamento)?rc.parcelasPagamento:[]});
           showToast(`${rc.numero} carregada. Confira somente NF, data e condições de pagamento.`);
         };
@@ -6304,7 +6314,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             valorTotal: totalRC,
             condicaoPagamento: document.getElementById('nfCondicaoPagamento').value,
             numeroParcelas: document.getElementById('nfCondicaoPagamento').value === 'PARCELADO'
-              ? Math.max(2, Number(document.getElementById('nfNumeroParcelas').value || parcelas.length || 2))
+              ? Math.max(1, Math.min(120, Number(document.getElementById('nfNumeroParcelas').value || parcelas.length || 1)))
               : 1,
             parcelas,
             condicaoCompra: document.getElementById('nfCondicaoPagamento').value === 'PARCELADO' ? 'PARCELADO' : 'À vista',
