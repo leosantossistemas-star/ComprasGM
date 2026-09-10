@@ -575,6 +575,7 @@
         <button class="btn btn-ghost" id="btnAlterarMinhaSenha">Alterar minha senha</button>
         <button class="btn btn-logout" id="btnLogout">Sair</button>
         <button class="btn btn-ghost" id="btnResetFilters">Limpar filtros</button>
+        <button class="btn btn-ghost" id="btnAtualizarDadosV125" title="Atualiza somente as coleções usadas nesta tela">↻ Atualizar dados</button>
         <button class="btn btn-ghost" id="btnExportCSV">Exportar CSV</button>
         <button class="btn btn-accent" id="btnExportDataJS">Exportar data.js</button>
       </div>
@@ -5941,7 +5942,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V12.4';
+        if (versaoEl) versaoEl.textContent = 'V12.5';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -7986,13 +7987,131 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     /* ============================================================
        INICIALIZAÇÃO + MENU MOBILE
     ============================================================ */
+
+    /* ============================================================
+       V12.5 — MODO ECONÔMICO FIRESTORE
+       Objetivo: reduzir drasticamente leituras no plano Spark.
+       - Coleções grandes deixam de ficar permanentemente em onSnapshot.
+       - Dados são carregados sob demanda por módulo.
+       - Cache em memória por 5 minutos.
+       - Após ações de gravação, a seção ativa é atualizada automaticamente.
+       ============================================================ */
+    const V125_CACHE_MS = 5 * 60 * 1000;
+    const v125UltimaCarga = Object.create(null);
+    const v125Carregando = Object.create(null);
+
+    function v125AplicarSnapshot(nome,snapshot){
+      const arr=[]; snapshot.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
+      switch(nome){
+        case 'materiais': allItems=arr; break;
+        case 'fornecedores': fornecedores=arr; break;
+        case 'frotas': frotas=arr; break;
+        case 'requisicoes': rcs=arr; break;
+        case 'recebimentos_nf': recebimentosNF=mesclarHistoricoComFirestore(arr); break;
+        case 'solicitacoes': solicitacoes=arr; break;
+        case 'orcamentos_tecnicos': orcamentosTecnicos=arr; break;
+        case 'almoxarifado_itens': almoxItensV107=arr; break;
+        case 'almoxarifado_movimentacoes': almoxMovV107=arr; break;
+        case 'rh_colaboradores': rhColaboradores=arr; break;
+        case 'rh_cargos': rhCargos=arr; break;
+        case 'rh_folhas': rhFolhas=arr; break;
+        case 'rh_ferias': rhFerias=arr; break;
+        case 'rh_asos': rhAsos=arr; break;
+        case 'rh_ccts': rhCcts=arr; break;
+        case 'rh_entregas_epi': rhEntregasEpi=arr; break;
+        case 'rh_historico': rhHistorico=arr; break;
+      }
+    }
+
+    async function v125CarregarColecao(nome,force=false){
+      const agora=Date.now();
+      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<V125_CACHE_MS) return;
+      if(v125Carregando[nome]) return v125Carregando[nome];
+
+      v125Carregando[nome]=(async()=>{
+        try{
+          const snap=await db.collection(nome).get();
+          v125AplicarSnapshot(nome,snap);
+          v125UltimaCarga[nome]=Date.now();
+        }catch(err){
+          console.error('V12.5 — erro ao carregar '+nome,err);
+          throw err;
+        }finally{
+          delete v125Carregando[nome];
+        }
+      })();
+      return v125Carregando[nome];
+    }
+
+    async function v125CarregarConfigAlmox(force=false){
+      const nome='configuracoes/almoxarifado_controle';
+      if(!force && v125UltimaCarga[nome] && Date.now()-v125UltimaCarga[nome]<V125_CACHE_MS)return;
+      const s=await db.collection('configuracoes').doc('almoxarifado_controle').get();
+      almoxConfigV107=s.exists?s.data():{vinculoAtivo:false};
+      v125UltimaCarga[nome]=Date.now();
+    }
+
+    function v125Dependencias(sec){
+      const mapa={
+        dashboard:['requisicoes','solicitacoes','frotas'],
+        dashboardCustos:['requisicoes','recebimentos_nf','frotas'],
+        dashboardCustosExplodidos:['requisicoes','recebimentos_nf','frotas'],
+        materiais:['materiais'],
+        categorias:['materiais'],
+        fornecedores:['fornecedores'],
+        novo:['materiais','fornecedores'],
+        frotas:['frotas','requisicoes','recebimentos_nf'],
+        requisicoes:['requisicoes','frotas','fornecedores','materiais'],
+        recebimentoNFs:['recebimentos_nf','requisicoes','frotas','fornecedores','materiais','almoxarifado_itens'],
+        pagamentosNF:['recebimentos_nf'],
+        solicitar:['solicitacoes','frotas','materiais'],
+        orcamentoTecnico:['orcamentos_tecnicos','frotas','materiais'],
+        almoxarifado:['almoxarifado_itens','almoxarifado_movimentacoes','materiais','frotas'],
+        dashboardAlmoxV109:['almoxarifado_itens','almoxarifado_movimentacoes','materiais'],
+        rh:['rh_colaboradores','rh_cargos','rh_folhas','rh_ferias','rh_asos','rh_ccts','rh_entregas_epi','rh_historico'],
+        controleAcessoV104:[]
+      };
+      return mapa[sec]||[];
+    }
+
+    async function v125CarregarSecao(sec=state.section,force=false){
+      const deps=v125Dependencias(sec);
+      try{
+        await Promise.all(deps.map(c=>v125CarregarColecao(c,force)));
+        if(['almoxarifado','dashboardAlmoxV109','recebimentoNFs','controleAcessoV104'].includes(sec)){
+          await v125CarregarConfigAlmox(force).catch(()=>{});
+        }
+        return true;
+      }catch(err){
+        showToast('Erro ao atualizar dados desta tela: '+(err.message||err),true);
+        return false;
+      }
+    }
+
+    window.v125AtualizarTela=async function(force=true){
+      await v125CarregarSecao(state.section,force);
+      render();
+    };
+
+    function v125AcaoProvavelmenteGrava(btn){
+      if(!btn)return false;
+      const txt=normalize(btn.textContent||'');
+      return /(salvar|confirmar|aprovar|rejeitar|enviar|arquivar|excluir|concluir|encerrar|baixar|entrada|cadastrar|alterar|liberar|bloquear)/.test(txt);
+    }
+
+    // Atualização pós-gravação: somente a seção em uso, sem religar dezenas de listeners.
+    document.addEventListener('click',e=>{
+      const b=e.target.closest('button');
+      if(!v125AcaoProvavelmenteGrava(b))return;
+      setTimeout(()=>v125CarregarSecao(state.section,true).then(()=>render()).catch(()=>{}),1400);
+    },false);
+
     function iniciarListenersRH(){
-      const listen=(col,setter)=>db.collection(col).onSnapshot(s=>{const a=[];s.forEach(d=>a.push({id:d.id,...d.data()}));setter(a);if(state.section==='rh')render();},e=>console.error('Listener '+col,e));
-      listen('rh_colaboradores',a=>rhColaboradores=a);listen('rh_cargos',a=>rhCargos=a);listen('rh_folhas',a=>rhFolhas=a);listen('rh_ferias',a=>rhFerias=a);listen('rh_asos',a=>rhAsos=a);listen('rh_ccts',a=>rhCcts=a);listen('rh_entregas_epi',a=>rhEntregasEpi=a);listen('rh_historico',a=>rhHistorico=a);
+      return v125CarregarSecao('rh',false);
     }
     function iniciarListenerOrcamentos(){
-      if(!podeAcessarOrcamentoTecnico())return;
-      db.collection('orcamentos_tecnicos').onSnapshot(s=>{const a=[];s.forEach(d=>a.push({id:d.id,...d.data()}));orcamentosTecnicos=a;if(state.section==='orcamentoTecnico')render();},e=>console.error('Listener OT',e));
+      if(!podeAcessarOrcamentoTecnico())return Promise.resolve();
+      return v125CarregarColecao('orcamentos_tecnicos',false);
     }
 
     function iniciarSistema() {
@@ -8001,93 +8120,36 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        iniciarListenersRH();
-        listenersA107();
-        db.collection('recebimentos_nf').onSnapshot((snapshot) => {
-          const list=[]; snapshot.forEach(doc=>list.push({id:doc.id,...doc.data()}));
-          recebimentosNF=mesclarHistoricoComFirestore(list);
-          if(state.section==='recebimentoNFs') render();
-        }, error => { console.error('Erro no listener RH de recebimentos NF:', error); showToast('Erro ao carregar recebimentos de NF: '+error.message,true); });
-        document.getElementById("sidebarSource").textContent = "RH + Recebimento NFs - Firebase Firestore";
+        document.getElementById("sidebarSource").textContent = "Modo econômico — RH / Firestore";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
+
+        v125CarregarSecao('rh',false).then(()=>render());
         render();
-        document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>{
+
+        document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',async()=>{
           if(!['rh','recebimentoNFs','almoxarifado','dashboardAlmoxV109'].includes(btn.dataset.section))return;
-          state.section=btn.dataset.section; render();
+          state.section=btn.dataset.section;
+          await v125CarregarSecao(state.section,false);
+          render();
         }));
         document.getElementById("btnResetFilters")?.addEventListener("click",()=>{state.rhBusca='';render();});
+        document.getElementById("btnAtualizarDadosV125")?.addEventListener("click",async()=>{await v125CarregarSecao(state.section,true);render();});
         document.getElementById("btnExportCSV")?.style.setProperty('display','none');
         document.getElementById("btnExportDataJS")?.style.setProperty('display','none');
-        migrarRHInicialSeNecessario();
         return;
       }
-      // Listeners em tempo real
-      listenersA107();
-      if (['gerente','admin'].includes(perfilAtual)) setTimeout(()=>seedA107().catch(e=>console.error('Seed almox',e)),900);
-      if (['gerente','admin'].includes(perfilAtual)) setTimeout(()=>migrarEstoqueFisicoV109().catch(e=>console.error('Migração física V10.9',e)),1400);
-      db.collection('materiais').onSnapshot((snapshot) => {
-        const items = [];
-        snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-        allItems = items;
+      // V12.5 — sem listeners permanentes para coleções grandes.
+      // Carrega somente as dependências da tela inicial e reutiliza cache por 5 minutos.
+      v125CarregarSecao(state.section,false).then(()=>{
         render();
-        if(['gerente','admin'].includes(getPerfil())){
-          setTimeout(()=>sincronizarCadastroMateriaisA108().catch(e=>{
-            console.error('Sincronização cadastro → almoxarifado V10.8:',e);
-            showToast('Erro ao sincronizar cadastro de Materiais com Almoxarifado: '+e.message,true);
-          }),250);
-        }
-        console.log('Materiais sincronizados em tempo real.');
-      }, error => { console.error('Erro no listener de materiais:', error); showToast('Erro ao carregar materiais: ' + error.message, true); });
+      }).catch(err=>console.error('Carga inicial V12.5:',err));
 
-      db.collection('fornecedores').onSnapshot((snapshot) => {
-        const list = [];
-        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-        fornecedores = list;
-      }, error => { console.error('Erro no listener de fornecedores:', error); showToast('Erro ao carregar fornecedores: ' + error.message, true); });
+      // Migrações históricas e seeds NÃO são mais executados em todo login.
+      // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
+      // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
+      // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      let destinosPadraoVerificados = false;
-      db.collection('frotas').onSnapshot(async (snapshot) => {
-        const list = [];
-        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-        frotas = list;
-
-        if (!destinosPadraoVerificados) {
-          destinosPadraoVerificados = true;
-          await migrarLegadoParaSantos();
-          await garantirDestinosPadrao();
-        }
-
-        if (state.section === 'frotas' || state.section === 'dashboard' || state.section === 'requisicoes') {
-          render();
-        }
-      }, error => { console.error('Erro no listener de frotas:', error); showToast('Erro ao carregar frotas: ' + error.message, true); });
-
-      db.collection('requisicoes').onSnapshot((snapshot) => {
-        const list = [];
-        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-        rcs = list;
-        if (state.section === 'dashboard' || state.section === 'frotas' || state.section === 'requisicoes') render();
-      }, error => { console.error('Erro no listener de RCs:', error); showToast('Erro ao carregar requisições: ' + error.message, true); });
-
-      db.collection('recebimentos_nf').onSnapshot((snapshot) => {
-        const list = [];
-        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-        recebimentosNF = mesclarHistoricoComFirestore(list);
-        if (state.section === 'recebimentoNFs' || state.section === 'pagamentosNF' || state.section === 'frotas' || state.section === 'dashboard' || state.section === 'dashboardCustos') render();
-      }, error => { console.error('Erro no listener de recebimentos NF:', error); showToast('Erro ao carregar recebimentos de NF: ' + error.message, true); });
-
-      // NOVO: Solicitações
-      db.collection('solicitacoes').onSnapshot((snapshot) => {
-        const list = [];
-        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-        solicitacoes = list;
-        if (state.section === 'solicitar') render();
-        prepararTTLDasSolicitacoes();
-      }, error => { console.error('Erro no listener de solicitações:', error); showToast('Erro ao carregar solicitações: ' + error.message, true); });
-
-      if (['gerente','admin'].includes(perfilAtual)) { iniciarListenersRH(); migrarRHInicialSeNecessario(); }
-      iniciarListenerOrcamentos();
-      document.getElementById("sidebarSource").textContent = "Dados em tempo real - Firebase Firestore";
+      document.getElementById("sidebarSource").textContent = "Modo econômico — Firebase Firestore";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -8104,7 +8166,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           state.section = btn.dataset.section;
           state.page = 1;
           state.rcPage = 1;
-          render();
+          const app=document.getElementById('appContent');
+          if(app) app.innerHTML='<div class="loading"><div class="spinner"></div><span>Atualizando somente os dados deste módulo…</span></div>';
+          v125CarregarSecao(state.section,false).then(()=>render()).catch(()=>render());
           // Fechar menu mobile ao clicar em um item
           if (window.innerWidth <= 768) {
             document.querySelector('.sidebar').classList.remove('mobile-open');
@@ -8114,6 +8178,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       });
 
       document.getElementById("btnResetFilters").addEventListener("click", resetFilters);
+      document.getElementById("btnAtualizarDadosV125")?.addEventListener("click",async()=>{
+        const b=document.getElementById("btnAtualizarDadosV125");
+        if(b){b.disabled=true;b.textContent='Atualizando...';}
+        await v125CarregarSecao(state.section,true);
+        render();
+        if(b){b.disabled=false;b.textContent='↻ Atualizar dados';}
+      });
       document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
       document.getElementById("btnExportDataJS").addEventListener("click", exportDataJS);
 
@@ -12567,9 +12638,11 @@ function drawDashboardAlmoxV109(){
 }
 
 function listenersA107(){
- db.collection('almoxarifado_itens').onSnapshot(s=>{almoxItensV107=[];s.forEach(d=>almoxItensV107.push({id:d.id,...d.data()}));if(['almoxarifado','dashboardAlmoxV109'].includes(state.section))render();});
- db.collection('almoxarifado_movimentacoes').onSnapshot(s=>{almoxMovV107=[];s.forEach(d=>almoxMovV107.push({id:d.id,...d.data()}));if(['almoxarifado','dashboardAlmoxV109'].includes(state.section))render();});
- db.collection('configuracoes').doc('almoxarifado_controle').onSnapshot(s=>{almoxConfigV107=s.exists?s.data():{vinculoAtivo:false};if(['almoxarifado','controleAcessoV104'].includes(state.section))render();});
+  return Promise.all([
+    v125CarregarColecao('almoxarifado_itens',false),
+    v125CarregarColecao('almoxarifado_movimentacoes',false),
+    v125CarregarConfigAlmox(false)
+  ]);
 }
 document.addEventListener('change',e=>{
  if(e.target.id==='dashAlmoxUnidadeV110'){state.dashAlmoxUnidadeV110=e.target.value;render();return;}
