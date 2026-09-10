@@ -1859,17 +1859,31 @@ auth.onAuthStateChanged(async (user) => {
     /* ============================================================
        FILTROS PARA RCs (mantido)
     ============================================================ */
+    function statusRCV119(valor){
+      const s=normalize(String(valor||'')).replace(/[\s-]+/g,'_');
+      if(s==='em_aprovacao'||s==='emaprovacao') return 'em_aprovacao';
+      if(s==='rascunho'||s==='em_compras'||s==='compras'||s==='emcompras') return 'rascunho';
+      if(s==='aprovado'||s==='aprovada') return 'aprovado';
+      if(s==='rejeitado'||s==='rejeitada') return 'rejeitado';
+      if(s==='bloqueado'||s==='bloqueada') return 'bloqueado';
+      if(s==='arquivado'||s==='arquivada') return 'arquivado';
+      return s;
+    }
+    function labelStatusRCV119(valor){
+      return ({rascunho:'Em Compras',em_aprovacao:'Em Aprovação',aprovado:'Aprovado',rejeitado:'Rejeitado',bloqueado:'Bloqueado (limite)',arquivado:'Arquivado'})[statusRCV119(valor)] || valor || '—';
+    }
+
     function getFilteredRCs() {
       const f = state.rcFilters;
       return rcs.filter(rc => {
-        if (f.status && rc.status !== f.status) return false;
+        if (f.status && statusRCV119(rc.status) !== f.status) return false;
         if (f.dataIni && rc.data < f.dataIni) return false;
         if (f.dataFim && rc.data > f.dataFim) return false;
         if (f.fornecedor && rc.fornecedor !== f.fornecedor) return false;
         if (f.destino && rc.aplicacao !== f.destino) return false;
         if (f.centroCusto && getCentroCustoRegistro(rc) !== f.centroCusto) return false;
         if (f.aprovador) {
-          const aprovador = String(rc.aprovadoPorNome || rc.aprovadoPor || rc.aprovador || '').trim();
+          const aprovador = String(rc.aprovadoPorNome || rc.aprovadoPor || rc.aprovador || rc.aprovado_por || rc.usuarioAprovador || rc.aprovadoPorEmail || '').trim();
           if (aprovador !== f.aprovador) return false;
         }
         return true;
@@ -4264,13 +4278,13 @@ auth.onAuthStateChanged(async (user) => {
 
       const total = filtered.length;
       const totalValor = filtered.reduce((s, r) => s + (r.total || 0), 0);
-      const aprovados = filtered.filter(r => r.status === 'aprovado').length;
-      const pendentes = filtered.filter(r => r.status === 'em_aprovacao').length;
+      const aprovados = filtered.filter(r => statusRCV119(r.status) === 'aprovado').length;
+      const pendentes = filtered.filter(r => statusRCV119(r.status) === 'em_aprovacao').length;
 
       const statusOptions = ['rascunho','em_aprovacao','aprovado','rejeitado','bloqueado','arquivado'];
       const fornecedoresList = [...new Set(rcs.map(r => r.fornecedor).filter(Boolean))].sort();
       const destinosList = [...new Set(rcs.map(r => r.aplicacao).filter(Boolean))].sort();
-      const aprovadoresList = [...new Set(rcs.map(r => String(r.aprovadoPorNome || r.aprovadoPor || r.aprovador || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+      const aprovadoresList = [...new Set(rcs.map(r => String(r.aprovadoPorNome || r.aprovadoPor || r.aprovador || r.aprovado_por || r.usuarioAprovador || r.aprovadoPorEmail || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
 
       let html = `
         <div class="card" style="margin-bottom:20px;">
@@ -4285,7 +4299,7 @@ auth.onAuthStateChanged(async (user) => {
             <div class="kpi-card"><div class="kpi-label">Pendentes</div><div class="kpi-value" style="color:var(--warning);">${fmt.num(pendentes)}</div></div>
           </div>
           <div class="rc-filters">
-            <div class="field"><label>Status</label><select id="rcFiltroStatus"><option value="">Todos</option>${statusOptions.map(s => `<option value="${s}" ${state.rcFilters.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+            <div class="field"><label>Status</label><select id="rcFiltroStatus"><option value="">Todos</option>${statusOptions.map(s => `<option value="${s}" ${state.rcFilters.status===s?'selected':''}>${labelStatusRCV119(s)}</option>`).join('')}</select></div>
             <div class="field"><label>Data Início</label>
               <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
                 <input type="text" id="rcFiltroDataIniTexto" value="${isoParaBRData(state.rcFilters.dataIni||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
@@ -4342,14 +4356,14 @@ auth.onAuthStateChanged(async (user) => {
 
       const rows = pageItems.map(rc => {
         const statusMap = {
-          rascunho: { label: 'Rascunho', cls: 'status-rascunho' },
+          rascunho: { label: 'Em Compras', cls: 'status-rascunho' },
           em_aprovacao: { label: 'Em Aprovação', cls: 'status-em_aprovacao' },
           aprovado: { label: 'Aprovado', cls: 'status-aprovado' },
           rejeitado: { label: 'Rejeitado', cls: 'status-rejeitado' },
           bloqueado: { label: 'Bloqueado (limite)', cls: 'status-bloqueado' },
           arquivado: { label: 'Arquivado', cls: 'status-arquivado' },
         };
-        const st = statusMap[rc.status] || { label: rc.status, cls: '' };
+        const statusNormal = statusRCV119(rc.status); const st = statusMap[statusNormal] || { label: rc.status, cls: '' };
         const destinoLabel = rc.aplicacao || '—';
         const totalVal = rc.total || 0;
 
@@ -4357,7 +4371,7 @@ auth.onAuthStateChanged(async (user) => {
         acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc="${rc.numero}" title="Visualizar conteúdo da RC">🔍 Ver</button>`);
 
         // PDF e WhatsApp: disponíveis apenas se NÃO for rejeitado e NÃO for rascunho/arquivado
-        if (rc.status !== 'rejeitado' && rc.status !== 'rascunho' && rc.status !== 'arquivado') {
+        if (statusNormal !== 'rejeitado' && statusNormal !== 'rascunho' && statusNormal !== 'arquivado') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-pdf="${rc.numero}">PDF</button>`);
           acoes.push(`<button class="btn btn-ghost btn-sm" data-whats-rc="${rc.numero}">Whats</button>`);
         }
@@ -4367,7 +4381,7 @@ auth.onAuthStateChanged(async (user) => {
         }
 
         if (perfil === 'usuario' || perfil === 'gerente' || perfil === 'admin') {
-          if (rc.status === 'rascunho') {
+          if (statusNormal === 'rascunho') {
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
             acoes.unshift(`<button class="btn btn-warning btn-sm" data-arquivar-rc="${rc.numero}">Arquivar</button>`);
             acoes.unshift(`<button class="btn btn-accent btn-sm" data-enviar-rc="${rc.numero}">Enviar</button>`);
@@ -4378,12 +4392,12 @@ auth.onAuthStateChanged(async (user) => {
         }
 
         if (perfil === 'gerente' || perfil === 'admin') {
-          if (rc.status === 'em_aprovacao') {
+          if (statusNormal === 'em_aprovacao') {
             acoes.unshift(`<button class="btn btn-success btn-sm" data-aprovar-rc="${rc.numero}">Aprovar</button>`);
             acoes.unshift(`<button class="btn btn-danger btn-sm" data-rejeitar-rc="${rc.numero}">Rejeitar</button>`);
           }
           // V11.8: Gerente/Admin podem abrir qualquer RC e devolvê-la ao Compras.
-          if (rc.status !== 'rascunho' && rc.status !== 'arquivado') {
+          if (statusNormal !== 'rascunho' && statusNormal !== 'arquivado') {
             acoes.unshift(`<button class="btn btn-warning btn-sm" data-voltar-compras-rc="${rc.numero}">Voltar p/ Compras</button>`);
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
           }
@@ -4401,7 +4415,7 @@ auth.onAuthStateChanged(async (user) => {
           <td><strong>${fmt.money(totalVal)}</strong></td>
           <td>${fmt.date(rc.data)}</td>
           <td><span class="destino-badge">${destinoLabel}</span></td>
-          ${['gerente','admin'].includes(perfil) ? `<td>${rc.status==='aprovado' ? (rc.aprovadoPorNome || rc.aprovadoPor || rc.aprovador || 'Não informado') : '—'}</td>` : ''}
+          ${['gerente','admin'].includes(perfil) ? `<td>${statusNormal==='aprovado' ? (rc.aprovadoPorNome || rc.aprovadoPor || rc.aprovador || rc.aprovado_por || rc.usuarioAprovador || rc.aprovadoPorEmail || 'Aprovação histórica sem identificação') : '—'}</td>` : ''}
           <td>${acoes.join(' ')}</td>
         </tr>`;
       }).join('');
@@ -5006,9 +5020,14 @@ function gerarPDF(rcData) {
     }
 
     function resetFilters() {
-      state.filters = { busca: "", categoria: "", subcategoria: "", fornecedor: "", cadastroCompleto: "", unidade: "", usuario: "" };
+      state.filters = { busca:'', categoria:'', subcategoria:'', fornecedor:'', cadastroCompleto:'', unidade:'', usuario:'' };
+      state.rcFilters = { status:'', dataIni:'', dataFim:'', fornecedor:'', destino:'', centroCusto:'', aprovador:'' };
+      state.dashboardFilters = { dataIni:'', dataFim:'', fornecedor:'', destino:'', centroCusto:'' };
+      state.nfFilters = { busca:'', dataIni:'', dataFim:'', fornecedor:'', destino:'', centroCusto:'', codigoContabil:'', tipoDocumento:'' };
       state.page = 1;
+      state.rcPage = 1;
       render();
+      showToast('Filtros limpos.');
     }
 
     /* ============================================================
@@ -5821,7 +5840,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.8';
+        if (versaoEl) versaoEl.textContent = 'V11.9';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
