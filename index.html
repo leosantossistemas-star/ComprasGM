@@ -5840,7 +5840,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.9';
+        if (versaoEl) versaoEl.textContent = 'V12.0';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -6487,6 +6487,19 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             return;
           }
 
+          const numeroNFInformado = clean(document.getElementById('nfNumero')?.value);
+          const dataNFInformada = document.getElementById('nfDataDocumento')?.value || '';
+          if (!numeroNFInformado) {
+            showToast('Informe o número da NF antes de confirmar o recebimento.', true);
+            document.getElementById('nfNumero')?.focus();
+            return;
+          }
+          if (!dataNFInformada) {
+            showToast('Informe a data da NF antes de confirmar o recebimento.', true);
+            document.getElementById('nfDataDocumento')?.focus();
+            return;
+          }
+
           const codigo = document.getElementById('nfCodigoContabil').value;
           const c = PLANO_CONTAS.find(x=>x.codigo===codigo);
           const parcelas = obterParcelasNFDoFormulario();
@@ -6508,8 +6521,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             rcNumero: rc.numero,
             rcStatusNoRecebimento: rc.status,
             centroCusto: getCentroCustoRegistro(rc),
-            dataDocumento: document.getElementById('nfDataDocumento').value,
-            numeroNF: clean(document.getElementById('nfNumero').value),
+            dataDocumento: dataNFInformada,
+            numeroNF: numeroNFInformado,
             fornecedor: rc.fornecedor || '',
             destino: rc.aplicacao || '',
             osProjeto: rc.osProjeto || '',
@@ -6531,9 +6544,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             contaContabilOrientacao: c?.orientacao || '',
             origem: 'recebimento_por_rc',
             statusPagamento: ed?.statusPagamento || 'PENDENTE',
-        tipoOperacao: getVal('tipoOperacaoRecebimento') || 'NF',
-        tipoBaixa: getVal('tipoBaixaAlmox') || '',
-        colaboradorRetirada: getVal('colaboradorBaixa') || '',
+            // V12.0: este formulário é exclusivamente de recebimento de NF.
+            // As propriedades de baixa pertencem ao formulário separado de Almoxarifado.
+            tipoOperacao: 'NF',
+            tipoBaixa: '',
+            colaboradorRetirada: '',
             tipoRecebimento,
             conferenciaItens: tipoRecebimento === 'PARCIAL'
               ? 'RECEBIMENTO_PARCIAL_COM_SALDO_RESIDUAL'
@@ -6562,24 +6577,22 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           try {
             formNF.dataset.saving='1';
             if (btn) { btn.disabled=true; btn.textContent='Salvando...'; }
-            if ((registro.tipoOperacao || 'NF') === 'BAIXA_ESTOQUE') {
-        if (!registro.colaboradorRetirada) throw new Error('Informe o nome do colaborador que retirou/recebeu o material.');
-        registro.tipoDocumento = 'BAIXA_ESTOQUE';
-        registro.numeroNF = 'Não Aplicado';
-        registro.numeroNFOriginal = 'Não Aplicado';
-        registro.statusPagamento = '';
-        if ((registro.tipoBaixa || 'MATERIAL') === 'EPI') {
-          registro.codigoContabil = '3.2.1.03';
-          registro.contaContabilDescricao = 'Custos EPI';
-        } else {
-          registro.codigoContabil = '3.2.1.05';
-          registro.contaContabilDescricao = 'Custos de Material em Estoque';
-        }
-      }
-      await salvarRecebimentoNF(registro);
-            if (!editId) await entradaNFA107(registro);
+            // Recebimento de NF e Baixa de Almoxarifado são fluxos independentes.
+            // Aqui sempre grava um documento do tipo NF.
+            registro.tipoDocumento = 'NF';
+            await salvarRecebimentoNF(registro);
+            if (!editId) {
+              try {
+                await entradaNFA107(registro);
+              } catch (estoqueErr) {
+                console.error('NF salva, mas integração automática com estoque falhou:', estoqueErr);
+                showToast('NF salva. Atenção: a integração automática com o estoque não foi concluída: ' + (estoqueErr.message || estoqueErr), true);
+              }
+            }
             state.nfEditId = null;
-            showToast(editId ? 'Recebimento atualizado.' : `NF recebida conforme ${rc.numero}. Materiais bloqueados conforme aprovação.`);
+            showToast(editId
+              ? 'Recebimento atualizado e salvo com sucesso.'
+              : `NF salva com sucesso conforme ${rc.numero}. Lançamento registrado no sistema.`);
             render();
           } catch(err) {
             showToast('Erro ao salvar recebimento: ' + (err.message||err), true);
