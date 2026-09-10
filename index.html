@@ -367,7 +367,40 @@
     }
 
     .selected-row td{background:rgba(163,255,0,.08)!important}
-    </style>
+    
+/* V11.7 — consulta de materiais legível e estável */
+.mat-panel-v117{
+  display:none;position:absolute!important;z-index:99999!important;
+  left:0!important;top:calc(100% + 6px)!important;
+  width:min(980px,calc(100vw - 64px))!important;
+  min-width:min(760px,calc(100vw - 64px))!important;
+  max-height:min(560px,70vh)!important;overflow:auto!important;
+  background:#101510!important;opacity:1!important;
+  border:1px solid #78d900!important;border-radius:12px!important;
+  box-shadow:0 18px 48px rgba(0,0,0,.75)!important;padding:8px!important;color:#f3f6f3!important;
+}
+.mat-panel-v117 *{box-sizing:border-box;text-shadow:none!important}
+.mat-panel-head-v117,.mat-panel-foot-v117{
+  position:sticky;z-index:4;display:flex;align-items:center;gap:10px;
+  padding:10px 12px;background:#101510!important;
+}
+.mat-panel-head-v117{top:0;justify-content:space-between;border-bottom:1px solid #2a342a}
+.mat-panel-foot-v117{bottom:0;justify-content:flex-end;border-top:1px solid #2a342a}
+.mat-result-v117{
+  display:block;width:100%;text-align:left;margin:8px 0;padding:11px 12px;
+  border:1px solid #2b382b!important;border-radius:9px!important;
+  background:#182018!important;color:#f3f6f3!important;cursor:pointer;white-space:normal!important;
+}
+.mat-result-v117:hover{border-color:#78d900!important;background:#1d281d!important}
+.mat-result-v117.selecionado-v117{border:2px solid #8cff00!important;background:#223022!important}
+.mat-code-v117{color:#9cff18;font-weight:800;font-size:13px}
+.mat-title-v117{font-weight:700;font-size:13px}
+.mat-grid-v117{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 14px;margin-top:7px;font-size:11px;color:#bdc8bd}
+.mat-grid-v117 span{min-width:0;overflow-wrap:anywhere}
+.mat-full-v117{margin-top:6px;font-size:11px;line-height:1.35;color:#c8d1c8;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:900px){.mat-panel-v117{min-width:calc(100vw - 32px)!important;width:calc(100vw - 32px)!important}.mat-grid-v117{grid-template-columns:1fr 1fr}}
+
+</style>
 
 <script>
 /* ============================================================
@@ -868,6 +901,57 @@
         m.fabricante, m.partNumber, m.numeroPeca, m.observacao,
         m.caNumero, m.caValidade
       ].filter(Boolean).join(' ');
+    }
+
+
+    function materialCardV117(m={}){
+      const esc=v=>window.escapeHTML?window.escapeHTML(v??''):String(v??'');
+      const pick=(...v)=>v.find(x=>x!==undefined&&x!==null&&String(x).trim()!=='') ?? '—';
+      const money=v=>{const n=numeroSeguro(v);return n?fmt.money(n):'—';};
+      const codigo=pick(m.codigo,'S/C');
+      const simples=pick(m.descricaoSimples,m.descricao,m.item,'Sem descrição');
+      const curta=pick(m.descricaoCurta);
+      const completa=pick(m.descricaoCompleta);
+      return `<div>
+        <div><span class="mat-code-v117">${esc(codigo)}</span> — <span class="mat-title-v117">${esc(simples)}</span></div>
+        <div class="mat-grid-v117">
+          <span><b>Desc. curta:</b> ${esc(curta)}</span>
+          <span><b>Categoria:</b> ${esc(pick(m.categoria))}</span>
+          <span><b>Subcategoria:</b> ${esc(pick(m.subcategoria))}</span>
+          <span><b>Unidade:</b> ${esc(pick(m.unid,m.unidade,m.un,m.um))}</span>
+          <span><b>Marca:</b> ${esc(pick(m.marca))}</span>
+          <span><b>Modelo:</b> ${esc(pick(m.modelo))}</span>
+          <span><b>Especificação:</b> ${esc(pick(m.especificacao))}</span>
+          <span><b>Fornecedor:</b> ${esc(pick(m.fornecedor))}</span>
+          <span><b>Custo unit.:</b> ${money(m.custoUnitario||m.valorUnitario||m.precoUnitario||m.preco)}</span>
+          ${(m.caNumero||m.caValidade)?`<span><b>CA:</b> ${esc(pick(m.caNumero))}${m.caValidade?` · ${esc(m.caValidade)}`:''}</span>`:''}
+        </div>
+        ${completa!=='—'?`<div class="mat-full-v117"><b>Descrição completa:</b> ${esc(completa)}</div>`:''}
+        ${m.observacao?`<div class="mat-full-v117"><b>Observação:</b> ${esc(m.observacao)}</div>`:''}
+      </div>`;
+    }
+    function prepararPainelV117(input,painel){
+      if(!input||!painel)return;
+      const p=input.parentElement;if(p&&getComputedStyle(p).position==='static')p.style.position='relative';
+      painel.classList.add('mat-panel-v117');
+    }
+    function fecharPainelV117(painel){
+      if(!painel)return; painel.style.display='none'; painel.innerHTML=''; painel.__matItens=[]; painel.__matSelecionado=-1;
+    }
+    function abrirPainelV117(input,painel,itens,onConfirm,titulo='Materiais encontrados'){
+      prepararPainelV117(input,painel); painel.__matItens=itens||[]; painel.__matSelecionado=-1;
+      painel.innerHTML=`<div class="mat-panel-head-v117"><div><strong>${titulo}</strong><div style="font-size:11px;color:#aeb8ae;margin-top:2px">${itens.length} resultado(s). Clique no material e depois em Confirmar.</div></div><button type="button" class="btn btn-ghost" data-mat-fechar-v117>✕</button></div>
+      <div>${itens.length?itens.map((m,i)=>`<button type="button" class="mat-result-v117" data-mat-i-v117="${i}">${materialCardV117(m)}</button>`).join(''):'<div style="padding:16px;color:#b9c4b9">Nenhum material encontrado.</div>'}</div>
+      <div class="mat-panel-foot-v117"><button type="button" class="btn btn-ghost" data-mat-cancel-v117>Cancelar</button><button type="button" class="btn btn-accent" data-mat-confirm-v117 disabled>Confirmar material</button></div>`;
+      painel.style.display='block';
+      painel.querySelectorAll('[data-mat-i-v117]').forEach(btn=>{btn.addEventListener('mousedown',e=>e.preventDefault());btn.addEventListener('click',()=>{painel.querySelectorAll('.mat-result-v117').forEach(x=>x.classList.remove('selecionado-v117'));btn.classList.add('selecionado-v117');painel.__matSelecionado=Number(btn.dataset.matIV117);const ok=painel.querySelector('[data-mat-confirm-v117]');if(ok)ok.disabled=false;});});
+      const fechar=()=>{fecharPainelV117(painel);try{input.focus({preventScroll:true});}catch(e){}};
+      painel.querySelector('[data-mat-fechar-v117]')?.addEventListener('click',fechar);
+      painel.querySelector('[data-mat-cancel-v117]')?.addEventListener('click',fechar);
+      painel.querySelector('[data-mat-confirm-v117]')?.addEventListener('click',()=>{const m=painel.__matItens?.[painel.__matSelecionado];if(!m)return;onConfirm(m);fecharPainelV117(painel);});
+    }
+    function manterFocoPesquisaV117(input){
+      requestAnimationFrame(()=>{try{const p=(input.value||'').length;input.focus({preventScroll:true});input.setSelectionRange(p,p);}catch(e){}});
     }
 
     function materialResumoCompletoV116(m={}, opcoes={}) {
@@ -4426,23 +4510,11 @@ auth.onAuthStateChanged(async (user) => {
       };
 
       const renderSugestoes = termo => {
-        const t = normalize(termo);
-        if (!t) { sugestoes.style.display='none'; return; }
-        const matches = allItems.filter(item => {
-          const alvo = normalize(materialTextoPesquisaV116(item));
-          return alvo.includes(t);
-        }).slice(0,10);
-
-        if (!matches.length) { sugestoes.style.display='none'; return; }
-        sugestoes.innerHTML = matches.map((m,i)=>`
-          <button type="button" data-sug="${i}" style="display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
-            ${materialResumoCompletoV116(m)}
-          </button>`).join('');
-        sugestoes.style.display='block';
-        sugestoes.querySelectorAll('[data-sug]').forEach(btn=>btn.addEventListener('mousedown',e=>{
-          e.preventDefault();
-          selecionarMaterial(matches[Number(btn.dataset.sug)]);
-        }));
+        const tx=normalize(termo);
+        if(!tx){fecharPainelV117(sugestoes);return;}
+        const matches=allItems.filter(item=>normalize(materialTextoPesquisaV116(item)).includes(tx)).slice(0,60);
+        abrirPainelV117(buscaInput,sugestoes,matches,item=>selecionarMaterial(item),'Selecione o material da RC');
+        manterFocoPesquisaV117(buscaInput);
       };
 
       qtdInput.addEventListener('input', updateTotal);
@@ -4454,7 +4526,7 @@ auth.onAuthStateChanged(async (user) => {
         renderSugestoes(e.target.value);
       });
       buscaInput.addEventListener('focus', e => { if(e.target.value) renderSugestoes(e.target.value); });
-      buscaInput.addEventListener('blur', () => setTimeout(()=>sugestoes.style.display='none',150));
+
     }
 
     window.removerItemRC = function(btn) {
@@ -5685,7 +5757,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.6';
+        if (versaoEl) versaoEl.textContent = 'V11.7';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -5769,7 +5841,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.querySelectorAll('.ot-remove').forEach(b=>b.addEventListener('click',()=>{b.closest('.ot-item')?.remove();recalcularOT();}));
       document.querySelectorAll('.ot-qtd,.ot-unit,#otImposto').forEach(el=>el.addEventListener('input',recalcularOT));
       document.querySelectorAll('.ot-tipo').forEach(sel=>sel.addEventListener('change',()=>{const row=sel.closest('.ot-item');const desc=row?.querySelector('.ot-desc');if(desc)desc.placeholder=sel.value==='MATERIAL'?'Digite código/nome do material...':'Descrição do serviço/item';}));
-      document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){sug.style.display='none';return;}const ms=allItems.filter(i=>normalize(materialTextoPesquisaV116(i)).includes(q)).slice(0,25);sug.innerHTML=ms.map((m,i)=>`<button type="button" data-i="${i}" style="display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border)">${materialResumoCompletoV116(m)}</button>`).join('');sug.style.display=ms.length?'block':'none';sug.querySelectorAll('[data-i]').forEach(b=>b.addEventListener('mousedown',e=>{e.preventDefault();const m=ms[Number(b.dataset.i)];inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();sug.style.display='none';recalcularOT();}));});});
+      document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){fecharPainelV117(sug);return;}const ms=allItems.filter(i=>normalize(materialTextoPesquisaV116(i)).includes(q)).slice(0,60);abrirPainelV117(inp,sug,ms,m=>{inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();recalcularOT();},'Selecione o material do orçamento');manterFocoPesquisaV117(inp);});});
       document.getElementById('formOT')?.addEventListener('submit',async e=>{
         e.preventDefault();
         try{
@@ -5975,49 +6047,16 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       const renderSugestoesBaixa=(termo='')=>{
         if(!baixaResultados)return;
-        const q=normalize(termo||'');
-        const qNum=String(termo||'').replace(/\D/g,'');
-        if(!q && !qNum){
-          baixaResultados.style.display='none';
-          baixaResultados.innerHTML='';
-          return;
-        }
-        let resultados=allItems.filter(item=>{
-          const hay=normalize(materialTextoPesquisaV116(item));
-          const codNum=String(item.codigo||'').replace(/\D/g,'');
-          return hay.includes(q) || (!!qNum && codNum.includes(qNum));
-        });
+        const q=normalize(termo||''),qNum=String(termo||'').replace(/\D/g,'');
+        if(!q&&!qNum){fecharPainelV117(baixaResultados);return;}
+        let resultados=allItems.filter(item=>{const hay=normalize(materialTextoPesquisaV116(item));const codNum=String(item.codigo||'').replace(/\D/g,'');return hay.includes(q)|| (!!qNum&&codNum.includes(qNum));});
         resultados.sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}));
-        resultados=resultados.slice(0,35);
-        baixaResultados.innerHTML=resultados.length?resultados.map(item=>`
-          <button type="button" data-baixa-material="${item.codigo}" style="display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">
-            ${materialResumoCompletoV116(item)}
-          </button>`).join(''):`<div style="padding:12px;color:var(--text-muted)">Nenhum material encontrado.</div>`;
-        baixaResultados.style.display='block';
+        resultados=resultados.slice(0,80);
+        abrirPainelV117(baixaBusca,baixaResultados,resultados,item=>aplicarMaterialBaixa(item.codigo),'Selecione o material / EPI');
       };
-
-      baixaBusca?.addEventListener('input',e=>{
-        if(baixaCodigo)baixaCodigo.value='';
-        renderSugestoesBaixa(e.target.value||'');
-      });
+      baixaBusca?.addEventListener('input',e=>{if(baixaCodigo)baixaCodigo.value='';renderSugestoesBaixa(e.target.value||'');manterFocoPesquisaV117(baixaBusca);});
       baixaBusca?.addEventListener('focus',e=>{if(e.target.value)renderSugestoesBaixa(e.target.value||'');});
-      baixaBusca?.addEventListener('keydown',e=>{
-        if(e.key==='Enter'){
-          const primeiro=baixaResultados?.querySelector('[data-baixa-material]');
-          if(primeiro){e.preventDefault();aplicarMaterialBaixa(primeiro.dataset.baixaMaterial);}
-        }
-        if(e.key==='Escape' && baixaResultados)baixaResultados.style.display='none';
-      });
-      baixaResultados?.addEventListener('click',e=>{
-        const btn=e.target.closest('[data-baixa-material]');
-        if(!btn)return;
-        aplicarMaterialBaixa(btn.dataset.baixaMaterial);
-      });
-      document.addEventListener('click',e=>{
-        if(!baixaResultados||!baixaBusca)return;
-        if(e.target===baixaBusca||baixaResultados.contains(e.target))return;
-        baixaResultados.style.display='none';
-      });
+      baixaBusca?.addEventListener('keydown',e=>{if(e.key==='Escape')fecharPainelV117(baixaResultados);});
 
       document.getElementById('baixaQuantidade')?.addEventListener('input',atualizarBaixaTotal);
       document.getElementById('baixaValorUnitario')?.addEventListener('input',atualizarBaixaTotal);
@@ -6562,61 +6601,18 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       const renderSugestoesMateriais = (termo='') => {
         if (!buscaSug) return;
-        const q = normalize(termo || '');
-        const qNum = String(termo || '').replace(/\D/g,'');
-        if (!q && !qNum) {
-          buscaSug.style.display='none';
-          buscaSug.innerHTML='';
-          return;
-        }
-        let resultados = allItems.filter(item => {
-          const hay = normalize(materialTextoPesquisaV116(item));
-          const codNum = String(item.codigo||'').replace(/\D/g,'');
-          return hay.includes(q) || (!!qNum && codNum.includes(qNum));
-        });
+        const q=normalize(termo||''), qNum=String(termo||'').replace(/\D/g,'');
+        if(!q&&!qNum){fecharPainelV117(buscaSug);return;}
+        let resultados=allItems.filter(item=>{const hay=normalize(materialTextoPesquisaV116(item));const codNum=String(item.codigo||'').replace(/\D/g,'');return hay.includes(q)|| (!!qNum&&codNum.includes(qNum));});
         resultados.sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}));
-        resultados = resultados.slice(0,35);
-        buscaSug.innerHTML = resultados.length ? resultados.map(item=>{
-          return `<button type="button" data-fbusca-item="${item.codigo}" style="display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">
-            ${materialResumoCompletoV116(item)}
-          </button>`;
-        }).join('') : `<div style="padding:12px;color:var(--text-muted)">Nenhum material encontrado.</div>`;
-        buscaSug.style.display='block';
+        resultados=resultados.slice(0,80);
+        abrirPainelV117(busca,buscaSug,resultados,item=>{state.filters.busca=item.codigo||'';state.page=1;if(busca)busca.value=item.codigo||'';render();},'Filtro de materiais');
       };
-
-      if (busca) {
-        busca.addEventListener('input', e=>{
-          state.filters.busca=e.target.value;
-          state.page=1;
-          renderSugestoesMateriais(e.target.value);
-          clearTimeout(window.__fBuscaTimer);
-          window.__fBuscaTimer=setTimeout(()=>{
-            const atual=document.getElementById('fBusca')?.value||'';
-            state.filters.busca=atual;
-            render();
-          },300);
-        });
-        busca.addEventListener('focus',e=>{ if(e.target.value) renderSugestoesMateriais(e.target.value); });
-        busca.addEventListener('keydown',e=>{
-          if(e.key==='Enter'){
-            const primeiro=buscaSug?.querySelector('[data-fbusca-item]');
-            if(primeiro){
-              e.preventDefault();
-              state.filters.busca=primeiro.dataset.fbuscaItem;
-              state.page=1;
-              render();
-            }
-          }
-          if(e.key==='Escape' && buscaSug) buscaSug.style.display='none';
-        });
+      if(busca){
+        busca.addEventListener('input',e=>{state.filters.busca=e.target.value;state.page=1;renderSugestoesMateriais(e.target.value);manterFocoPesquisaV117(busca);});
+        busca.addEventListener('focus',e=>{if(e.target.value)renderSugestoesMateriais(e.target.value);});
+        busca.addEventListener('keydown',e=>{if(e.key==='Escape')fecharPainelV117(buscaSug);if(e.key==='Enter'){e.preventDefault();state.filters.busca=e.target.value;state.page=1;fecharPainelV117(buscaSug);render();}});
       }
-      buscaSug?.addEventListener('click',e=>{
-        const btn=e.target.closest('[data-fbusca-item]');
-        if(!btn)return;
-        state.filters.busca=btn.dataset.fbuscaItem;
-        state.page=1;
-        render();
-      });
 
       const cat = document.getElementById('fCategoria');
       if (cat) cat.addEventListener('change', (e) => { state.filters.categoria = e.target.value; state.filters.subcategoria = ''; state.page=1; render(); });
