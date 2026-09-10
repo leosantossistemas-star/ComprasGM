@@ -5941,7 +5941,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V12.2';
+        if (versaoEl) versaoEl.textContent = 'V12.3';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -6036,6 +6036,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){fecharPainelV117(sug);return;}const ms=allItems.filter(i=>normalize(materialTextoPesquisaV116(i)).includes(q)).slice(0,60);abrirPainelV117(inp,sug,ms,m=>{inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();recalcularOT();},'Selecione o material do orçamento');manterFocoPesquisaV117(inp);});});
       document.getElementById('formOT')?.addEventListener('submit',async e=>{
         e.preventDefault();
+
+        const btnSubmit=e.submitter || e.currentTarget.querySelector('button[type="submit"]');
+        if(btnSubmit?.dataset.salvandoOt==='1') return;
+        if(btnSubmit){
+          btnSubmit.dataset.salvandoOt='1';
+          btnSubmit.disabled=true;
+          btnSubmit.textContent='SALVANDO...';
+        }
+
         try{
           const id=document.getElementById('otId').value;
           const itens=coletarItensOT();
@@ -6059,108 +6068,153 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const valorImposto=subtotal*(impostoPct/100);
           const tot={subtotal,imposto:valorImposto,total:subtotal+valorImposto};
 
-          // Tenta localizar uma frota/projeto já existente pelo nome + centro.
           let f=frotas.find(x =>
             normalize(x.nome||'')===normalize(frotaNome)
             && getCentroCustoRegistro(x)===prestador
           );
 
-          // Se não existir, o próprio Orçamento Técnico cadastra.
-          if(!f){
-            const payloadFrota={
-              nome:frotaNome,
-              centroCusto:prestador,
-              tipoCadastro:prestador==='MECHATRONICS'?'PROJETO':'FROTA',
-              valorOrcamento:tot.total,
-              percentualLimite:20,
-              dataEntrada:prestador==='MECHATRONICS' ? '' : (dataChegada||hojeISO()),
-              dataPrevistaEntradaOrcamento:dataChegada||'',
-              dataInicioManutencao:'',
+          const refFrota=f?.id
+            ? db.collection('frotas').doc(f.id)
+            : db.collection('frotas').doc();
+
+          const refOT=id
+            ? db.collection('orcamentos_tecnicos').doc(id)
+            : db.collection('orcamentos_tecnicos').doc();
+
+          const refContador=db.collection('contadores').doc('orcamento_tecnico');
+
+          await db.runTransaction(async tx=>{
+            let numero='';
+
+            if(id){
+              const atualOT=orcamentosTecnicos.find(x=>x.id===id);
+              numero=atualOT?.numero||'';
+              if(!numero) throw new Error('Número do orçamento existente não encontrado.');
+            }else{
+              const snapCont=await tx.get(refContador);
+              const atual=snapCont.exists?Number(snapCont.data().ultimo||0):0;
+              const prox=atual+1;
+              numero='OT-'+String(prox).padStart(6,'0');
+              tx.set(refContador,{
+                ultimo:prox,
+                atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()
+              },{merge:true});
+            }
+
+            const agora=firebase.firestore.FieldValue.serverTimestamp();
+
+            if(!f){
+              tx.set(refFrota,{
+                nome:frotaNome,
+                centroCusto:prestador,
+                tipoCadastro:prestador==='MECHATRONICS'?'PROJETO':'FROTA',
+                valorOrcamento:tot.total,
+                percentualLimite:20,
+                dataEntrada:prestador==='MECHATRONICS' ? '' : (dataChegada||hojeISO()),
+                dataPrevistaEntradaOrcamento:dataChegada||'',
+                dataInicioManutencao:'',
+                diasManutencaoPrevistos,
+                dataPrevisaoSaida,
+                valorDiariaManutencao,
+                statusOperacional:prestador==='MECHATRONICS'?'AGUARDANDO_INICIO':'EM_MANUTENCAO',
+                statusProjeto:prestador==='MECHATRONICS'?'PLANEJAMENTO':'',
+                concluido:false,
+                cadastroIncompleto:true,
+                origemCadastro:'ORCAMENTO_TECNICO',
+                criadoPorUid:getUsuarioUid(),
+                criadoPorEmail:getUsuarioEmail(),
+                criadoPorNome:getUsuarioNome(),
+                criadoEm:agora
+              });
+            }else{
+              const upd={
+                valorOrcamento:tot.total,
+                valorDiariaManutencao,
+                diasManutencaoPrevistos,
+                dataPrevisaoSaida,
+                alteradoPorUid:getUsuarioUid(),
+                alteradoPorEmail:getUsuarioEmail(),
+                alteradoPorNome:getUsuarioNome(),
+                alteradoEm:agora
+              };
+              if(prestador==='MECHATRONICS'){
+                upd.dataPrevistaEntradaOrcamento=dataChegada||'';
+              }else{
+                upd.dataEntrada=dataChegada||f.dataEntrada||'';
+              }
+              tx.set(refFrota,upd,{merge:true});
+            }
+
+            const osSim=document.getElementById('otTemOS').value==='SIM';
+            const payload={
+              numero,
+              prestador,
+              frotaId:refFrota.id,
+              frotaNome,
+              dataChegada,
+              dataOrcamento,
+              diariaAplicada,
               diasManutencaoPrevistos,
               dataPrevisaoSaida,
+              custoDiariasPrevisto,
+              cliente,
+              osNumero:osSim?document.getElementById('otOSNumero').value.trim():'',
+              itens,
+              impostoPct,
+              subtotal:tot.subtotal,
+              valorImposto:tot.imposto,
+              valorFinal:tot.total,
               valorDiariaManutencao,
-              statusOperacional:prestador==='MECHATRONICS'?'AGUARDANDO_INICIO':'EM_MANUTENCAO',
-              statusProjeto:prestador==='MECHATRONICS'?'PLANEJAMENTO':'',
-              concluido:false,
-              cadastroIncompleto:true,
-              origemCadastro:'ORCAMENTO_TECNICO',
-              criadoPorUid:getUsuarioUid(),
-              criadoPorEmail:getUsuarioEmail(),
-              criadoPorNome:getUsuarioNome(),
-              criadoEm:firebase.firestore.FieldValue.serverTimestamp()
-            };
-            const ref=await db.collection('frotas').add(payloadFrota);
-            f={id:ref.id,...payloadFrota};
-          }else{
-            // O orçamento técnico pode atualizar valor e data de chegada da frota já existente.
-            await db.collection('frotas').doc(f.id).set({
-              valorOrcamento:tot.total,
-              ...(prestador==='MECHATRONICS' ? {dataPrevistaEntradaOrcamento:dataChegada||'',diasManutencaoPrevistos,dataPrevisaoSaida} : {dataEntrada:dataChegada||f.dataEntrada||'',diasManutencaoPrevistos,dataPrevisaoSaida}),
-              valorDiariaManutencao,
+              observacoes:document.getElementById('otObservacoes').value,
+              status:id?(orcamentosTecnicos.find(x=>x.id===id)?.status||'STAND_BY'):'STAND_BY',
               alteradoPorUid:getUsuarioUid(),
-              alteradoPorEmail:getUsuarioEmail(),
               alteradoPorNome:getUsuarioNome(),
-              alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
-            },{merge:true});
-          }
+              alteradoEm:agora
+            };
 
-          let numero=id
-            ? (orcamentosTecnicos.find(x=>x.id===id)?.numero||'')
-            : await proximoNumeroOT();
-
-          const osSim=document.getElementById('otTemOS').value==='SIM';
-          const payload={
-            numero,
-            prestador,
-            frotaId:f.id,
-            frotaNome,
-            dataChegada,
-            dataOrcamento,
-            diariaAplicada,
-            diasManutencaoPrevistos,
-            dataPrevisaoSaida,
-            custoDiariasPrevisto,
-            cliente,
-            osNumero:osSim?document.getElementById('otOSNumero').value.trim():'',
-            itens,
-            impostoPct,
-            subtotal:tot.subtotal,
-            valorImposto:tot.imposto,
-            valorFinal:tot.total,
-            valorDiariaManutencao,
-            observacoes:document.getElementById('otObservacoes').value,
-            status:id?(orcamentosTecnicos.find(x=>x.id===id)?.status||'STAND_BY'):'STAND_BY',
-            alteradoPorUid:getUsuarioUid(),
-            alteradoPorNome:getUsuarioNome(),
-            alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
-          };
-
-          if(id){
-            await db.collection('orcamentos_tecnicos').doc(id).update(payload);
-          }else{
-            await db.collection('orcamentos_tecnicos').add({
-              ...payload,
-              criadoPorUid:getUsuarioUid(),
-              criadoPorNome:getUsuarioNome(),
-              criadoEm:firebase.firestore.FieldValue.serverTimestamp()
-            });
-          }
+            if(id){
+              tx.update(refOT,payload);
+            }else{
+              tx.set(refOT,{
+                ...payload,
+                criadoPorUid:getUsuarioUid(),
+                criadoPorNome:getUsuarioNome(),
+                criadoEm:agora
+              });
+            }
+          });
 
           state.orcamentoFormAberto=false;
           state.orcamentoEditId=null;
           state.orcamentoItensDraft=[];
           state.otHeader={};
           showToast(`Orçamento salvo em STAND BY. ${frotaNome} cadastrada/vinculada.`);
+          render();
+
         }catch(err){
           console.error('Erro ao salvar Orçamento Técnico:',err);
-          if(String(err?.message||'').toLowerCase().includes('quota')){
-            showToast('Não foi possível salvar o orçamento: cota do serviço atingida (Quota exceeded). Verifique o uso/quota do Firebase e tente novamente.',true);
+          const code=String(err?.code||'');
+          const msg=String(err?.message||err||'');
+
+          if(code.includes('resource-exhausted') || msg.toLowerCase().includes('quota')){
+            showToast(
+              'Firebase recusou a gravação por cota esgotada (resource-exhausted / Quota exceeded). Nenhum dado deste orçamento foi salvo parcialmente. Verifique Firestore > Usage no Firebase Console.',
+              true
+            );
+          }else if(code.includes('permission-denied')){
+            showToast('Firebase negou a gravação pelas regras de segurança (permission-denied). Código: '+code,true);
           }else{
-            showToast(err.message||'Erro ao salvar orçamento.',true);
+            showToast(`Erro ao salvar orçamento${code?' ['+code+']':''}: ${msg}`,true);
+          }
+        }finally{
+          if(btnSubmit){
+            btnSubmit.dataset.salvandoOt='0';
+            btnSubmit.disabled=false;
+            btnSubmit.textContent='SALVAR — STAND BY';
           }
         }
       });
-      document.querySelectorAll('[data-ot-editar]').forEach(b=>b.addEventListener('click',()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otEditar);if(!o)return;state.orcamentoEditId=o.id;state.otHeader={};state.orcamentoItensDraft=o.itens||[];state.orcamentoFormAberto=true;render();}));
+            document.querySelectorAll('[data-ot-editar]').forEach(b=>b.addEventListener('click',()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otEditar);if(!o)return;state.orcamentoEditId=o.id;state.otHeader={};state.orcamentoItensDraft=o.itens||[];state.orcamentoFormAberto=true;render();}));
       document.querySelectorAll('[data-ot-excluir]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Excluir orçamento técnico?'))return;await db.collection('orcamentos_tecnicos').doc(b.dataset.otExcluir).delete();state.orcamentoFormAberto=false;state.orcamentoEditId=null;}));
       document.querySelectorAll('[data-ot-aprovar]').forEach(b=>b.addEventListener('click',async()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otAprovar);if(!o||!confirm(`Aprovar ${o.numero}?`))return;const batch=db.batch();batch.update(db.collection('orcamentos_tecnicos').doc(o.id),{status:'APROVADO',aprovadoPorUid:getUsuarioUid(),aprovadoPorNome:getUsuarioNome(),aprovadoEm:firebase.firestore.FieldValue.serverTimestamp()});if(o.frotaId){batch.update(db.collection('frotas').doc(o.frotaId),{
         valorOrcamento:o.valorFinal,
