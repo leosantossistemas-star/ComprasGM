@@ -1498,6 +1498,36 @@ auth.onAuthStateChanged(async (user) => {
       return [...historico, ...operacionais];
     }
 
+    // V11.5 — Firestore não aceita campos com valor undefined.
+    // Remove undefined de objetos/arrays, preservando FieldValue, Timestamp, Date etc.
+    function limparUndefinedFirestoreV115(valor) {
+      if (valor === undefined) return undefined;
+      if (valor === null) return null;
+      if (Array.isArray(valor)) {
+        return valor
+          .map(v => limparUndefinedFirestoreV115(v))
+          .filter(v => v !== undefined);
+      }
+      if (typeof valor === 'object') {
+        const proto = Object.getPrototypeOf(valor);
+        const ehObjetoSimples = proto === Object.prototype || proto === null;
+        if (!ehObjetoSimples) return valor;
+        const limpo = {};
+        Object.entries(valor).forEach(([k,v]) => {
+          const nv = limparUndefinedFirestoreV115(v);
+          if (nv !== undefined) limpo[k] = nv;
+        });
+        return limpo;
+      }
+      return valor;
+    }
+
+    function dadosFirestoreSemIdV115(registro) {
+      const base = limparUndefinedFirestoreV115(registro || {});
+      if (base && typeof base === 'object') delete base.id;
+      return base;
+    }
+
     async function salvarRecebimentoNF(registro) {
       if (registro.historicoLocal || String(registro.id||'').startsWith('hist_mcpro030_')) {
         if (!podeGerenciarRecebimentoNF()) throw new Error('Somente Gerente/Admin podem alterar histórico.');
@@ -1512,14 +1542,16 @@ auth.onAuthStateChanged(async (user) => {
           alteradoPorEmail:getUsuarioEmail(),
           alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
         };
-        await db.collection('recebimentos_nf').doc(historicoId).set(payload,{merge:true});
-        return payload;
+        const payloadLimpo = dadosFirestoreSemIdV115(payload);
+        await db.collection('recebimentos_nf').doc(historicoId).set(payloadLimpo,{merge:true});
+        return { ...payload, id: historicoId };
       }
 
+      const dadosLimpos = dadosFirestoreSemIdV115(registro);
       if (registro.id) {
-        await db.collection('recebimentos_nf').doc(registro.id).set(registro, { merge: true });
+        await db.collection('recebimentos_nf').doc(registro.id).set(dadosLimpos, { merge: true });
       } else {
-        const docRef = await db.collection('recebimentos_nf').add(registro);
+        const docRef = await db.collection('recebimentos_nf').add(dadosLimpos);
         registro.id = docRef.id;
       }
       return registro;
@@ -5599,7 +5631,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.4';
+        if (versaoEl) versaoEl.textContent = 'V11.5';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -5993,7 +6025,6 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const desc = material.descricaoSimples || material.descricaoCurta || material.descricaoCompleta || matCod;
 
         const registro = {
-          id: editId || undefined,
           tipoDocumento: 'BAIXA_ESTOQUE',
           tipoOperacao: 'BAIXA_ESTOQUE',
           tipoBaixa,
@@ -6029,6 +6060,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           caValidade: tipoBaixa === 'EPI' ? (material.caValidade || '') : ''
         };
 
+        if (editId) registro.id = editId;
+
         if (!editId) {
           registro.criadoPorUid = getUsuarioUid();
           registro.criadoPorEmail = getUsuarioEmail();
@@ -6044,8 +6077,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         try {
           formBaixa.dataset.saving='1';
           if (btn) { btn.disabled=true; btn.textContent='Salvando...'; }
-          if (!editId) await saidaA107(material,qtd,registro);
-          await salvarRecebimentoNF(registro);
+          if (!editId) {
+            await salvarNovaBaixaAtomicaV115(material,qtd,registro);
+          } else {
+            await salvarRecebimentoNF(registro);
+          }
           if (tipoBaixa === 'EPI' && !editId) {
             try {
               await db.collection('rh_entregas_epi').add({
@@ -11854,6 +11890,75 @@ async function entradaNFA107(r){
    tr.set(mr,{tipo:'ENTRADA',data:r.dataDocumento,itemId:ref.id,codigo:it.codigo||'',itemNome:it.descricao||'',quantidade:q,valorUnitario:numeroSeguro(it.valorUnitario),valorTotal:q*numeroSeguro(it.valorUnitario),centroCusto:r.centroCusto||'SANTOS',estoqueFisico:estoqueFisico,proprietarioEstoque:estoqueFisico,fornecedor:r.fornecedor||'',origem:'NF_RC_ESTOQUE',referencia:r.numeroNF||'',rcNumero:r.rcNumero||'',criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()});});
  }
 }
+// V11.5 — grava a nova baixa e a movimentação física de forma atômica.
+// Assim, uma falha no recebimentos_nf não pode descontar o estoque sem registrar a baixa.
+async function salvarNovaBaixaAtomicaV115(mat,q,r){
+  const dadosBaixa = dadosFirestoreSemIdV115(r);
+  const recRef = db.collection('recebimentos_nf').doc();
+
+  // Com vínculo físico bloqueado, registra somente o custo/baixa documental.
+  if(!almoxConfigV107.vinculoAtivo){
+    await recRef.set(dadosBaixa);
+    r.id = recRef.id;
+    return r;
+  }
+
+  const estoqueFisico = estoqueFisicoPadraoV109(r.centroCusto||r.destino||'SANTOS');
+  const a = acharA107PorEstoque(
+    mat.codigo,
+    mat.descricaoSimples||mat.descricaoCurta||mat.descricaoCompleta,
+    estoqueFisico
+  );
+
+  if(!a){
+    throw new Error(`ESTOQUE INSUFICIENTE NO ESTOQUE FÍSICO ${estoqueFisico}. A baixa não utilizará saldo de outro local.`);
+  }
+
+  const itemRef = db.collection('almoxarifado_itens').doc(a.id);
+  const movRef = db.collection('almoxarifado_movimentacoes').doc();
+
+  await db.runTransaction(async tr=>{
+    const snap = await tr.get(itemRef);
+    if(!snap.exists) throw new Error('ESTOQUE INSUFICIENTE.');
+
+    const saldo = numeroSeguro(snap.data().quantidadeAtual);
+    if(saldo<=0 || saldo+0.000001<q){
+      throw new Error(`ESTOQUE INSUFICIENTE. Saldo disponível: ${saldo}. Quantidade solicitada: ${q}.`);
+    }
+
+    tr.update(itemRef,{
+      quantidadeAtual: saldo-q,
+      ultimaMovimentacao: new Date().toISOString()
+    });
+
+    tr.set(movRef, dadosFirestoreSemIdV115({
+      tipo:'SAIDA',
+      data:r.dataDocumento,
+      itemId:a.id,
+      codigo:mat.codigo||a.codigoMaterial||'',
+      itemNome:a.nome||'',
+      quantidade:q,
+      valorUnitario:numeroSeguro(r.valorUnitario),
+      valorTotal:q*numeroSeguro(r.valorUnitario),
+      centroCusto:r.centroCusto||'',
+      estoqueFisico,
+      destino:r.destino||'',
+      colaborador:r.colaboradorRetirada||'',
+      origem:'BAIXA_ALMOXARIFADO',
+      referenciaRecebimentoId:recRef.id,
+      observacoes:r.observacoes||'',
+      criadoPorUid:getUsuarioUid(),
+      criadoPorEmail:getUsuarioEmail(),
+      criadoEm:firebase.firestore.FieldValue.serverTimestamp()
+    }));
+
+    tr.set(recRef,dadosBaixa);
+  });
+
+  r.id = recRef.id;
+  return r;
+}
+
 async function saidaA107(mat,q,r){
  if(!almoxConfigV107.vinculoAtivo)return;
  let estoqueFisico=estoqueFisicoPadraoV109(r.centroCusto||r.destino||'SANTOS');
