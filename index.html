@@ -706,6 +706,7 @@
           <div class="field"><label>Nome / número da frota *</label><input type="text" id="fmNome" required placeholder="Ex.: FROTA 410"></div>
           <div class="field"><label>Orçamento total da manutenção (R$) *</label><input type="text" id="fmOrcamento" required placeholder="100.000,00"></div>
           <div class="field" id="fmPercentualWrap"><label>% limite liberado *</label><input type="number" id="fmPercentual" min="0" step="0.1" value="20" required></div>
+          <div class="field"><label>Data de entrada</label><input type="text" id="fmDataEntrada" placeholder="dd/mm/aaaa" maxlength="10"></div>
           <div class="field"><label>Previsão de saída</label><input type="text" id="fmDataSaida" placeholder="dd/mm/aaaa" maxlength="10"></div>
           <div class="field"><label>Status da manutenção *</label>
             <select id="fmStatusOperacional" required>
@@ -863,7 +864,7 @@
       sort: { col: "codigo", dir: "asc" },
       page: 1,
       perPage: 25,
-      rcFilters: { status: "", dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "" },
+      rcFilters: { status: "", dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "", aprovador: "" },
       dashboardFilters: { dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "" },
       nfFilters: { busca: "", dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "", codigoContabil: "", tipoDocumento: "" },
       custosFilters: { dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "", codigoContabil: "" },
@@ -1826,7 +1827,7 @@ auth.onAuthStateChanged(async (user) => {
       const q = normalize(f.busca);
       return allItems.filter(item => {
         if (q) {
-          const hay = normalize([item.codigo, item.descricaoSimples, item.descricaoCurta, item.marca, item.modelo, item.fornecedor, item.categoria, item.subcategoria].join(" "));
+          const hay = normalize(materialTextoPesquisaV116(item));
           if (!hay.includes(q)) return false;
         }
         if (f.categoria && item.categoria !== f.categoria) return false;
@@ -1867,6 +1868,10 @@ auth.onAuthStateChanged(async (user) => {
         if (f.fornecedor && rc.fornecedor !== f.fornecedor) return false;
         if (f.destino && rc.aplicacao !== f.destino) return false;
         if (f.centroCusto && getCentroCustoRegistro(rc) !== f.centroCusto) return false;
+        if (f.aprovador) {
+          const aprovador = String(rc.aprovadoPorNome || rc.aprovadoPor || rc.aprovador || '').trim();
+          if (aprovador !== f.aprovador) return false;
+        }
         return true;
       });
     }
@@ -2272,8 +2277,49 @@ auth.onAuthStateChanged(async (user) => {
     ============================================================ */
     function handleAprovarRC(numero) {
       if (!confirm(`Aprovar requisição ${numero}?`)) return;
-      updateRC(numero, { status: 'aprovado' });
-      // A atualização é instantânea via Firestore, sem demora
+      updateRC(numero, {
+        status: 'aprovado',
+        aprovadoPorUid: getUsuarioUid(),
+        aprovadoPorEmail: getUsuarioEmail(),
+        aprovadoPorNome: getUsuarioNome(),
+        aprovadoEm: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      // V11.8: registra o aprovador para auditoria e filtros gerenciais.
+    }
+
+    async function voltarRCParaComprasV118(numero) {
+      const rc = rcs.find(r=>r.numero===numero);
+      if(!rc){showToast('RC não encontrada.',true);return;}
+      if(!['gerente','admin'].includes(perfilAtual)){showToast('Somente Gerente e Administrador podem devolver RC para Compras.',true);return;}
+      const eraAprovada = rc.status === 'aprovado';
+      const msg = eraAprovada
+        ? `A RC ${numero} está APROVADA. Ao voltar para Compras, a aprovação será cancelada e a RC retornará para rascunho. Continuar?`
+        : `Devolver a RC ${numero} para Compras como rascunho?`;
+      if(!confirm(msg)) return;
+      try{
+        await updateRC(numero,{
+          status:'rascunho',
+          aprovacaoCancelada: eraAprovada,
+          aprovacaoAnterior: eraAprovada ? {
+            aprovadoPorUid: rc.aprovadoPorUid || '',
+            aprovadoPorEmail: rc.aprovadoPorEmail || '',
+            aprovadoPorNome: rc.aprovadoPorNome || rc.aprovadoPor || '',
+            aprovadoEm: rc.aprovadoEm || null
+          } : (rc.aprovacaoAnterior || null),
+          devolvidoParaComprasPorUid:getUsuarioUid(),
+          devolvidoParaComprasPorEmail:getUsuarioEmail(),
+          devolvidoParaComprasPorNome:getUsuarioNome(),
+          devolvidoParaComprasEm:firebase.firestore.FieldValue.serverTimestamp(),
+          aprovadoPorUid:'',
+          aprovadoPorEmail:'',
+          aprovadoPorNome:'',
+          aprovadoEm:null
+        });
+        showToast(`RC ${numero} devolvida para Compras. O fluxo de aprovação deverá ser feito novamente.`);
+        render();
+      }catch(err){
+        showToast('Erro ao devolver RC para Compras: '+(err.message||err),true);
+      }
     }
 
     function handleRejeitarRC(numero) {
@@ -2786,11 +2832,13 @@ auth.onAuthStateChanged(async (user) => {
       const centroEl = document.getElementById('fmCentroCusto');
       const nomeEl = document.getElementById('fmNome');
       const orcEl = document.getElementById('fmOrcamento');
+      const dataEntradaEl = document.getElementById('fmDataEntrada');
       const dataEl = document.getElementById('fmDataSaida');
 
       centroEl.value = frota ? getCentroCustoRegistro(frota) : 'SANTOS';
       nomeEl.value = frota?.nome || '';
       orcEl.value = frota ? numeroSeguro(frota.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+      if(dataEntradaEl) dataEntradaEl.value = frota?.dataEntrada ? dataISOparaBR(frota.dataEntrada) : '';
       dataEl.value = frota?.dataPrevisaoSaida ? dataISOparaBR(frota.dataPrevisaoSaida) : '';
 
       // Em edição completa Gerente/Admin podem alterar nome e centro.
@@ -2799,6 +2847,12 @@ auth.onAuthStateChanged(async (user) => {
       centroEl.disabled = bloquearCampos;
       nomeEl.readOnly = bloquearCampos;
       orcEl.readOnly = bloquearCampos;
+      if(dataEntradaEl){
+        // V11.8: somente Administrador pode corrigir data histórica de entrada.
+        dataEntradaEl.readOnly = getPerfil()!=='admin' || somenteStatus;
+        dataEntradaEl.style.opacity = (getPerfil()==='admin' && !somenteStatus) ? '1' : '.65';
+        dataEntradaEl.title = getPerfil()==='admin' ? 'Administrador pode corrigir a data de entrada da frota.' : 'Somente Administrador pode alterar a data de entrada.';
+      }
       dataEl.readOnly = bloquearCampos;
 
       const percentualWrap = document.getElementById('fmPercentualWrap');
@@ -2823,7 +2877,7 @@ auth.onAuthStateChanged(async (user) => {
         nota.textContent = somenteStatus
           ? 'Neste modo você pode atualizar o status. Ao selecionar Concluído, a data de conclusão real será preenchida automaticamente.'
           : (podeEditarTudo
-              ? 'Gerente/Admin podem editar todos os campos. Ao marcar Concluído, o sistema encerra a contagem de duração.'
+              ? 'Gerente/Admin podem editar os parâmetros; a Data de Entrada histórica pode ser corrigida somente pelo Administrador. Ao marcar Concluído, o sistema encerra a contagem de duração.'
               : 'Você pode cadastrar a frota e, depois, atualizar o status/conclusão. Limites e demais parâmetros ficam sob Gerência/Admin.');
       }
 
@@ -4216,6 +4270,7 @@ auth.onAuthStateChanged(async (user) => {
       const statusOptions = ['rascunho','em_aprovacao','aprovado','rejeitado','bloqueado','arquivado'];
       const fornecedoresList = [...new Set(rcs.map(r => r.fornecedor).filter(Boolean))].sort();
       const destinosList = [...new Set(rcs.map(r => r.aplicacao).filter(Boolean))].sort();
+      const aprovadoresList = [...new Set(rcs.map(r => String(r.aprovadoPorNome || r.aprovadoPor || r.aprovador || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
 
       let html = `
         <div class="card" style="margin-bottom:20px;">
@@ -4231,11 +4286,24 @@ auth.onAuthStateChanged(async (user) => {
           </div>
           <div class="rc-filters">
             <div class="field"><label>Status</label><select id="rcFiltroStatus"><option value="">Todos</option>${statusOptions.map(s => `<option value="${s}" ${state.rcFilters.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-            <div class="field"><label>Data Início</label><input type="date" id="rcFiltroDataIni" value="${state.rcFilters.dataIni}" /></div>
-            <div class="field"><label>Data Fim</label><input type="date" id="rcFiltroDataFim" value="${state.rcFilters.dataFim}" /></div>
+            <div class="field"><label>Data Início</label>
+              <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
+                <input type="text" id="rcFiltroDataIniTexto" value="${isoParaBRData(state.rcFilters.dataIni||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
+                <button type="button" class="btn btn-ghost" id="rcFiltroDataIniBtn" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px">📅</button>
+                <input type="date" id="rcFiltroDataIni" value="${state.rcFilters.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
+              </div>
+            </div>
+            <div class="field"><label>Data Fim</label>
+              <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
+                <input type="text" id="rcFiltroDataFimTexto" value="${isoParaBRData(state.rcFilters.dataFim||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
+                <button type="button" class="btn btn-ghost" id="rcFiltroDataFimBtn" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px">📅</button>
+                <input type="date" id="rcFiltroDataFim" value="${state.rcFilters.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
+              </div>
+            </div>
             <div class="field"><label>Centro de custo</label><select id="rcFiltroCentroCusto"><option value="">Todos</option>${CENTROS_CUSTO.map(c => `<option value="${c}" ${state.rcFilters.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
             <div class="field"><label>Fornecedor</label><select id="rcFiltroFornecedor"><option value="">Todos</option>${fornecedoresList.map(f => `<option value="${f}" ${state.rcFilters.fornecedor===f?'selected':''}>${f}</option>`).join('')}</select></div>
             <div class="field"><label>Destino</label><select id="rcFiltroDestino"><option value="">Todos</option>${destinosList.map(d => `<option value="${d}" ${state.rcFilters.destino===d?'selected':''}>${d}</option>`).join('')}</select></div>
+            ${['gerente','admin'].includes(perfil) ? `<div class="field"><label>Aprovado por</label><select id="rcFiltroAprovador"><option value="">Todos</option>${aprovadoresList.map(a=>`<option value="${a}" ${state.rcFilters.aprovador===a?'selected':''}>${a}</option>`).join('')}</select></div>` : ''}
             <div class="field"><label>&nbsp;</label><button class="btn btn-accent" id="btnApplyRCFiltros" style="width:100%">Aplicar</button></div>
           </div>
         </div>
@@ -4268,6 +4336,7 @@ auth.onAuthStateChanged(async (user) => {
         { key: "total", label: "Valor Total" },
         { key: "data", label: "Data" },
         { key: "destino", label: "Destino" },
+        ...(['gerente','admin'].includes(perfil) ? [{ key: "aprovador", label: "Aprovado por" }] : []),
         { key: "acoes", label: "Ações" },
       ];
 
@@ -4299,7 +4368,7 @@ auth.onAuthStateChanged(async (user) => {
 
         if (perfil === 'usuario' || perfil === 'gerente' || perfil === 'admin') {
           if (rc.status === 'rascunho') {
-            if (perfil !== 'admin') acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
+            acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
             acoes.unshift(`<button class="btn btn-warning btn-sm" data-arquivar-rc="${rc.numero}">Arquivar</button>`);
             acoes.unshift(`<button class="btn btn-accent btn-sm" data-enviar-rc="${rc.numero}">Enviar</button>`);
           }
@@ -4312,6 +4381,11 @@ auth.onAuthStateChanged(async (user) => {
           if (rc.status === 'em_aprovacao') {
             acoes.unshift(`<button class="btn btn-success btn-sm" data-aprovar-rc="${rc.numero}">Aprovar</button>`);
             acoes.unshift(`<button class="btn btn-danger btn-sm" data-rejeitar-rc="${rc.numero}">Rejeitar</button>`);
+          }
+          // V11.8: Gerente/Admin podem abrir qualquer RC e devolvê-la ao Compras.
+          if (rc.status !== 'rascunho' && rc.status !== 'arquivado') {
+            acoes.unshift(`<button class="btn btn-warning btn-sm" data-voltar-compras-rc="${rc.numero}">Voltar p/ Compras</button>`);
+            acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
           }
         }
 
@@ -4327,6 +4401,7 @@ auth.onAuthStateChanged(async (user) => {
           <td><strong>${fmt.money(totalVal)}</strong></td>
           <td>${fmt.date(rc.data)}</td>
           <td><span class="destino-badge">${destinoLabel}</span></td>
+          ${['gerente','admin'].includes(perfil) ? `<td>${rc.status==='aprovado' ? (rc.aprovadoPorNome || rc.aprovadoPor || rc.aprovador || 'Não informado') : '—'}</td>` : ''}
           <td>${acoes.join(' ')}</td>
         </tr>`;
       }).join('');
@@ -4383,8 +4458,8 @@ auth.onAuthStateChanged(async (user) => {
       return `
         <div class="card" style="margin-top:20px; border:2px solid var(--accent);">
           <div class="card-header">
-            <div><div class="card-title">${isEdit ? 'Editar Requisição (Rascunho)' : 'Nova Requisição de Compra'}</div>
-            <div class="card-sub">Preencha todos os campos obrigatórios</div></div>
+            <div><div class="card-title">${isEdit ? `Editar Requisição (${String(data.status||'rascunho').toUpperCase()})` : 'Nova Requisição de Compra'}</div>
+            <div class="card-sub">${isEdit && data.status!=='rascunho' ? 'Esta RC precisa voltar para Compras antes de qualquer alteração ser salva.' : 'Preencha todos os campos obrigatórios'}</div></div>
             <button class="btn btn-ghost" id="btnCancelarFormRC">Cancelar</button>
           </div>
           <form id="formRC">
@@ -4449,9 +4524,13 @@ auth.onAuthStateChanged(async (user) => {
               </div>
             </div>
 
+            ${isEdit && data.status!=='rascunho' ? `<div style="padding:12px 14px;margin-top:12px;border:1px solid var(--warning);border-radius:10px;background:rgba(255,184,0,.08);color:var(--warning)">
+              <strong>Fluxo protegido:</strong> para editar esta RC, devolva primeiro para Compras. Se ela estiver aprovada, a aprovação atual será cancelada e ficará registrada no histórico de auditoria.
+            </div>` : ''}
             <div class="form-actions">
-              <button type="submit" class="btn btn-accent" id="btnSalvarRascunho">${isEdit ? 'Salvar Alterações' : 'Salvar como Rascunho'}</button>
-              <button type="button" class="btn btn-accent" id="btnEnviarRC" disabled>Enviar para Aprovação</button>
+              ${isEdit && data.status!=='rascunho' && ['gerente','admin'].includes(perfilAtual) ? `<button type="button" class="btn btn-warning" id="btnVoltarComprasFormRC" data-numero="${data.numero}">↩ Voltar para Compras</button>` : ''}
+              <button type="submit" class="btn btn-accent" id="btnSalvarRascunho" ${isEdit && data.status!=='rascunho' ? 'disabled' : ''}>${isEdit ? 'Salvar Alterações' : 'Salvar como Rascunho'}</button>
+              <button type="button" class="btn btn-accent" id="btnEnviarRC" ${isEdit && data.status!=='rascunho' ? 'disabled' : 'disabled'}>Enviar para Aprovação</button>
               <button type="reset" class="btn btn-ghost">Limpar</button>
             </div>
           </form>
@@ -5489,32 +5568,21 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
 
       function pesquisar(termo){
-        const t=normalize(termo).trim();
-        if(!t){box.style.display='none';return;}
-        const encontrados=allItems.filter(m=>{
+        const tx=normalize(termo).trim();
+        const qNum=String(termo||'').replace(/\D/g,'');
+        if(!tx&&!qNum){fecharPainelV117(box);return;}
+        let encontrados=allItems.filter(m=>{
           const alvo=normalize(materialTextoPesquisaV116(m));
-          return alvo.includes(t);
+          const codNum=String(m.codigo||'').replace(/\D/g,'');
+          return alvo.includes(tx) || (!!qNum && codNum.includes(qNum));
         }).sort((a,b)=>{
           const ca=normalize(a.codigo||''), cb=normalize(b.codigo||'');
-          const sa=ca.startsWith(t)?0:ca.includes(t)?1:2;
-          const sb=cb.startsWith(t)?0:cb.includes(t)?1:2;
+          const sa=ca.startsWith(tx)?0:ca.includes(tx)?1:2;
+          const sb=cb.startsWith(tx)?0:cb.includes(tx)?1:2;
           return sa-sb||ca.localeCompare(cb,'pt-BR',{numeric:true});
-        }).slice(0,50);
+        }).slice(0,80);
 
-        if(!encontrados.length){
-          box.innerHTML=`<div style="padding:12px;color:var(--text-muted)">Nenhum material encontrado para “${termo}”.</div>`;
-          box.style.display='block'; return;
-        }
-        box.innerHTML=encontrados.map((m,i)=>{
-          const v=valor(m);
-          return `<button type="button" data-i="${i}" style="display:block;width:100%;padding:10px 12px;text-align:left;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
-            ${materialResumoCompletoV116(m)}
-          </button>`;
-        }).join('');
-        box.style.display='block';
-        box.querySelectorAll('[data-i]').forEach(btn=>btn.addEventListener('mousedown',e=>{
-          e.preventDefault(); selecionar(encontrados[Number(btn.dataset.i)]);
-        }));
+        abrirPainelV117(busca,box,encontrados,m=>selecionar(m),'Selecione o material da solicitação');
       }
 
       busca.addEventListener('input',e=>{
@@ -5522,16 +5590,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         busca.dataset.descricao=''; busca.dataset.valorUnit='';
         info.textContent='';
         pesquisar(e.target.value);
+        manterFocoPesquisaV117(busca);
       });
       busca.addEventListener('focus',e=>{if(e.target.value) pesquisar(e.target.value)});
       busca.addEventListener('keydown',e=>{
-        if(e.key==='Escape') box.style.display='none';
-        if(e.key==='Enter'){
-          const first=box.querySelector('[data-i]');
-          if(first&&box.style.display!=='none'){e.preventDefault();first.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))}
-        }
+        if(e.key==='Escape') fecharPainelV117(box);
       });
-      busca.addEventListener('blur',()=>setTimeout(()=>box.style.display='none',180));
     }
     window.removerItemSol = function(btn) {
       const row = btn.closest('.rc-item-row');
@@ -5757,7 +5821,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.7';
+        if (versaoEl) versaoEl.textContent = 'V11.8';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -6858,12 +6922,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('frotaModalClose')?.addEventListener('click',()=>document.getElementById('frotaModal')?.classList.remove('active'));
       document.getElementById('frotaModalCancelar')?.addEventListener('click',()=>document.getElementById('frotaModal')?.classList.remove('active'));
       document.getElementById('frotaModal')?.addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('active')});
-      document.getElementById('fmDataSaida')?.addEventListener('input',e=>{
+      ['fmDataEntrada','fmDataSaida'].forEach(id=>document.getElementById(id)?.addEventListener('input',e=>{
         let v=e.target.value.replace(/\D/g,'').slice(0,8);
         if(v.length>4)v=v.slice(0,2)+'/'+v.slice(2,4)+'/'+v.slice(4);
         else if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
         e.target.value=v;
-      });
+      }));
 
       bindStaticOnce(document.getElementById('formFrotaModal'), 'submit', async e=>{
         e.preventDefault();
@@ -6878,8 +6942,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const pct = podeGerenciarLimite
           ? Number(String(document.getElementById('fmPercentual').value).replace(',','.'))
           : 20;
+        const dataEntrada = dataBRparaISO(document.getElementById('fmDataEntrada')?.value || '');
         const data=dataBRparaISO(document.getElementById('fmDataSaida').value);
 
+        if(dataEntrada===null){showToast('Data de entrada inválida. Use dd/mm/aaaa.',true);return;}
         if(!centroCusto){showToast('Selecione Santos, Camaçari ou Mechatronics.',true);return;}
         if(!nome){showToast('Informe o nome/número da frota.',true);return;}
         if(orc<=0){showToast('Informe um orçamento maior que zero.',true);return;}
@@ -6920,6 +6986,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               centroCusto,
               valorOrcamento:orc,
               percentualLimite:pct,
+              ...(perfilAtual==='admin' ? {dataEntrada:dataEntrada||''} : {}),
               dataPrevisaoSaida:data,
               statusOperacional,
               concluido: statusOperacional === 'CONCLUIDO',
@@ -7130,11 +7197,28 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       });
 
       document.getElementById('rcFiltroStatus')?.addEventListener('change', (e) => { state.rcFilters.status = e.target.value; state.rcPage=1; render(); });
-      document.getElementById('rcFiltroDataIni')?.addEventListener('change', (e) => { state.rcFilters.dataIni = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroCentroCusto')?.addEventListener('change', (e) => { state.rcFilters.centroCusto = e.target.value; state.rcPage=1; render(); });
-      document.getElementById('rcFiltroDataFim')?.addEventListener('change', (e) => { state.rcFilters.dataFim = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroFornecedor')?.addEventListener('change', (e) => { state.rcFilters.fornecedor = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroDestino')?.addEventListener('change', (e) => { state.rcFilters.destino = e.target.value; state.rcPage=1; render(); });
+      document.getElementById('rcFiltroAprovador')?.addEventListener('change', (e) => { state.rcFilters.aprovador = e.target.value; state.rcPage=1; render(); });
+
+      [
+        {txt:'rcFiltroDataIniTexto',cal:'rcFiltroDataIni',btn:'rcFiltroDataIniBtn',chave:'dataIni'},
+        {txt:'rcFiltroDataFimTexto',cal:'rcFiltroDataFim',btn:'rcFiltroDataFimBtn',chave:'dataFim'}
+      ].forEach(cfg=>{
+        const txt=document.getElementById(cfg.txt), cal=document.getElementById(cfg.cal), btn=document.getElementById(cfg.btn);
+        txt?.addEventListener('input',e=>{e.target.value=mascaraDataBR(e.target.value);});
+        const aplicar=()=>{
+          const iso=brParaISOData(txt?.value||'');
+          if(iso===null){showToast('Data inválida. Use dd/mm/aaaa.',true);txt?.focus();return;}
+          state.rcFilters[cfg.chave]=iso;state.rcPage=1;render();
+        };
+        txt?.addEventListener('change',aplicar);
+        txt?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();aplicar();}});
+        btn?.addEventListener('click',()=>{if(!cal)return;if(typeof cal.showPicker==='function')cal.showPicker();else cal.click();});
+        cal?.addEventListener('change',e=>{state.rcFilters[cfg.chave]=e.target.value||'';state.rcPage=1;render();});
+      });
+
       document.getElementById('btnApplyRCFiltros')?.addEventListener('click', () => { state.rcPage=1; render(); });
 
       bindStaticOnce(document.querySelector('#appContent'), 'click', async (e) => {
@@ -7184,6 +7268,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               });
               document.getElementById('btnEnviarRC')?.addEventListener('click', function() {
                 salvarRascunho(true);
+              });
+              document.getElementById('btnVoltarComprasFormRC')?.addEventListener('click', async function() {
+                await voltarRCParaComprasV118(this.dataset.numero || rc.numero);
+                const atualizado = rcs.find(r=>r.numero===rc.numero);
+                const container=document.getElementById('rcFormContainer');
+                if(container && atualizado?.status==='rascunho'){
+                  container.innerHTML='';
+                  render();
+                }
               });
               document.getElementById('btnCancelarFormRC')?.addEventListener('click', () => {
                 document.getElementById('rcFormContainer').innerHTML = '';
@@ -7241,6 +7334,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               showToast('Erro ao enviar para aprovação: '+(err.message||err),true);
             }
           }
+          return;
+        }
+
+        if (target.dataset.voltarComprasRc) {
+          await voltarRCParaComprasV118(target.dataset.voltarComprasRc);
           return;
         }
 
