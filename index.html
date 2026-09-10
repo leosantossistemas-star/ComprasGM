@@ -5941,7 +5941,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V12.3';
+        if (versaoEl) versaoEl.textContent = 'V12.4';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -6028,9 +6028,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('otAddItem')?.addEventListener('click',()=>{state.orcamentoItensDraft=coletarItensOT();state.orcamentoItensDraft.push({tipo:'SERVICO',descricao:'',quantidade:1,valorUnitario:0});state.otHeader={prestador:document.getElementById('otPrestador')?.value||'SANTOS',frotaId:document.getElementById('otFrotaId')?.value||'',frotaNome:document.getElementById('otFrotaNome')?.value||'',dataChegada:document.getElementById('otDataChegada')?.value||hojeISO(),dataOrcamento:document.getElementById('otData')?.value||hojeISO(),cliente:document.getElementById('otCliente')?.value||'',osNumero:document.getElementById('otTemOS')?.value==='SIM'?(document.getElementById('otOSNumero')?.value||''):'',impostoPct:document.getElementById('otImposto')?.value||0,observacoes:document.getElementById('otObservacoes')?.value||''};render();});
       document.querySelectorAll('.ot-remove').forEach(b=>b.addEventListener('click',()=>{b.closest('.ot-item')?.remove();recalcularOT();}));
       document.querySelectorAll('.ot-qtd,.ot-unit,#otImposto').forEach(el=>el.addEventListener('input',recalcularOT));
-      document.getElementById('otDiariaAplicada')?.addEventListener('change',()=>window.atualizarPlanejamentoOTV122?.());
-      document.getElementById('otDiasManutencaoPrevistos')?.addEventListener('input',()=>window.atualizarPlanejamentoOTV122?.());
-      document.getElementById('otData')?.addEventListener('change',()=>window.atualizarPlanejamentoOTV122?.());
+      // V12.4: otDiariaAplicada/otDiasManutencaoPrevistos são inseridos após o render.
+      // O binding efetivo é feito no bloco que cria esses campos.
       setTimeout(()=>window.atualizarPlanejamentoOTV122?.(),0);
       document.querySelectorAll('.ot-tipo').forEach(sel=>sel.addEventListener('change',()=>{const row=sel.closest('.ot-item');const desc=row?.querySelector('.ot-desc');if(desc)desc.placeholder=sel.value==='MATERIAL'?'Digite código/nome do material...':'Descrição do serviço/item';}));
       document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){fecharPainelV117(sug);return;}const ms=allItems.filter(i=>normalize(materialTextoPesquisaV116(i)).includes(q)).slice(0,60);abrirPainelV117(inp,sug,ms,m=>{inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();recalcularOT();},'Selecione o material do orçamento');manterFocoPesquisaV117(inp);});});
@@ -10021,7 +10020,7 @@ window.RH_SECURITY_V94 = {
               <option value="NAO">Não</option>
               <option value="SIM">Sim</option>
             </select>
-            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Selecione “Sim” somente quando este orçamento tiver cobrança de diária.</div>`;
+            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Ao selecionar “Sim”, serão exibidos o valor da diária, os dias previstos, a previsão de saída e o custo previsto.</div>`;
           ref.parentNode.insertBefore(wrap,ref.nextSibling);
 
           const valorWrap=document.createElement('div');
@@ -10064,6 +10063,20 @@ window.RH_SECURITY_V94 = {
           if(otAtual?.diariaAplicada===true || numeroSeguro(otAtual?.custoDiariasPrevisto)>0){
             document.getElementById('otDiariaAplicada').value='SIM';
           }
+
+          // V12.4: estes campos são criados depois do render principal.
+          // Os listeners precisam ser conectados aqui; caso contrário, trocar
+          // "Diária aplicada?" para Sim não exibe Dias/Valor/Previsão.
+          const selDiaria=document.getElementById('otDiariaAplicada');
+          const inpDias=document.getElementById('otDiasManutencaoPrevistos');
+          const inpData=document.getElementById('otData');
+          const selPrest=document.getElementById('otPrestador');
+
+          selDiaria?.addEventListener('change',()=>window.atualizarPlanejamentoOTV122?.());
+          inpDias?.addEventListener('input',()=>window.atualizarPlanejamentoOTV122?.());
+          inpData?.addEventListener('change',()=>window.atualizarPlanejamentoOTV122?.());
+          selPrest?.addEventListener('change',()=>window.atualizarPlanejamentoOTV122?.());
+
           setTimeout(()=>window.atualizarPlanejamentoOTV122?.(),0);
         }
       }
@@ -11672,6 +11685,17 @@ window.RH_SECURITY_V94 = {
     }
     campo.dataset.ultimoCentro=cc;
   }
+
+  document.addEventListener('change',e=>{
+    if(['otDiariaAplicada','otPrestador','otData'].includes(e.target?.id)){
+      setTimeout(()=>window.atualizarPlanejamentoOTV122?.(),0);
+    }
+  });
+  document.addEventListener('input',e=>{
+    if(e.target?.id==='otDiasManutencaoPrevistos'){
+      window.atualizarPlanejamentoOTV122?.();
+    }
+  });
 
   document.addEventListener('change',e=>{if(e.target?.id==='otPrestador')setTimeout(ajustarCampoDiariaOT102,0);});
   const _renderFinal102=render;
