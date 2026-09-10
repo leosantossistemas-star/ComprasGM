@@ -858,6 +858,64 @@
       dateInput: (d) => d ? new Date(d).toISOString().slice(0,10) : '',
     };
     function normalize(s) { return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, ""); }
+
+    // V11.6 — padrão único e completo para consulta de materiais em qualquer módulo.
+    function materialTextoPesquisaV116(m={}) {
+      return [
+        m.codigo, m.descricaoSimples, m.descricaoCurta, m.descricaoCompleta,
+        m.descricao, m.item, m.especificacao, m.categoria, m.subcategoria,
+        m.unid, m.unidade, m.un, m.um, m.marca, m.modelo, m.fornecedor,
+        m.fabricante, m.partNumber, m.numeroPeca, m.observacao,
+        m.caNumero, m.caValidade
+      ].filter(Boolean).join(' ');
+    }
+
+    function materialResumoCompletoV116(m={}, opcoes={}) {
+      const esc = v => window.escapeHTML ? window.escapeHTML(v ?? '') : String(v ?? '');
+      const val = v => (v === undefined || v === null || String(v).trim()==='') ? '—' : esc(v);
+      const dinheiro = v => {
+        const n = numeroSeguro(v);
+        return n ? fmt.money(n) : (v ? esc(v) : '—');
+      };
+      const codigo = val(m.codigo || 'S/C');
+      const descSimples = val(m.descricaoSimples || m.descricao || m.item || 'Sem descrição');
+      const descCurta = val(m.descricaoCurta);
+      const descCompleta = val(m.descricaoCompleta);
+      const especificacao = val(m.especificacao);
+      const categoria = val(m.categoria);
+      const subcategoria = val(m.subcategoria);
+      const unidade = val(m.unid || m.unidade || m.un || m.um);
+      const marca = val(m.marca);
+      const modelo = val(m.modelo);
+      const fornecedor = val(m.fornecedor);
+      const custo = dinheiro(m.custoUnitario || m.valorUnitario || m.valorUnit || m.preco || m.precoUnitario);
+      const obs = val(m.observacao);
+      const ca = m.ehEPI===true || m.caNumero || m.caValidade
+        ? `<span><b>CA:</b> ${val(m.caNumero)}${m.caValidade ? ` · <b>Validade CA:</b> ${val(m.caValidade)}` : ''}</span>`
+        : '';
+      return `
+        <div style="display:grid;gap:5px;line-height:1.25">
+          <div style="font-size:13px"><strong style="color:var(--accent)">${codigo}</strong> — <strong>${descSimples}</strong></div>
+          <div style="font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:5px 14px">
+            <span><b>Descrição curta:</b> ${descCurta}</span>
+            <span><b>Descrição completa:</b> ${descCompleta}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:5px 14px">
+            <span><b>Categoria:</b> ${categoria}</span>
+            <span><b>Subcategoria:</b> ${subcategoria}</span>
+            <span><b>Unidade:</b> ${unidade}</span>
+            <span><b>Marca:</b> ${marca}</span>
+            <span><b>Modelo:</b> ${modelo}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:5px 14px">
+            <span><b>Especificação:</b> ${especificacao}</span>
+            <span><b>Fornecedor:</b> ${fornecedor}</span>
+            <span><b>Custo unitário:</b> ${custo}</span>
+            ${ca}
+          </div>
+          ${m.observacao ? `<div style="font-size:11px;color:var(--text-muted)"><b>Observação:</b> ${obs}</div>` : ''}
+        </div>`;
+    }
     function parseMoney(value) {
       if (!value || !value.trim()) return 0;
       let s = value.replace("R$", "").trim();
@@ -2176,7 +2234,7 @@ auth.onAuthStateChanged(async (user) => {
           <div class="filters-grid">
             <div class="field" style="position:relative"><label>Buscar</label>
               <input type="search" id="fBusca" autocomplete="off" placeholder="Código, descrição, marca, fornecedor…" value="${state.filters.busca}" />
-              <div id="fBuscaSugestoes" style="display:none;position:absolute;z-index:150;left:0;right:0;top:68px;max-height:340px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 14px 32px rgba(0,0,0,.45)"></div>
+              <div id="fBuscaSugestoes" style="display:none;position:absolute;z-index:150;left:0;right:0;top:68px;max-height:480px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 14px 32px rgba(0,0,0,.45)"></div>
             </div>
             <div class="field"><label>Categoria</label><select id="fCategoria"><option value="">Todas</option>${categorias.map(c => `<option value="${c}" ${state.filters.categoria===c?'selected':''}>${c}</option>`).join('')}</select></div>
             <div class="field"><label>Subcategoria</label><select id="fSubcategoria"><option value="">Todas</option>${subcategorias.map(s => `<option value="${s}" ${state.filters.subcategoria===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -3888,7 +3946,7 @@ auth.onAuthStateChanged(async (user) => {
                 <input id="baixaMaterialBusca" autocomplete="off"
                        value="${baixaEd.itensRecebidos?.[0]?.codigo ? `${baixaEd.itensRecebidos[0].codigo} — ${baixaEd.itensRecebidos[0].descricao||''}` : ''}"
                        placeholder="Digite código, número, descrição, marca ou fornecedor..." required>
-                <div id="baixaMaterialResultados" style="display:none;position:absolute;z-index:160;left:0;right:0;top:68px;max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.5)"></div>
+                <div id="baixaMaterialResultados" style="display:none;position:absolute;z-index:160;left:0;right:0;top:68px;max-height:520px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.5)"></div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Digite apenas uma parte e clique no resultado desejado.</div>
                 <div id="baixaCAInfo" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px"></div>
               </div>
@@ -4330,7 +4388,7 @@ auth.onAuthStateChanged(async (user) => {
           <input type="hidden" class="rc-item-codigo" value="${itemData?.codigo || ''}" />
           <input type="hidden" class="rc-item-id" value="${itemData?.materialId || ''}" />
           <input type="hidden" class="rc-item-unidade" value="${itemData?.unidade || itemData?.unid || ''}" />
-          <div class="rc-sugestoes" style="display:none;position:absolute;top:66px;left:0;right:0;z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 12px 30px rgba(0,0,0,.35)"></div>
+          <div class="rc-sugestoes" style="display:none;position:absolute;top:66px;left:0;right:0;z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:430px;overflow:auto;box-shadow:0 12px 30px rgba(0,0,0,.35)"></div>
         </div>
         <div class="field" style="flex:1"><label>Quantidade</label><input type="number" class="rc-item-qtd" min="0.01" step="any" value="${itemData ? itemData.qtd : 1}" /></div>
         <div class="field" style="flex:1"><label>Valor Unit.</label><input type="text" class="rc-item-unit" placeholder="0,00" value="${itemData ? itemData.valorUnit || '' : ''}" /></div>
@@ -4371,15 +4429,14 @@ auth.onAuthStateChanged(async (user) => {
         const t = normalize(termo);
         if (!t) { sugestoes.style.display='none'; return; }
         const matches = allItems.filter(item => {
-          const alvo = normalize([item.codigo,item.descricaoSimples,item.descricaoCurta,item.descricaoCompleta,item.especificacao,item.marca,item.modelo,item.observacao].filter(Boolean).join(' '));
+          const alvo = normalize(materialTextoPesquisaV116(item));
           return alvo.includes(t);
         }).slice(0,10);
 
         if (!matches.length) { sugestoes.style.display='none'; return; }
         sugestoes.innerHTML = matches.map((m,i)=>`
           <button type="button" data-sug="${i}" style="display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
-            <strong style="color:var(--accent)">${m.codigo || 'S/C'}</strong> — ${[m.descricaoSimples,m.descricaoCurta,m.descricaoCompleta,m.especificacao,m.marca,m.modelo].filter(Boolean).join(' — ') || 'Sem descrição'}
-            <small style="display:block;color:var(--text-muted);margin-top:3px">Qtd. cadastro: ${numeroSeguro(m.quantidade || m.qtd || m.estoqueMin) || 1} · Unit.: ${m.custoUnitario || 'não informado'}</small>
+            ${materialResumoCompletoV116(m)}
           </button>`).join('');
         sugestoes.style.display='block';
         sugestoes.querySelectorAll('[data-sug]').forEach(btn=>btn.addEventListener('mousedown',e=>{
@@ -5363,7 +5420,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const t=normalize(termo).trim();
         if(!t){box.style.display='none';return;}
         const encontrados=allItems.filter(m=>{
-          const alvo=normalize([m.codigo,desc(m),m.descricaoSimples,m.descricaoCurta,m.descricaoCompleta,m.descricao,m.item,m.especificacao,m.marca,m.modelo,m.categoria,m.subcategoria,m.observacao].filter(Boolean).join(' '));
+          const alvo=normalize(materialTextoPesquisaV116(m));
           return alvo.includes(t);
         }).sort((a,b)=>{
           const ca=normalize(a.codigo||''), cb=normalize(b.codigo||'');
@@ -5378,11 +5435,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }
         box.innerHTML=encontrados.map((m,i)=>{
           const v=valor(m);
-          return `<button type="button" data-i="${i}" style="display:grid;grid-template-columns:minmax(100px,.8fr) minmax(250px,2.4fr) minmax(110px,.8fr) 60px;gap:12px;width:100%;padding:10px 12px;text-align:left;align-items:center;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
-            <strong style="color:var(--accent)">${m.codigo||'S/C'}</strong>
-            <span>${desc(m)}</span>
-            <strong>${v>0?fmt.money(v):'Sem valor'}</strong>
-            <span style="color:var(--text-muted)">${un(m)||'—'}</span>
+          return `<button type="button" data-i="${i}" style="display:block;width:100%;padding:10px 12px;text-align:left;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);cursor:pointer">
+            ${materialResumoCompletoV116(m)}
           </button>`;
         }).join('');
         box.style.display='block';
@@ -5631,7 +5685,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V11.5';
+        if (versaoEl) versaoEl.textContent = 'V11.6';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -5715,7 +5769,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.querySelectorAll('.ot-remove').forEach(b=>b.addEventListener('click',()=>{b.closest('.ot-item')?.remove();recalcularOT();}));
       document.querySelectorAll('.ot-qtd,.ot-unit,#otImposto').forEach(el=>el.addEventListener('input',recalcularOT));
       document.querySelectorAll('.ot-tipo').forEach(sel=>sel.addEventListener('change',()=>{const row=sel.closest('.ot-item');const desc=row?.querySelector('.ot-desc');if(desc)desc.placeholder=sel.value==='MATERIAL'?'Digite código/nome do material...':'Descrição do serviço/item';}));
-      document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){sug.style.display='none';return;}const ms=allItems.filter(i=>normalize([i.codigo,i.descricaoSimples,i.descricaoCurta,i.descricaoCompleta].join(' ')).includes(q)).slice(0,15);sug.innerHTML=ms.map((m,i)=>`<button type="button" data-i="${i}" style="display:block;width:100%;text-align:left;padding:9px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border)"><strong style="color:var(--accent)">${m.codigo}</strong> — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}</button>`).join('');sug.style.display=ms.length?'block':'none';sug.querySelectorAll('[data-i]').forEach(b=>b.addEventListener('mousedown',e=>{e.preventDefault();const m=ms[Number(b.dataset.i)];inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();sug.style.display='none';recalcularOT();}));});});
+      document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){sug.style.display='none';return;}const ms=allItems.filter(i=>normalize(materialTextoPesquisaV116(i)).includes(q)).slice(0,25);sug.innerHTML=ms.map((m,i)=>`<button type="button" data-i="${i}" style="display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border)">${materialResumoCompletoV116(m)}</button>`).join('');sug.style.display=ms.length?'block':'none';sug.querySelectorAll('[data-i]').forEach(b=>b.addEventListener('mousedown',e=>{e.preventDefault();const m=ms[Number(b.dataset.i)];inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();sug.style.display='none';recalcularOT();}));});});
       document.getElementById('formOT')?.addEventListener('submit',async e=>{
         e.preventDefault();
         try{
@@ -5929,10 +5983,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           return;
         }
         let resultados=allItems.filter(item=>{
-          const hay=normalize([
-            item.codigo,item.descricaoSimples,item.descricaoCurta,item.descricaoCompleta,
-            item.marca,item.modelo,item.fornecedor,item.categoria,item.subcategoria
-          ].join(' '));
+          const hay=normalize(materialTextoPesquisaV116(item));
           const codNum=String(item.codigo||'').replace(/\D/g,'');
           return hay.includes(q) || (!!qNum && codNum.includes(qNum));
         });
@@ -5940,10 +5991,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         resultados=resultados.slice(0,35);
         baixaResultados.innerHTML=resultados.length?resultados.map(item=>`
           <button type="button" data-baixa-material="${item.codigo}" style="display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">
-            <div><strong style="color:var(--accent)">${item.codigo}</strong> — ${descBaixa(item)}</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
-              ${item.categoria||''}${item.fornecedor?`${item.categoria?' · ':''}Fornecedor: ${item.fornecedor}`:''}${numeroSeguro(item.custoUnitario)?` · ${fmt.money(numeroSeguro(item.custoUnitario))}`:''}
-            </div>
+            ${materialResumoCompletoV116(item)}
           </button>`).join(''):`<div style="padding:12px;color:var(--text-muted)">Nenhum material encontrado.</div>`;
         baixaResultados.style.display='block';
       };
@@ -6522,20 +6570,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           return;
         }
         let resultados = allItems.filter(item => {
-          const hay = normalize([
-            item.codigo,item.descricaoSimples,item.descricaoCurta,item.descricaoCompleta,
-            item.marca,item.modelo,item.fornecedor,item.categoria,item.subcategoria
-          ].join(' '));
+          const hay = normalize(materialTextoPesquisaV116(item));
           const codNum = String(item.codigo||'').replace(/\D/g,'');
           return hay.includes(q) || (!!qNum && codNum.includes(qNum));
         });
         resultados.sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}));
         resultados = resultados.slice(0,35);
         buscaSug.innerHTML = resultados.length ? resultados.map(item=>{
-          const desc=item.descricaoSimples||item.descricaoCurta||item.descricaoCompleta||'Material';
           return `<button type="button" data-fbusca-item="${item.codigo}" style="display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer">
-            <div><strong style="color:var(--accent)">${item.codigo}</strong> — ${desc}</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${item.categoria||''}${item.fornecedor?`${item.categoria?' · ':''}${item.fornecedor}`:''}</div>
+            ${materialResumoCompletoV116(item)}
           </button>`;
         }).join('') : `<div style="padding:12px;color:var(--text-muted)">Nenhum material encontrado.</div>`;
         buscaSug.style.display='block';
