@@ -5305,7 +5305,39 @@ function gerarPDF(rcData) {
       const tipo=i.tipo||'SERVICO'; return `<div class="rc-item-row ot-item" data-idx="${idx}" style="align-items:end;position:relative"><div class="field"><label>Item</label><select class="ot-tipo"><option value="SERVICO" ${tipo==='SERVICO'?'selected':''}>1 - Serviço</option><option value="TERCEIRO" ${tipo==='TERCEIRO'?'selected':''}>2 - Mão de Obra Terceirizada</option><option value="MATERIAL" ${tipo==='MATERIAL'?'selected':''}>3 - Materiais</option><option value="LOCACAO" ${tipo==='LOCACAO'?'selected':''}>4 - Locações</option></select></div><div class="field" style="flex:3;position:relative"><label>Descrição</label><input class="ot-desc" value="${i.descricao||''}" placeholder="Descrição do serviço/item"><input type="hidden" class="ot-codigo" value="${i.codigo||''}"><div class="ot-sug" style="display:none;position:absolute;top:66px;left:0;right:0;z-index:80;background:var(--surface);border:1px solid var(--accent);border-radius:8px;max-height:260px;overflow:auto"></div></div><div class="field"><label>Qtd.</label><input type="number" min="0.01" step="any" class="ot-qtd" value="${i.quantidade||1}"></div><div class="field"><label>Preço unit.</label><input class="ot-unit" value="${numeroSeguro(i.valorUnitario).toLocaleString('pt-BR',{minimumFractionDigits:2})}"></div><div class="field"><label>Total</label><input class="ot-total" readonly value="${fmt.money(numeroSeguro(i.quantidade||1)*numeroSeguro(i.valorUnitario))}"></div><button type="button" class="btn btn-danger ot-remove">×</button></div>`;
     }
     function coletarItensOT(){return [...document.querySelectorAll('.ot-item')].map(r=>({tipo:r.querySelector('.ot-tipo').value,codigo:r.querySelector('.ot-codigo').value,descricao:r.querySelector('.ot-desc').value.trim(),quantidade:numeroSeguro(r.querySelector('.ot-qtd').value),valorUnitario:parseMoney(r.querySelector('.ot-unit').value)})).filter(i=>i.descricao&&i.quantidade>0);}
-    function recalcularOT(){const itens=coletarItensOT();const x=totaisOT(itens,document.getElementById('otImposto')?.value||0);if(document.getElementById('otSubtotal'))document.getElementById('otSubtotal').value=fmt.money(x.subtotal);if(document.getElementById('otImpostoValor'))document.getElementById('otImpostoValor').value=fmt.money(x.imposto);if(document.getElementById('otTotal'))document.getElementById('otTotal').value=fmt.money(x.total);document.querySelectorAll('.ot-item').forEach(r=>{const q=numeroSeguro(r.querySelector('.ot-qtd').value),u=parseMoney(r.querySelector('.ot-unit').value);r.querySelector('.ot-total').value=fmt.money(q*u);});}
+    function calcularDataFimInclusivaV121(inicio,dias){
+      if(!inicio || !Number(dias)) return '';
+      const d=new Date(inicio+'T12:00:00');
+      d.setDate(d.getDate()+Math.max(0,Number(dias)-1));
+      return d.toISOString().slice(0,10);
+    }
+    function dadosPlanejamentoOTV121(){
+      const diaria=parseMoney(document.getElementById('otValorDiariaManutencao')?.value||'0')||0;
+      const dias=Math.max(1,Number(document.getElementById('otDiasManutencaoPrevistos')?.value||1));
+      const dataOrc=document.getElementById('otData')?.value||'';
+      return {diaria,dias,dataOrc,previsaoSaida:calcularDataFimInclusivaV121(dataOrc,dias),custoPrevisto:diaria*dias};
+    }
+    window.atualizarPlanejamentoOTV121=function(){
+      const p=dadosPlanejamentoOTV121();
+      const saida=document.getElementById('otDataPrevisaoSaida');
+      const custo=document.getElementById('otCustoDiariasPrevisto');
+      if(saida)saida.value=p.previsaoSaida;
+      if(custo)custo.value=fmt.money(p.custoPrevisto);
+      recalcularOT();
+    };
+    function recalcularOT(){
+      const itens=coletarItensOT();
+      const impostoPct=document.getElementById('otImposto')?.value||0;
+      const base=totaisOT(itens,impostoPct);
+      const p=dadosPlanejamentoOTV121();
+      const subtotal=base.subtotal+p.custoPrevisto;
+      const imposto=subtotal*(numeroSeguro(impostoPct)/100);
+      const total=subtotal+imposto;
+      if(document.getElementById('otSubtotal'))document.getElementById('otSubtotal').value=fmt.money(subtotal);
+      if(document.getElementById('otImpostoValor'))document.getElementById('otImpostoValor').value=fmt.money(imposto);
+      if(document.getElementById('otTotal'))document.getElementById('otTotal').value=fmt.money(total);
+      document.querySelectorAll('.ot-item').forEach(r=>{const q=numeroSeguro(r.querySelector('.ot-qtd').value),u=parseMoney(r.querySelector('.ot-unit').value);r.querySelector('.ot-total').value=fmt.money(q*u);});
+    }
 
     function renderSolicitar() {
       const perfil = perfilAtual;
@@ -5508,8 +5540,17 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               </div>
               <div class="field"><label>Data de Necessidade *</label><input type="date" id="solDataNecessidade" value="${dataNecessidadeValor}" required /></div>
               <div class="field">
-                <label>Data prevista de saída *</label>
-                <input type="date" id="solDataSaida" required value="${data.dataSaida || data.dataPrevisaoSaida || (()=>{const f=getFrotaByNome(data.destino||'',getCentroCustoRegistro(data));return f?.dataPrevisaoSaida||'';})()}">
+                <label>Início real da manutenção *</label>
+                <input type="date" id="solDataInicioManutencao" value="${data.dataInicioManutencao || ''}" required>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:4px">É esta data que inicia a contabilização real da diária.</div>
+              </div>
+              <div class="field">
+                <label>Dias previstos em manutenção *</label>
+                <input type="number" id="solDiasManutencaoPrevistos" min="1" max="3650" step="1" required value="${numeroSeguro(data.diasManutencaoPrevistos)||1}">
+              </div>
+              <div class="field">
+                <label>Fim previsto da manutenção *</label>
+                <input type="date" id="solDataSaida" required readonly value="${data.dataSaida || data.dataFimManutencaoPrevista || data.dataPrevisaoSaida || ''}">
               </div>
               <div class="field">
                 <label>Valor do serviço *</label>
@@ -5694,10 +5735,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const centroCusto = centroCustoNormalizado(getVal('solCentroCusto'));
       const destino = getVal('solDestino').trim();
       const dataNecessidade = getVal('solDataNecessidade');
-      const dataSaida = getVal('solDataSaida');
+      const dataInicioManutencao = getVal('solDataInicioManutencao');
+      const diasManutencaoPrevistos = Math.max(1,Number(getVal('solDiasManutencaoPrevistos')||1));
+      const dataSaida = calcularDataFimInclusivaV121(dataInicioManutencao,diasManutencaoPrevistos);
       const valorServico = parseMoney(getVal('solValorServico'));
-      if (!centroCusto || !destino || !dataNecessidade || !dataSaida || valorServico <= 0) {
-        showToast('Preencha filial, frota/projeto, data de necessidade, data de saída e valor do serviço.', true);
+      if (!centroCusto || !destino || !dataNecessidade || !dataInicioManutencao || !dataSaida || valorServico <= 0) {
+        showToast('Preencha filial, frota/projeto, data de necessidade, início da manutenção, dias previstos e valor do serviço.', true);
         return;
       }
 
@@ -5777,6 +5820,28 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         new Date(agora.getTime() + (60 * 24 * 60 * 60 * 1000))
       );
       const adminStatus = perfilAtual === 'admin' && editId ? getVal('solAdminStatus') : '';
+      // V12.1: a solicitação oriunda do orçamento marca o início REAL da manutenção.
+      // A data do orçamento não gera custo.
+      try{
+        const frotaMan=getFrotaByNome(destino,centroCusto);
+        if(frotaMan?.id){
+          await db.collection('frotas').doc(frotaMan.id).set({
+            dataEntrada:dataInicioManutencao,
+            dataInicioManutencao,
+            diasManutencaoPrevistos,
+            dataPrevisaoSaida:dataSaida,
+            dataFimManutencaoPrevista:dataSaida,
+            statusOperacional:'EM_MANUTENCAO',
+            concluido:false,
+            alteradoPorUid:getUsuarioUid(),
+            alteradoPorNome:getUsuarioNome(),
+            alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+          },{merge:true});
+        }
+      }catch(err){
+        console.warn('Não foi possível atualizar o início da manutenção na frota:',err);
+      }
+
       const novaSol = {
         ...(editId ? {id:editId} : {}),
         centroCusto,
@@ -5784,6 +5849,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         dataNecessidade,
         dataSaida,
         dataPrevisaoSaida: dataSaida,
+        dataInicioManutencao,
+        diasManutencaoPrevistos,
+        dataFimManutencaoPrevista:dataSaida,
         valorServico,
         valorOrcamento: valorServico,
         itens,
@@ -5840,7 +5908,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById('pageTitle').textContent = info.title;
         document.getElementById('pageMeta').textContent = info.meta;
         const versaoEl = document.getElementById('v83DiagnosticBadge');
-        if (versaoEl) versaoEl.textContent = 'V12.0';
+        if (versaoEl) versaoEl.textContent = 'V12.1';
 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
@@ -5874,6 +5942,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             setTimeout(()=>{
               const dest=document.getElementById('solDestino');if(dest)dest.value=dados.destino||'';
               const dt=document.getElementById('solDataNecessidade');if(dt)dt.value=dados.dataNecessidade||hojeISO();
+              const ini=document.getElementById('solDataInicioManutencao');if(ini)ini.value=dados.dataInicioManutencao||'';
+              const dias=document.getElementById('solDiasManutencaoPrevistos');if(dias)dias.value=dados.diasManutencaoPrevistos||1;
+              const val=document.getElementById('solValorServico');if(val&&dados.valorServico)val.value=numeroSeguro(dados.valorServico).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+              const fim=document.getElementById('solDataSaida');if(fim)fim.value=calcularDataFimInclusivaV121(ini?.value||'',Number(dias?.value||1));
               const org=document.getElementById('solOrigemOrcamentoId');if(org)org.value=dados.origemOrcamentoId||'';
               const itens=document.getElementById('solItensContainer');if(itens){itens.innerHTML='';(dados.itens||[]).forEach(i=>addItemRowSol(itens,i));if(!(dados.itens||[]).length)addItemRowSol(itens);}
             },20);
@@ -5923,6 +5995,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('otAddItem')?.addEventListener('click',()=>{state.orcamentoItensDraft=coletarItensOT();state.orcamentoItensDraft.push({tipo:'SERVICO',descricao:'',quantidade:1,valorUnitario:0});state.otHeader={prestador:document.getElementById('otPrestador')?.value||'SANTOS',frotaId:document.getElementById('otFrotaId')?.value||'',frotaNome:document.getElementById('otFrotaNome')?.value||'',dataChegada:document.getElementById('otDataChegada')?.value||hojeISO(),dataOrcamento:document.getElementById('otData')?.value||hojeISO(),cliente:document.getElementById('otCliente')?.value||'',osNumero:document.getElementById('otTemOS')?.value==='SIM'?(document.getElementById('otOSNumero')?.value||''):'',impostoPct:document.getElementById('otImposto')?.value||0,observacoes:document.getElementById('otObservacoes')?.value||''};render();});
       document.querySelectorAll('.ot-remove').forEach(b=>b.addEventListener('click',()=>{b.closest('.ot-item')?.remove();recalcularOT();}));
       document.querySelectorAll('.ot-qtd,.ot-unit,#otImposto').forEach(el=>el.addEventListener('input',recalcularOT));
+      document.getElementById('otValorDiariaManutencao')?.addEventListener('input',()=>window.atualizarPlanejamentoOTV121?.());
+      document.getElementById('otDiasManutencaoPrevistos')?.addEventListener('input',()=>window.atualizarPlanejamentoOTV121?.());
+      document.getElementById('otData')?.addEventListener('change',()=>window.atualizarPlanejamentoOTV121?.());
+      setTimeout(()=>window.atualizarPlanejamentoOTV121?.(),0);
       document.querySelectorAll('.ot-tipo').forEach(sel=>sel.addEventListener('change',()=>{const row=sel.closest('.ot-item');const desc=row?.querySelector('.ot-desc');if(desc)desc.placeholder=sel.value==='MATERIAL'?'Digite código/nome do material...':'Descrição do serviço/item';}));
       document.querySelectorAll('.ot-desc').forEach(inp=>{inp.addEventListener('input',()=>{const row=inp.closest('.ot-item');if(row?.querySelector('.ot-tipo')?.value!=='MATERIAL')return;const sug=row.querySelector('.ot-sug');const q=normalize(inp.value);if(!q){fecharPainelV117(sug);return;}const ms=allItems.filter(i=>normalize(materialTextoPesquisaV116(i)).includes(q)).slice(0,60);abrirPainelV117(inp,sug,ms,m=>{inp.value=`${m.codigo} — ${m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||''}`;row.querySelector('.ot-codigo').value=m.codigo||'';if(m.custoUnitario)row.querySelector('.ot-unit').value=String(m.custoUnitario).replace('R$','').trim();recalcularOT();},'Selecione o material do orçamento');manterFocoPesquisaV117(inp);});});
       document.getElementById('formOT')?.addEventListener('submit',async e=>{
@@ -5937,11 +6013,18 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           if(!frotaNome) throw new Error('Informe o número/nome da Frota ou Projeto.');
 
           const impostoPct=numeroSeguro(document.getElementById('otImposto').value);
-          const tot=totaisOT(itens,impostoPct);
           const dataChegada=document.getElementById('otDataChegada').value;
+          const dataOrcamento=document.getElementById('otData').value;
           const cliente=document.getElementById('otCliente').value.trim();
           const diariaDigitada=parseMoney(document.getElementById('otValorDiariaManutencao')?.value||'0');
-          const valorDiariaManutencao=prestador==='SANTOS' ? 700 : (prestador==='CAMAÇARI' ? Math.max(0,diariaDigitada) : 0);
+          const valorDiariaManutencao=prestador==='SANTOS' ? 700 : Math.max(0,diariaDigitada);
+          const diasManutencaoPrevistos=Math.max(1,Number(document.getElementById('otDiasManutencaoPrevistos')?.value||1));
+          const dataPrevisaoSaida=calcularDataFimInclusivaV121(dataOrcamento,diasManutencaoPrevistos);
+          const custoDiariasPrevisto=valorDiariaManutencao*diasManutencaoPrevistos;
+          const baseItens=totaisOT(itens,0).subtotal;
+          const subtotal=baseItens+custoDiariasPrevisto;
+          const valorImposto=subtotal*(impostoPct/100);
+          const tot={subtotal,imposto:valorImposto,total:subtotal+valorImposto};
 
           // Tenta localizar uma frota/projeto já existente pelo nome + centro.
           let f=frotas.find(x =>
@@ -5957,10 +6040,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               tipoCadastro:prestador==='MECHATRONICS'?'PROJETO':'FROTA',
               valorOrcamento:tot.total,
               percentualLimite:20,
-              dataEntrada:dataChegada||hojeISO(),
-              dataPrevisaoSaida:'',
+              dataEntrada:prestador==='MECHATRONICS' ? '' : (dataChegada||hojeISO()),
+              dataPrevistaEntradaOrcamento:dataChegada||'',
+              dataInicioManutencao:'',
+              diasManutencaoPrevistos,
+              dataPrevisaoSaida,
               valorDiariaManutencao,
-              statusOperacional:prestador==='MECHATRONICS'?'':'EM_MANUTENCAO',
+              statusOperacional:prestador==='MECHATRONICS'?'AGUARDANDO_INICIO':'EM_MANUTENCAO',
               statusProjeto:prestador==='MECHATRONICS'?'PLANEJAMENTO':'',
               concluido:false,
               cadastroIncompleto:true,
@@ -5976,7 +6062,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             // O orçamento técnico pode atualizar valor e data de chegada da frota já existente.
             await db.collection('frotas').doc(f.id).set({
               valorOrcamento:tot.total,
-              dataEntrada:dataChegada||f.dataEntrada||'',
+              ...(prestador==='MECHATRONICS' ? {dataPrevistaEntradaOrcamento:dataChegada||'',diasManutencaoPrevistos,dataPrevisaoSaida} : {dataEntrada:dataChegada||f.dataEntrada||'',diasManutencaoPrevistos,dataPrevisaoSaida}),
               valorDiariaManutencao,
               alteradoPorUid:getUsuarioUid(),
               alteradoPorEmail:getUsuarioEmail(),
@@ -5996,7 +6082,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             frotaId:f.id,
             frotaNome,
             dataChegada,
-            dataOrcamento:document.getElementById('otData').value,
+            dataOrcamento,
+            diasManutencaoPrevistos,
+            dataPrevisaoSaida,
+            custoDiariasPrevisto,
             cliente,
             osNumero:osSim?document.getElementById('otOSNumero').value.trim():'',
             itens,
@@ -6029,14 +6118,38 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           state.otHeader={};
           showToast(`Orçamento salvo em STAND BY. ${frotaNome} cadastrada/vinculada.`);
         }catch(err){
-          showToast(err.message,true);
+          console.error('Erro ao salvar Orçamento Técnico:',err);
+          if(String(err?.message||'').toLowerCase().includes('quota')){
+            showToast('Não foi possível salvar o orçamento: cota do serviço atingida (Quota exceeded). Verifique o uso/quota do Firebase e tente novamente.',true);
+          }else{
+            showToast(err.message||'Erro ao salvar orçamento.',true);
+          }
         }
       });
       document.querySelectorAll('[data-ot-editar]').forEach(b=>b.addEventListener('click',()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otEditar);if(!o)return;state.orcamentoEditId=o.id;state.otHeader={};state.orcamentoItensDraft=o.itens||[];state.orcamentoFormAberto=true;render();}));
       document.querySelectorAll('[data-ot-excluir]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Excluir orçamento técnico?'))return;await db.collection('orcamentos_tecnicos').doc(b.dataset.otExcluir).delete();state.orcamentoFormAberto=false;state.orcamentoEditId=null;}));
-      document.querySelectorAll('[data-ot-aprovar]').forEach(b=>b.addEventListener('click',async()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otAprovar);if(!o||!confirm(`Aprovar ${o.numero}?`))return;const batch=db.batch();batch.update(db.collection('orcamentos_tecnicos').doc(o.id),{status:'APROVADO',aprovadoPorUid:getUsuarioUid(),aprovadoPorNome:getUsuarioNome(),aprovadoEm:firebase.firestore.FieldValue.serverTimestamp()});if(o.frotaId){batch.update(db.collection('frotas').doc(o.frotaId),{valorOrcamento:o.valorFinal,dataEntrada:o.dataChegada,valorDiariaManutencao:o.prestador==='SANTOS'?700:(o.prestador==='CAMAÇARI'?numeroSeguro(o.valorDiariaManutencao):0),origemOrcamentoTecnico:o.numero,alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});}await batch.commit();showToast('Orçamento aprovado. Valor do serviço enviado para a Frota/Projeto.');}));
+      document.querySelectorAll('[data-ot-aprovar]').forEach(b=>b.addEventListener('click',async()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otAprovar);if(!o||!confirm(`Aprovar ${o.numero}?`))return;const batch=db.batch();batch.update(db.collection('orcamentos_tecnicos').doc(o.id),{status:'APROVADO',aprovadoPorUid:getUsuarioUid(),aprovadoPorNome:getUsuarioNome(),aprovadoEm:firebase.firestore.FieldValue.serverTimestamp()});if(o.frotaId){batch.update(db.collection('frotas').doc(o.frotaId),{
+        valorOrcamento:o.valorFinal,
+        dataPrevistaEntradaOrcamento:o.dataChegada||'',
+        diasManutencaoPrevistos:numeroSeguro(o.diasManutencaoPrevistos)||1,
+        dataPrevisaoSaida:o.dataPrevisaoSaida||calcularDataFimInclusivaV121(o.dataOrcamento,numeroSeguro(o.diasManutencaoPrevistos)||1),
+        valorDiariaManutencao:o.prestador==='SANTOS'?700:numeroSeguro(o.valorDiariaManutencao),
+        origemOrcamentoTecnico:o.numero,
+        alteradoPorUid:getUsuarioUid(),alteradoPorNome:getUsuarioNome(),
+        alteradoEm:firebase.firestore.FieldValue.serverTimestamp()
+      });}await batch.commit();showToast('Orçamento aprovado. Valor do serviço enviado para a Frota/Projeto.');}));
       document.querySelectorAll('[data-ot-ver]').forEach(b=>b.addEventListener('click',()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otVer);if(!o)return;alert(`${o.numero}\nCliente: ${o.cliente}\nTotal: ${fmt.money(numeroSeguro(o.valorFinal))}\nStatus: ${o.status}\n\n`+(o.itens||[]).map(i=>`${labelTipoOT(i.tipo)} | ${i.descricao} | ${i.quantidade} x ${fmt.money(numeroSeguro(i.valorUnitario))}`).join('\n'));}));
-      document.querySelectorAll('[data-ot-solicitar]').forEach(b=>b.addEventListener('click',()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otSolicitar);if(!o)return;const f=frotas.find(x=>x.id===o.frotaId);state.section='solicitar';state.solicitacaoPrefillOrcamento={origemOrcamentoId:o.id,centroCusto:getCentroCustoRegistro(f),destino:f?.nome||o.frotaNome,dataNecessidade:hojeISO(),itens:(o.itens||[]).filter(i=>i.tipo==='MATERIAL').map(i=>({codigo:i.codigo,descricao:i.descricao,qtd:i.quantidade,unidade:'UN',valorUnit:i.valorUnitario,total:i.quantidade*i.valorUnitario}))};document.querySelectorAll('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.section==='solicitar'));render();}));
+      document.querySelectorAll('[data-ot-solicitar]').forEach(b=>b.addEventListener('click',()=>{const o=orcamentosTecnicos.find(x=>x.id===b.dataset.otSolicitar);if(!o)return;const f=frotas.find(x=>x.id===o.frotaId);state.section='solicitar';state.solicitacaoPrefillOrcamento={
+        origemOrcamentoId:o.id,
+        centroCusto:getCentroCustoRegistro(f),
+        destino:f?.nome||o.frotaNome,
+        dataNecessidade:hojeISO(),
+        dataInicioManutencao:'',
+        diasManutencaoPrevistos:numeroSeguro(o.diasManutencaoPrevistos)||1,
+        dataFimManutencaoPrevista:'',
+        valorDiariaManutencao:numeroSeguro(o.valorDiariaManutencao),
+        valorServico:numeroSeguro(o.valorFinal),
+        itens:(o.itens||[]).filter(i=>i.tipo==='MATERIAL').map(i=>({codigo:i.codigo,descricao:i.descricao,qtd:i.quantidade,unidade:'UN',valorUnit:i.valorUnitario,total:i.quantidade*i.valorUnitario}))};document.querySelectorAll('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.section==='solicitar'));render();}));
       // ===== FILTROS PAGAMENTOS DE NF =====
       const aplicarFiltrosPagamento = () => {
         state.pagamentoNFFilters = {
@@ -7425,6 +7538,16 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
         document.getElementById('solCentroCusto')?.addEventListener('change', atualizarDestinosSolicitacao);
         atualizarDestinosSolicitacao();
+
+        const recalcularFimManutencaoSolV121=()=>{
+          const inicio=document.getElementById('solDataInicioManutencao')?.value||'';
+          const dias=Math.max(1,Number(document.getElementById('solDiasManutencaoPrevistos')?.value||1));
+          const fim=document.getElementById('solDataSaida');
+          if(fim) fim.value=calcularDataFimInclusivaV121(inicio,dias);
+        };
+        document.getElementById('solDataInicioManutencao')?.addEventListener('change',recalcularFimManutencaoSolV121);
+        document.getElementById('solDiasManutencaoPrevistos')?.addEventListener('input',recalcularFimManutencaoSolV121);
+        recalcularFimManutencaoSolV121();
 
         const itensContainer=document.getElementById('solItensContainer');
         if(itensContainer){
@@ -9639,7 +9762,7 @@ window.RH_SECURITY_V94 = {
   }
 
   function v98DataInicioFrota(f){
-    return String(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||f.dataAbertura||'').slice(0,10);
+    return String(f.dataInicioManutencao||f.dataEntrada||f.dataInicio||f.dataAbertura||'').slice(0,10);
   }
 
   function v98DataFimFrota(f){
@@ -9807,8 +9930,31 @@ window.RH_SECURITY_V94 = {
           wrap.className='field';
           wrap.innerHTML=`<label>Diária de manutenção (R$/dia)</label>
             <input type="text" id="otValorDiariaManutencao" value="700,00">
-            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Parâmetro gerencial. Não gera RC/NF adicional e não duplica custo.</div>`;
+            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">No orçamento este valor é apenas previsto. O custo real começa somente quando for informada a data de início da manutenção.</div>`;
           ref.parentNode.insertBefore(wrap,ref.nextSibling);
+
+          const diasWrap=document.createElement('div');
+          diasWrap.className='field';
+          diasWrap.innerHTML=`<label>Dias previstos em manutenção</label>
+            <input type="number" id="otDiasManutencaoPrevistos" min="1" max="3650" step="1" value="${numeroSeguro((state.orcamentoEditId?orcamentosTecnicos.find(x=>x.id===state.orcamentoEditId):null)?.diasManutencaoPrevistos)||1}">
+            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Quantidade estimada de dias para execução.</div>`;
+          wrap.parentNode.insertBefore(diasWrap,wrap.nextSibling);
+
+          const prevWrap=document.createElement('div');
+          prevWrap.className='field';
+          prevWrap.innerHTML=`<label>Previsão de saída</label>
+            <input type="date" id="otDataPrevisaoSaida" readonly>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Calculada pela data do orçamento + dias previstos. Não inicia custo real.</div>`;
+          diasWrap.parentNode.insertBefore(prevWrap,diasWrap.nextSibling);
+
+          const custoWrap=document.createElement('div');
+          custoWrap.className='field';
+          custoWrap.innerHTML=`<label>Custo previsto das diárias</label>
+            <input type="text" id="otCustoDiariasPrevisto" readonly value="R$ 0,00">
+            <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Diária × dias previstos. Entra no orçamento comercial, não no custo real até o início efetivo.</div>`;
+          prevWrap.parentNode.insertBefore(custoWrap,prevWrap.nextSibling);
+
+          setTimeout(()=>window.atualizarPlanejamentoOTV121?.(),0);
         }
       }
     },0);
@@ -9869,7 +10015,7 @@ window.RH_SECURITY_V94 = {
   }
 
   function v99DataInicioFrota(f){
-    return String(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||f.dataAbertura||'').slice(0,10);
+    return String(f.dataInicioManutencao||f.dataEntrada||f.dataInicio||f.dataAbertura||'').slice(0,10);
   }
   function v99DataFimFrota(f){
     const concluida = f.concluido===true
@@ -10796,7 +10942,11 @@ window.RH_SECURITY_V94 = {
       if(!nome)return;
       const k=chaveFrota101(nome);
       const h=hist[k];
-      const ini=String(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||h?.inicio||'').slice(0,10);
+      const cc=getCentroCustoRegistro(f);
+      const ini=String(cc==='MECHATRONICS'
+        ? (f.dataInicioManutencao||'')
+        : (f.dataInicioManutencao||f.dataEntrada||f.dataInicio||h?.inicio||'')
+      ).slice(0,10);
       const encerrada=f.concluido===true
         || normalize(f.statusOperacional||'').includes('conclu')
         || normalize(f.statusOperacional||'').includes('encerr');
@@ -11169,7 +11319,7 @@ window.RH_SECURITY_V94 = {
       if(!ehFrota102(nome))return;
       const key=n102(nome), h=hist[key];
       const cc=getCentroCustoRegistro(f);
-      const ini=String(f.dataEntrada||f.dataInicio||f.dataInicioManutencao||h?.inicio||'').slice(0,10);
+      const ini=String(f.dataInicioManutencao||f.dataEntrada||f.dataInicio||h?.inicio||'').slice(0,10);
       const encerrada=f.concluido===true||n102(f.statusOperacional).includes('conclu')||n102(f.statusOperacional).includes('encerr');
       const fim=encerrada
         ? String(f.dataConclusaoReal||f.dataSaidaReal||f.dataConclusao||h?.fim||'').slice(0,10)
@@ -11191,12 +11341,12 @@ window.RH_SECURITY_V94 = {
   function valorDiariaCentro102(p){
     const cc=centroCustoNormalizado(p.centro)||p.centro;
     if(cc==='SANTOS')return V102_DIARIA_SANTOS;
-    if(cc==='CAMAÇARI'){
-      // Camaçari só possui estadia quando a diária foi explicitamente definida no Orçamento Técnico.
+    if(cc==='CAMAÇARI' || cc==='MECHATRONICS'){
+      // Camaçari e Mechatronics só possuem diária quando definida no Orçamento Técnico.
+      // O custo real depende também de dataInicioManutencao registrada na frota.
       const v=numeroSeguro(p.registro?.valorDiariaManutencao);
       return v>0?v:0;
     }
-    // Mechatronics trabalha com projetos e, nesta versão, não possui regra de estadia.
     return 0;
   }
 
@@ -11397,10 +11547,18 @@ window.RH_SECURITY_V94 = {
       campo.placeholder='Definir no orçamento';
       if(label)label.textContent='Diária de manutenção — Camaçari (R$/dia)';
       if(nota)nota.textContent='Camaçari: só haverá custo de estadia se este valor for definido no orçamento da frota.';
+    }else if(cc==='MECHATRONICS'){
+      campo.readOnly=false;campo.disabled=false;
+      if(campo.dataset.ultimoCentro!=='MECHATRONICS'){
+        const ot=state.orcamentoEditId?orcamentosTecnicos.find(x=>x.id===state.orcamentoEditId):null;
+        const v=numeroSeguro(ot?.valorDiariaManutencao);
+        campo.value=v>0?v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'';
+      }
+      campo.placeholder='Definir diária da Mechatronics';
+      if(label)label.textContent='Diária de manutenção — Mechatronics (R$/dia)';
+      if(nota)nota.textContent='Mechatronics: valor previsto no orçamento. O custo real somente começa após informar a data efetiva de início da manutenção.';
     }else{
-      campo.value='';campo.readOnly=true;campo.disabled=true;
-      if(label)label.textContent='Diária de manutenção — Mechatronics';
-      if(nota)nota.textContent='Mechatronics trabalha com projetos e atualmente não utiliza regra de estadia.';
+      campo.readOnly=false;campo.disabled=false;
     }
     campo.dataset.ultimoCentro=cc;
   }
@@ -11422,7 +11580,7 @@ window.RH_SECURITY_V94 = {
         if(f?.id){
           let valor=null;
           if(cc==='SANTOS')valor=700;
-          else if(cc==='CAMAÇARI'&&informado>0)valor=informado;
+          else if((cc==='CAMAÇARI'||cc==='MECHATRONICS')&&informado>0)valor=informado;
           if(valor!==null){
             await db.collection('frotas').doc(f.id).set({valorDiariaManutencao:valor,alteradoEm:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
           }else{
