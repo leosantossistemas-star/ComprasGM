@@ -7989,19 +7989,50 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     ============================================================ */
 
     /* ============================================================
-       V12.5 — MODO ECONÔMICO FIRESTORE
-       Objetivo: reduzir drasticamente leituras no plano Spark.
-       - Coleções grandes deixam de ficar permanentemente em onSnapshot.
-       - Dados são carregados sob demanda por módulo.
-       - Cache em memória por 5 minutos.
-       - Após ações de gravação, a seção ativa é atualizada automaticamente.
+       V12.6 — FIRESTORE ULTRA ECONÔMICO
+       Objetivo: reduzir leituras mantendo o comportamento do sistema.
+       - ZERO listeners permanentes em coleções de negócio.
+       - Cache em memória + sessionStorage por usuário (sobrevive a F5 na mesma aba).
+       - TTL de 30 minutos por coleção; navegação entre módulos reaproveita dados.
+       - Botão Atualizar dados continua disponível para leitura forçada consciente.
+       - Falhas de cache nunca impedem o uso do sistema.
        ============================================================ */
-    const V125_CACHE_MS = 5 * 60 * 1000;
-    const v125UltimaCarga = Object.create(null);
+    const V126_CACHE_MS = 30 * 60 * 1000;
+    const V126_CACHE_PREFIX = 'cryotronics_v126_';
+    const v125UltimaCarga = Object.create(null); // nome mantido por compatibilidade interna
     const v125Carregando = Object.create(null);
 
-    function v125AplicarSnapshot(nome,snapshot){
-      const arr=[]; snapshot.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
+    function v126UidCache(){
+      try{return (auth.currentUser&&auth.currentUser.uid)||'anon';}catch(_){return 'anon';}
+    }
+    function v126CacheKey(nome){
+      return V126_CACHE_PREFIX + v126UidCache() + '_' + String(nome).replace(/[^a-z0-9_/-]/gi,'_');
+    }
+    function v126SalvarCache(nome,arr){
+      try{
+        sessionStorage.setItem(v126CacheKey(nome),JSON.stringify({ts:Date.now(),data:arr}));
+      }catch(err){
+        // Quota/privacidade do navegador: cache é otimização, nunca requisito.
+        console.warn('V12.6 — cache local indisponível para '+nome,err&&err.message?err.message:err);
+      }
+    }
+    function v126LerCache(nome){
+      try{
+        const raw=sessionStorage.getItem(v126CacheKey(nome));
+        if(!raw)return null;
+        const obj=JSON.parse(raw);
+        if(!obj||!Array.isArray(obj.data)||!Number(obj.ts))return null;
+        return obj;
+      }catch(_){return null;}
+    }
+    function v126CacheValido(obj){
+      return !!(obj && (Date.now()-Number(obj.ts)) < V126_CACHE_MS);
+    }
+
+    function v125AplicarSnapshot(nome,snapshotOuArray){
+      let arr=[];
+      if(Array.isArray(snapshotOuArray)) arr=snapshotOuArray;
+      else snapshotOuArray.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
       switch(nome){
         case 'materiais': allItems=arr; break;
         case 'fornecedores': fornecedores=arr; break;
@@ -8025,16 +8056,36 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     async function v125CarregarColecao(nome,force=false){
       const agora=Date.now();
-      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<V125_CACHE_MS) return;
+      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<V126_CACHE_MS) return;
       if(v125Carregando[nome]) return v125Carregando[nome];
+
+      // V12.6: antes de tocar no Firestore, tenta restaurar cache da sessão.
+      if(!force){
+        const local=v126LerCache(nome);
+        if(v126CacheValido(local)){
+          v125AplicarSnapshot(nome,local.data);
+          v125UltimaCarga[nome]=Number(local.ts);
+          return;
+        }
+      }
 
       v125Carregando[nome]=(async()=>{
         try{
           const snap=await db.collection(nome).get();
-          v125AplicarSnapshot(nome,snap);
+          const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
+          v125AplicarSnapshot(nome,arr);
           v125UltimaCarga[nome]=Date.now();
+          v126SalvarCache(nome,arr);
         }catch(err){
-          console.error('V12.5 — erro ao carregar '+nome,err);
+          // Se a cota estiver temporariamente indisponível, tenta cache expirado antes de falhar.
+          const local=v126LerCache(nome);
+          if(local&&Array.isArray(local.data)&&local.data.length){
+            v125AplicarSnapshot(nome,local.data);
+            v125UltimaCarga[nome]=Number(local.ts)||Date.now();
+            console.warn('V12.6 — usando cache local expirado para '+nome+' devido a falha do Firestore.');
+            return;
+          }
+          console.error('V12.6 — erro ao carregar '+nome,err);
           throw err;
         }finally{
           delete v125Carregando[nome];
@@ -8045,10 +8096,33 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     async function v125CarregarConfigAlmox(force=false){
       const nome='configuracoes/almoxarifado_controle';
-      if(!force && v125UltimaCarga[nome] && Date.now()-v125UltimaCarga[nome]<V125_CACHE_MS)return;
-      const s=await db.collection('configuracoes').doc('almoxarifado_controle').get();
-      almoxConfigV107=s.exists?s.data():{vinculoAtivo:false};
-      v125UltimaCarga[nome]=Date.now();
+      if(!force && v125UltimaCarga[nome] && Date.now()-v125UltimaCarga[nome]<V126_CACHE_MS)return;
+      if(!force){
+        try{
+          const raw=sessionStorage.getItem(v126CacheKey(nome));
+          if(raw){
+            const obj=JSON.parse(raw);
+            if(obj&&obj.data&&Date.now()-Number(obj.ts)<V126_CACHE_MS){
+              almoxConfigV107=obj.data;
+              v125UltimaCarga[nome]=Number(obj.ts);
+              return;
+            }
+          }
+        }catch(_){}
+      }
+      try{
+        const s=await db.collection('configuracoes').doc('almoxarifado_controle').get();
+        almoxConfigV107=s.exists?s.data():{vinculoAtivo:false};
+        v125UltimaCarga[nome]=Date.now();
+        try{sessionStorage.setItem(v126CacheKey(nome),JSON.stringify({ts:Date.now(),data:almoxConfigV107}));}catch(_){}
+      }catch(err){
+        try{
+          const raw=sessionStorage.getItem(v126CacheKey(nome));
+          const obj=raw?JSON.parse(raw):null;
+          if(obj&&obj.data){almoxConfigV107=obj.data;return;}
+        }catch(_){}
+        throw err;
+      }
     }
 
     function v125Dependencias(sec){
@@ -8093,18 +8167,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       render();
     };
 
-    function v125AcaoProvavelmenteGrava(btn){
-      if(!btn)return false;
-      const txt=normalize(btn.textContent||'');
-      return /(salvar|confirmar|aprovar|rejeitar|enviar|arquivar|excluir|concluir|encerrar|baixar|entrada|cadastrar|alterar|liberar|bloquear)/.test(txt);
-    }
-
-    // Atualização pós-gravação: somente a seção em uso, sem religar dezenas de listeners.
-    document.addEventListener('click',e=>{
-      const b=e.target.closest('button');
-      if(!v125AcaoProvavelmenteGrava(b))return;
-      setTimeout(()=>v125CarregarSecao(state.section,true).then(()=>render()).catch(()=>{}),1400);
-    },false);
+    // V12.6: não há mais atualização forçada genérica após QUALQUER botão de gravação.
+    // Os fluxos existentes já atualizam o estado local quando necessário e o usuário pode
+    // usar “Atualizar dados” para uma releitura consciente. Isso elimina rajadas de coleções inteiras.
+    function v125AcaoProvavelmenteGrava(){ return false; }
 
     function iniciarListenersRH(){
       return v125CarregarSecao('rh',false);
@@ -8120,7 +8186,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Modo econômico — RH / Firestore";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8138,18 +8204,18 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById("btnExportDataJS")?.style.setProperty('display','none');
         return;
       }
-      // V12.5 — sem listeners permanentes para coleções grandes.
-      // Carrega somente as dependências da tela inicial e reutiliza cache por 5 minutos.
+      // V12.6 — sem listeners permanentes para coleções grandes; cache de sessão ativo.
+      // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V12.5:',err));
+      }).catch(err=>console.error('Carga inicial V12.6:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Modo econômico — Firebase Firestore";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V12.6";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -8167,7 +8233,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           state.page = 1;
           state.rcPage = 1;
           const app=document.getElementById('appContent');
-          if(app) app.innerHTML='<div class="loading"><div class="spinner"></div><span>Atualizando somente os dados deste módulo…</span></div>';
+          if(app) app.innerHTML='<div class="loading"><div class="spinner"></div><span>Carregando dados deste módulo…</span></div>';
           v125CarregarSecao(state.section,false).then(()=>render()).catch(()=>render());
           // Fechar menu mobile ao clicar em um item
           if (window.innerWidth <= 768) {
@@ -11089,15 +11155,17 @@ window.RH_SECURITY_V94 = {
     return ['gerente','admin'].includes(perfilAtual);
   }
 
-  // Novo listener da configuração existente. Não requer coleção nova.
-  auth.onAuthStateChanged(user=>{
+  // V12.6: leitura única; sem listener permanente.
+  auth.onAuthStateChanged(async user=>{
     if(unsubAjusteV101){try{unsubAjusteV101();}catch(e){} unsubAjusteV101=null;}
     if(!user)return;
-    unsubAjusteV101=db.collection('configuracoes').doc('ajustes_diaria').onSnapshot(doc=>{
+    unsubAjusteV101=()=>{};
+    try{
+      const doc=await db.collection('configuracoes').doc('ajustes_diaria').get();
       window.ajustesDiariaV101=doc.exists?doc.data():{itens:[]};
       if(!Array.isArray(window.ajustesDiariaV101.itens))window.ajustesDiariaV101.itens=[];
       if(state.section==='dashboardCustos')render();
-    },err=>console.warn('Ajustes de diária indisponíveis:',err));
+    }catch(err){console.warn('Ajustes de diária indisponíveis:',err);}
   });
 
   function ajusteFrota101(nome){
@@ -11404,6 +11472,7 @@ window.RH_SECURITY_V94 = {
           atualizadoPorNome:getUsuarioNome(),
           atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()
         },{merge:true});
+        window.ajustesDiariaV101={...(window.ajustesDiariaV101||{}),itens};
         showToast('Ajuste de diária salvo e redistribuído.');
       }catch(err){showToast('Erro ao salvar ajuste: '+err.message,true);}
       return;
@@ -11422,6 +11491,7 @@ window.RH_SECURITY_V94 = {
           atualizadoPorNome:getUsuarioNome(),
           atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()
         },{merge:true});
+        window.ajustesDiariaV101={...(window.ajustesDiariaV101||{}),itens};
         showToast('Ajuste removido.');
       }catch(err){showToast('Erro ao remover ajuste: '+err.message,true);}
     }
@@ -11978,15 +12048,19 @@ window.RH_SECURITY_V94 = {
 var configAcessoComprasV105 = null;
 var unsubAcessoComprasV105 = null;
 
-function iniciarControleAcessoV104() {
+async function iniciarControleAcessoV104() {
   if (getPerfil() !== 'admin' || unsubAcessoComprasV105) return;
-  unsubAcessoComprasV105 = db.collection('configuracoes').doc('acesso_compras_ip')
-    .onSnapshot(snap=>{
-      configAcessoComprasV105 = snap.exists ? snap.data() : {
-        bloqueioAtivo:false, ipAutorizado:'', liberadoAteISO:''
-      };
-      if(state.section==='controleAcessoV104') render();
-    },err=>showToast('Erro ao carregar controle de acesso: '+err.message,true));
+  unsubAcessoComprasV105 = ()=>{};
+  try{
+    const snap=await db.collection('configuracoes').doc('acesso_compras_ip').get();
+    configAcessoComprasV105 = snap.exists ? snap.data() : {
+      bloqueioAtivo:false, ipAutorizado:'', liberadoAteISO:''
+    };
+    if(state.section==='controleAcessoV104') render();
+  }catch(err){
+    showToast('Erro ao carregar controle de acesso: '+err.message,true);
+    unsubAcessoComprasV105=null;
+  }
 }
 
 function renderControleAcessoV104(){
