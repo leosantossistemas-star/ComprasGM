@@ -4576,7 +4576,7 @@ auth.onAuthStateChanged(async (user) => {
             <div style="margin:20px 0">
               <div class="card-header"><div><div class="card-title">Itens</div></div></div>
               <div id="rcItensContainer"></div>
-              <button type="button" class="btn btn-ghost" id="btnAddItemRC" style="margin-top:8px">+ Adicionar Item</button>
+              <button type="button" class="btn btn-ghost" id="btnAddItemRC" style="margin-top:8px" ${isEdit && data.status!=='rascunho' ? 'disabled title="RC protegida: devolva para Compras antes de alterar os itens."' : ''}>+ Adicionar Item</button>
             </div>
 
             <div class="rc-summary">
@@ -7529,11 +7529,54 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
                 itensContainer.innerHTML = '';
                 (rc.itens || []).forEach(item => addItemRowRC(itensContainer, item));
               }
+
+              // V12.8 — edição de RC em rascunho deve ter o mesmo comportamento da criação.
+              // O formulário é recriado via innerHTML; por isso os eventos precisam ser religados.
+              const btnAddItemEdicaoV128 = document.getElementById('btnAddItemRC');
+              if (btnAddItemEdicaoV128) {
+                btnAddItemEdicaoV128.disabled = rc.status !== 'rascunho';
+                if (rc.status === 'rascunho') {
+                  btnAddItemEdicaoV128.addEventListener('click', () => {
+                    const c = document.getElementById('rcItensContainer');
+                    if (c) {
+                      addItemRowRC(c);
+                      const novo = c.querySelector('.rc-item-row:last-child .rc-item-busca');
+                      try { novo?.focus({preventScroll:true}); } catch(e) { novo?.focus(); }
+                    }
+                  });
+                }
+              }
+
               recalcularTotalRC();
               document.getElementById('rcDataBase')?.addEventListener('change', () => montarCamposParcelasRC(rc));
               document.getElementById('rcCondicaoPagamento')?.addEventListener('change', () => montarCamposParcelasRC(rc));
-              document.getElementById('rcNumeroParcelas')?.addEventListener('input', () => montarCamposParcelasRC(rc));
+              document.getElementById('rcNumeroParcelas')?.addEventListener('input', (e) => {
+                const bruto=Number(e.target.value || 1);
+                if(bruto>120) e.target.value=120;
+                if(bruto<1 && e.target.value!=='') e.target.value=1;
+                montarCamposParcelasRC(rc);
+              });
               montarCamposParcelasRC(rc);
+
+              // V12.8 — mantém o filtro de destinos por centro de custo também na edição.
+              const filtrarDestinosEdicaoV128 = () => {
+                const centro = centroCustoNormalizado(document.getElementById('rcCentroCusto')?.value) || 'SANTOS';
+                const select = document.getElementById('rcDestino');
+                if (!select) return;
+                Array.from(select.options).forEach(opt => {
+                  if (!opt.value) { opt.hidden = false; return; }
+                  opt.hidden = (centroCustoNormalizado(opt.dataset.centroCusto) || 'SANTOS') !== centro;
+                });
+                const atual = select.options[select.selectedIndex];
+                if (atual && atual.hidden) select.value = '';
+                const escolhido = select.options[select.selectedIndex];
+                const disponivel = escolhido && escolhido.value ? parseFloat(escolhido.dataset.disponivel) || 0 : 0;
+                const display = document.getElementById('rcLimiteDisplay');
+                if (display) display.value = fmt.money(disponivel);
+                recalcularTotalRC();
+              };
+              document.getElementById('rcCentroCusto')?.addEventListener('change', filtrarDestinosEdicaoV128);
+              filtrarDestinosEdicaoV128();
               document.getElementById('rcDestino')?.addEventListener('change', function() {
                 const selected = this.options[this.selectedIndex];
                 const disponivel = selected ? parseFloat(selected.dataset.disponivel) || 0 : 0;
@@ -8232,7 +8275,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V12.7";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V12.8";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8261,7 +8304,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V12.7";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V12.8";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -12773,3 +12816,5 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 </script>
 </body>
 </html>
+
+<!-- V12.8: correção edição de RC em rascunho — adicionar itens e religar controles dinâmicos -->
