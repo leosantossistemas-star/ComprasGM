@@ -1003,13 +1003,59 @@
           ${m.observacao ? `<div style="font-size:11px;color:var(--text-muted)"><b>Observação:</b> ${obs}</div>` : ''}
         </div>`;
     }
+    // V12.7 — Conversão monetária robusta.
+    // Aceita tanto formato brasileiro (1.234,56) quanto decimal de campos/JS (1234.56).
+    // A versão anterior removia sempre o primeiro ponto e transformava 1.55 em 155,
+    // causando totais 100x maiores em RCs e em qualquer tela que reutilizasse parseMoney().
     function parseMoney(value) {
-      if (!value || !value.trim()) return 0;
-      let s = value.replace("R$", "").trim();
-      s = s.replace(/[^\d,.-]/g, "");
-      if (!s || s === "-") return 0;
-      s = s.replace(".", "").replace(",", ".");
-      return parseFloat(s) || 0;
+      if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+      if (value === null || value === undefined) return 0;
+
+      let s = String(value).replace(/R\$/gi, '').replace(/\s|\u00a0/g, '').trim();
+      if (!s) return 0;
+
+      const negativoParenteses = /^\(.*\)$/.test(s);
+      s = s.replace(/[()]/g, '').replace(/[^\d,.-]/g, '');
+      if (!s || s === '-') return 0;
+
+      const negativo = negativoParenteses || s.startsWith('-');
+      s = s.replace(/-/g, '');
+
+      const temVirgula = s.includes(',');
+      const temPonto = s.includes('.');
+
+      if (temVirgula && temPonto) {
+        // O separador que aparece por último é tratado como decimal.
+        if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+          s = s.replace(/\./g, '').replace(/,/g, '.');
+        } else {
+          s = s.replace(/,/g, '');
+        }
+      } else if (temVirgula) {
+        const partes = s.split(',');
+        if (partes.length > 2) {
+          const dec = partes.pop();
+          s = dec.length <= 2 ? partes.join('') + '.' + dec : partes.join('') + dec;
+        } else {
+          const [inteiro, frac=''] = partes;
+          // Em valor monetário, vírgula única é prioritariamente decimal.
+          s = inteiro + (frac ? '.' + frac : '');
+        }
+      } else if (temPonto) {
+        const partes = s.split('.');
+        if (partes.length > 2) {
+          const dec = partes.pop();
+          s = dec.length <= 2 ? partes.join('') + '.' + dec : partes.join('') + dec;
+        } else {
+          const [inteiro, frac=''] = partes;
+          // 1.234 é interpretado como milhar; 1.55 / 33.87 como decimal.
+          s = frac.length === 3 ? inteiro + frac : inteiro + (frac ? '.' + frac : '');
+        }
+      }
+
+      const n = Number(s);
+      if (!Number.isFinite(n)) return 0;
+      return negativo ? -n : n;
     }
     function clean(str) { return (str || "").trim(); }
 
@@ -7989,7 +8035,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     ============================================================ */
 
     /* ============================================================
-       V12.6 — FIRESTORE ULTRA ECONÔMICO
+       V12.7 — FIRESTORE ULTRA ECONÔMICO + CORREÇÃO MONETÁRIA
        Objetivo: reduzir leituras mantendo o comportamento do sistema.
        - ZERO listeners permanentes em coleções de negócio.
        - Cache em memória + sessionStorage por usuário (sobrevive a F5 na mesma aba).
@@ -8186,7 +8232,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V12.7";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8208,14 +8254,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V12.6:',err));
+      }).catch(err=>console.error('Carga inicial V12.7:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V12.6";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V12.7";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
