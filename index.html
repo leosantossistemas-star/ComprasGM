@@ -881,6 +881,7 @@
       orcamentoBusca: '',
       otHeader: {},
       solicitacaoPrefillOrcamento: null,
+      solicitacaoFilters: { dataIni:'', dataFim:'', solicitante:'', rc:'', frota:'' },
     };
 
     /* ============================================================
@@ -5485,12 +5486,77 @@ function gerarPDF(rcData) {
       }catch(_){return fallback||'—';}
     }
 
-    function v130NumeroRCdaSolicitacao(sol){
-      if(sol?.rcGerada) return sol.rcGerada;
+    function v131DataISOsol(sol){
+      try{
+        if(sol?.criadoEm?.toDate) return sol.criadoEm.toDate().toISOString().slice(0,10);
+        if(sol?.criadoEm?.seconds) return new Date(Number(sol.criadoEm.seconds)*1000).toISOString().slice(0,10);
+        if(sol?.dataCriacao) return String(sol.dataCriacao).slice(0,10);
+        if(sol?.dataNecessidade) return String(sol.dataNecessidade).slice(0,10);
+      }catch(_){}
+      return '';
+    }
+
+    function v131ItemChave(i={}){
+      const materialId=String(i.materialId||'').trim();
+      const codigo=String(i.codigo||'').trim().toUpperCase();
+      const descricao=normalize(String(i.descricao||i.descricaoSimples||'')).replace(/\s+/g,' ').trim();
+      return {materialId,codigo,descricao};
+    }
+
+    function v131ItensCompativeis(sol,rc){
+      const pedidos=Array.isArray(sol?.itens)?sol.itens:[];
+      const comprados=Array.isArray(rc?.itens)?rc.itens:[];
+      if(!pedidos.length || !comprados.length) return false;
+      return pedidos.every(p=>{
+        const kp=v131ItemChave(p);
+        return comprados.some(c=>{
+          const kc=v131ItemChave(c);
+          if(kp.materialId && kc.materialId) return kp.materialId===kc.materialId;
+          if(kp.codigo && kc.codigo) return kp.codigo===kc.codigo;
+          return !!kp.descricao && kp.descricao===kc.descricao;
+        });
+      });
+    }
+
+    function v131VinculoSolicitacao(sol){
+      // 1. A ligação moderna e autoritativa é RC.origemSolicitacaoId === solicitação.id.
       const direta=rcs.find(r=>r.origemSolicitacaoId===sol?.id);
-      if(direta?.numero) return direta.numero;
-      const legado=rcs.find(r=>String(r.observacoes||'').includes(`ID: ${sol?.id}`));
-      return legado?.numero||'';
+      if(direta) return {ok:true,rc:direta,numero:direta.numero,motivo:'vinculo_direto'};
+
+      // 2. Para registros antigos, nunca confiar apenas em sol.rcGerada.
+      // Valida o candidato por ID/número, data, destino e material.
+      let cand=null;
+      if(sol?.rcGeradaId) cand=rcs.find(r=>r.id===sol.rcGeradaId)||null;
+      if(!cand && sol?.rcGerada) cand=rcs.find(r=>r.numero===sol.rcGerada)||null;
+
+      if(!cand){
+        if(sol?.convertida || sol?.rcGerada || sol?.rcGeradaId)
+          return {ok:false,numero:sol?.rcGerada||'',motivo:'rc_nao_encontrada'};
+        return {ok:false,numero:'',motivo:'sem_rc'};
+      }
+
+      const dataSol=v131DataISOsol(sol);
+      const dataRC=String(cand.data||'').slice(0,10);
+      const dataValida=!dataSol || !dataRC || dataRC>=dataSol;
+      const destinoSol=normalize(String(sol?.destino||'')).trim();
+      const destinoRC=normalize(String(cand.aplicacao||'')).trim();
+      const destinoValido=!destinoSol || !destinoRC || destinoSol===destinoRC;
+      const itensValidos=v131ItensCompativeis(sol,cand);
+
+      if(dataValida && destinoValido && itensValidos){
+        return {ok:true,rc:cand,numero:cand.numero,motivo:'legado_validado'};
+      }
+
+      return {
+        ok:false,rc:cand,numero:cand.numero,
+        motivo:'vinculo_inconsistente',
+        detalhes:{dataValida,destinoValido,itensValidos}
+      };
+    }
+
+    function v130NumeroRCdaSolicitacao(sol){
+      const v=v131VinculoSolicitacao(sol);
+      return v.ok ? (v.numero||'') : '';
     }
 
     function v130SolicitacoesVisiveis(){
@@ -5548,6 +5614,59 @@ function gerarPDF(rcData) {
       return getNextRCNumber();
     }
 
+
+    function v131SolicitacoesFiltradas(){
+      const base=v130SolicitacoesVisiveis();
+      const f=state.solicitacaoFilters||{};
+      const ini=String(f.dataIni||'');
+      const fim=String(f.dataFim||'');
+      const solicitante=normalize(String(f.solicitante||''));
+      const rcBusca=normalize(String(f.rc||''));
+      const frota=normalize(String(f.frota||''));
+
+      return base.filter(sol=>{
+        const d=v131DataISOsol(sol);
+        if(ini && d && d<ini) return false;
+        if(fim && d && d>fim) return false;
+
+        const quem=normalize([sol.criadoPorNome,sol.criadoPorEmail].filter(Boolean).join(' '));
+        if(solicitante && !quem.includes(solicitante)) return false;
+
+        const vinc=v131VinculoSolicitacao(sol);
+        const num=normalize(vinc.ok?vinc.numero:(sol.rcGerada||''));
+        if(rcBusca && !num.includes(rcBusca)) return false;
+
+        if(frota && !normalize(String(sol.destino||'')).includes(frota)) return false;
+        return true;
+      });
+    }
+
+    function v131RenderFiltrosSolicitacoes(){
+      const base=v130SolicitacoesVisiveis();
+      const f=state.solicitacaoFilters||{};
+      const solicitantes=[...new Set(base.map(s=>s.criadoPorNome||s.criadoPorEmail||'').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+      const frotasSol=[...new Set(base.map(s=>s.destino||'').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+      return `<div class="filters-card" style="margin:12px 0 18px">
+        <div class="card-sub" style="margin-bottom:10px">Filtros para análise das solicitações</div>
+        <div class="filter-grid" style="grid-template-columns:repeat(5,minmax(150px,1fr));gap:10px">
+          <div class="field"><label>Data início</label><input type="date" id="solFiltroDataIni" value="${f.dataIni||''}"></div>
+          <div class="field"><label>Data fim</label><input type="date" id="solFiltroDataFim" value="${f.dataFim||''}"></div>
+          <div class="field"><label>Solicitado por</label>
+            <select id="solFiltroSolicitante"><option value="">Todos</option>${solicitantes.map(x=>`<option value="${x}" ${f.solicitante===x?'selected':''}>${x}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>RC</label><input id="solFiltroRC" value="${f.rc||''}" placeholder="Ex.: 0858"></div>
+          <div class="field"><label>Frota / destino</label>
+            <select id="solFiltroFrota"><option value="">Todos</option>${frotasSol.map(x=>`<option value="${x}" ${f.frota===x?'selected':''}>${x}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="form-actions" style="margin-top:10px">
+          <button class="btn btn-accent" type="button" id="btnAplicarFiltrosSolicitacoes">Aplicar filtros</button>
+          <button class="btn btn-ghost" type="button" id="btnLimparFiltrosSolicitacoes">Limpar filtros</button>
+        </div>
+      </div>`;
+    }
+
     function renderSolicitar() {
       const perfil = perfilAtual;
       const podeCriar = ['encarregado', 'gerente', 'admin'].includes(perfil);
@@ -5567,7 +5686,8 @@ function gerarPDF(rcData) {
         </div>
         <div class="card">
           <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">Encarregado solicita · Compras converte em RC · Gerente/Admin visualizam todas as solicitações e a RC gerada</div></div></div>
-          ${renderTabelaSolicitacoes(v130SolicitacoesVisiveis(), podeConverter, podeOperarSolicitacoes)}
+          ${v131RenderFiltrosSolicitacoes()}
+          ${renderTabelaSolicitacoes(v131SolicitacoesFiltradas(), podeConverter, podeOperarSolicitacoes)}
         </div>
         ${renderHistoricoSolicitacoesDoCriador()}
       `;
@@ -5656,7 +5776,11 @@ function gerarPDF(rcData) {
             <div class="field"><label>Status</label><div>${sol.arquivada?'Arquivada':(sol.convertida?'Convertida':'Pendente')}</div></div>
             <div class="field"><label>Solicitado por</label><div>${sol.criadoPorNome || sol.criadoPorEmail || '—'}</div></div>
             <div class="field"><label>Data/hora da solicitação</label><div>${v130DataHora(sol.criadoEm, v130DataHora(sol.dataCriacao))}</div></div>
-            <div class="field"><label>RC gerada</label><div><strong>${v130NumeroRCdaSolicitacao(sol) || 'Ainda não gerada'}</strong></div></div>
+            <div class="field"><label>RC gerada</label><div>${
+              (()=>{const v=v131VinculoSolicitacao(sol);return v.ok
+                ? `<strong style="color:var(--accent)">${v.numero}</strong>`
+                : (sol.convertida||sol.rcGerada?`<strong style="color:var(--danger)">⚠ Vínculo inconsistente — requer conferência</strong>`:'Ainda não gerada');})()
+            }</div></div>
           </div>
           <div class="table-wrap">
             <table>
@@ -5669,11 +5793,18 @@ function gerarPDF(rcData) {
     }
 
 function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) {
-      if (!lista.length) return `<p style="color:var(--text-muted);padding:20px;">Nenhuma solicitação encontrada.</p>`;
+      if (!lista.length) return `<p style="color:var(--text-muted);padding:20px;">Nenhuma solicitação encontrada com os filtros selecionados.</p>`;
       const rows = lista.map(sol => {
-        const status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Pendente');
-        const statusCls = sol.arquivada ? 'badge-danger' : (sol.convertida ? 'badge-ok' : 'badge-pending');
-        const numeroRC=v130NumeroRCdaSolicitacao(sol);
+        const vinc=v131VinculoSolicitacao(sol);
+        let status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Pendente');
+        let statusCls = sol.arquivada ? 'badge-danger' : (sol.convertida ? 'badge-ok' : 'badge-pending');
+
+        if((sol.convertida||sol.rcGerada||sol.rcGeradaId) && !vinc.ok){
+          status='Vínculo inconsistente';
+          statusCls='badge-danger';
+        }
+
+        const numeroRC=vinc.ok?vinc.numero:'';
         const primeiro=(sol.itens||[])[0];
         const resumoItens=primeiro
           ? `${primeiro.codigo||'S/C'} — ${primeiro.descricao||'Material'}${(sol.itens||[]).length>1?` (+${sol.itens.length-1})`:''}`
@@ -5697,6 +5828,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if (perfilAtual === 'admin') {
           acoes.push(`<button class="btn btn-danger btn-sm" data-excluir-sol="${sol.id}">Excluir</button>`);
         }
+
+        const rcCell=numeroRC
+          ? `<strong style="color:var(--accent)">${numeroRC}</strong>`
+          : ((sol.convertida||sol.rcGerada||sol.rcGeradaId)
+              ? `<span style="color:var(--danger);font-weight:700" title="O número gravado não confere com data, destino ou material da RC">⚠ CONFERIR</span>`
+              : '—');
+
         return `<tr>
           <td><strong>${sol.criadoPorNome || sol.criadoPorEmail || '—'}</strong></td>
           <td>${v130DataHora(sol.criadoEm, v130DataHora(sol.dataCriacao))}</td>
@@ -5705,7 +5843,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           <td style="min-width:260px">${resumoItens}</td>
           <td>${fmt.date(sol.dataNecessidade)}</td>
           <td><span class="badge ${statusCls}">${status}</span></td>
-          <td>${numeroRC?`<strong style="color:var(--accent)">${numeroRC}</strong>`:'—'}</td>
+          <td>${rcCell}</td>
           <td>${acoes.join(' ')}</td>
         </tr>`;
       }).join('');
@@ -5898,6 +6036,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         // V13.0: lê APENAS o documento desta solicitação diretamente do servidor.
         // Isso evita converter uma versão antiga que ficou no cache de outro usuário/aba.
         const sol = await v130SolicitacaoAtualDoServidor(idSolicitacao);
+        // Se o catálogo estiver antigo, uma única carga consciente garante validação código/materialId.
+        // Não força releitura se a coleção já estiver fresca no cache.
+        await v125CarregarColecao('materiais',false).catch(()=>{});
         if (sol.convertida) {
           showToast(`Esta solicitação já foi convertida${sol.rcGerada?' em '+sol.rcGerada:''}.`, true);
           return;
@@ -5966,6 +6107,18 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           origemSolicitacaoId: sol.id,
           origemSolicitacaoCriadoPorUid: sol.criadoPorUid || '',
           origemSolicitacaoCriadoPorNome: sol.criadoPorNome || sol.criadoPorEmail || '',
+          solicitacaoSnapshot: {
+            id: sol.id,
+            solicitadoPorUid: sol.criadoPorUid || '',
+            solicitadoPorNome: sol.criadoPorNome || sol.criadoPorEmail || '',
+            dataCriacao: sol.dataCriacao || '',
+            centroCusto,
+            destino: sol.destino || '',
+            itens: itensRC.map(i=>({
+              codigo:i.codigo, materialId:i.materialId, descricao:i.descricao,
+              unidade:i.unidade, qtd:i.qtd, valorUnit:i.valorUnit, total:i.total
+            }))
+          },
           itens: itensRC,
           total,
           status: 'rascunho',
@@ -7951,6 +8104,21 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         montarFormularioSolicitacao(null);
       });
 
+      document.getElementById('btnAplicarFiltrosSolicitacoes')?.addEventListener('click',()=>{
+        state.solicitacaoFilters={
+          dataIni:document.getElementById('solFiltroDataIni')?.value||'',
+          dataFim:document.getElementById('solFiltroDataFim')?.value||'',
+          solicitante:document.getElementById('solFiltroSolicitante')?.value||'',
+          rc:document.getElementById('solFiltroRC')?.value?.trim()||'',
+          frota:document.getElementById('solFiltroFrota')?.value||''
+        };
+        render();
+      });
+      document.getElementById('btnLimparFiltrosSolicitacoes')?.addEventListener('click',()=>{
+        state.solicitacaoFilters={dataIni:'',dataFim:'',solicitante:'',rc:'',frota:''};
+        render();
+      });
+
       document.querySelectorAll('[data-ver-rc-numero]').forEach(btn=>{
         btn.addEventListener('click',()=>{
           abrirVisualizacaoRC(btn.dataset.verRcNumero);
@@ -8563,7 +8731,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.0";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.1";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8585,14 +8753,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V13.0:',err));
+      }).catch(err=>console.error('Carga inicial V13.1:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.0";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.1";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
