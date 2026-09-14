@@ -5507,15 +5507,34 @@ function gerarPDF(rcData) {
       const pedidos=Array.isArray(sol?.itens)?sol.itens:[];
       const comprados=Array.isArray(rc?.itens)?rc.itens:[];
       if(!pedidos.length || !comprados.length) return false;
-      return pedidos.every(p=>{
+
+      // V13.2: vínculo 1 solicitação -> 1 RC deve ser EXATO.
+      // Não basta a RC "conter" o material pedido: ela não pode ter outro material extra.
+      if(pedidos.length!==comprados.length) return false;
+
+      const usados=new Set();
+      for(const p of pedidos){
         const kp=v131ItemChave(p);
-        return comprados.some(c=>{
-          const kc=v131ItemChave(c);
-          if(kp.materialId && kc.materialId) return kp.materialId===kc.materialId;
-          if(kp.codigo && kc.codigo) return kp.codigo===kc.codigo;
-          return !!kp.descricao && kp.descricao===kc.descricao;
-        });
-      });
+        const qtdP=numeroSeguro(p.qtd ?? p.quantidade);
+        let achou=-1;
+
+        for(let i=0;i<comprados.length;i++){
+          if(usados.has(i)) continue;
+          const c=comprados[i], kc=v131ItemChave(c);
+          const qtdC=numeroSeguro(c.qtd ?? c.quantidade);
+          const mesmaIdentidade =
+            (kp.materialId && kc.materialId) ? kp.materialId===kc.materialId :
+            (kp.codigo && kc.codigo) ? kp.codigo===kc.codigo :
+            (!!kp.descricao && kp.descricao===kc.descricao);
+
+          if(mesmaIdentidade && Math.abs(qtdP-qtdC)<0.000001){
+            achou=i; break;
+          }
+        }
+        if(achou<0) return false;
+        usados.add(achou);
+      }
+      return true;
     }
 
     function v131VinculoSolicitacao(sol){
@@ -5779,7 +5798,7 @@ function gerarPDF(rcData) {
             <div class="field"><label>RC gerada</label><div>${
               (()=>{const v=v131VinculoSolicitacao(sol);return v.ok
                 ? `<strong style="color:var(--accent)">${v.numero}</strong>`
-                : (sol.convertida||sol.rcGerada?`<strong style="color:var(--danger)">⚠ Vínculo inconsistente — requer conferência</strong>`:'Ainda não gerada');})()
+                : (sol.convertida||sol.rcGerada?`<strong style="color:var(--danger)">⚠ RC não corresponde exatamente aos itens desta solicitação</strong>`:'Ainda não gerada');})()
             }</div></div>
           </div>
           <div class="table-wrap">
@@ -5812,6 +5831,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const acoes = [];
         acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-sol="${sol.id}" title="Visualizar conteúdo da solicitação">🔍 Ver</button>`);
         if(numeroRC) acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-numero="${numeroRC}" title="Abrir a RC originada desta solicitação">Ver ${numeroRC}</button>`);
+        if(!vinc.ok && (sol.convertida||sol.rcGerada||sol.rcGeradaId) && ['gerente','admin'].includes(perfilAtual)){
+          acoes.push(`<button class="btn btn-warning btn-sm" data-corrigir-vinculo-sol="${sol.id}" title="Reabrir a solicitação para gerar uma nova RC correta">Corrigir vínculo</button>`);
+        }
 
         if (perfilAtual === 'admin') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-editar-sol="${sol.id}">Editar tudo</button>`);
@@ -5910,10 +5932,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
                 <input type="date" id="solDataSaida" required readonly value="${data.dataSaida || data.dataFimManutencaoPrevista || data.dataPrevisaoSaida || ''}">
               </div>
               <div class="field">
-                <label>Valor do serviço *</label>
-                <input id="solValorServico" required inputmode="decimal"
+                <label>Valor do serviço (R$)</label>
+                <input id="solValorServico" inputmode="decimal"
                        value="${numeroSeguro(data.valorServico || data.valorOrcamento || (()=>{const f=getFrotaByNome(data.destino||'',getCentroCustoRegistro(data));return f?.valorOrcamento||0;})()).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}"
                        placeholder="0,00">
+                <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Pode ficar em R$ 0,00 quando a solicitação for somente de materiais.</div>
               </div>
               ${perfilAtual==='admin' && isEdit ? `
               <div class="field">
@@ -6026,6 +6049,64 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       if (row) row.remove();
     };
 
+
+    async function v132ReabrirSolicitacaoComVinculoIncorreto(idSolicitacao){
+      if(!['gerente','admin'].includes(perfilAtual)){
+        showToast('Somente Gerente ou Administrador podem corrigir vínculo histórico.',true);
+        return;
+      }
+      const sol=solicitacoes.find(s=>s.id===idSolicitacao);
+      if(!sol){showToast('Solicitação não encontrada.',true);return;}
+      const vinc=v131VinculoSolicitacao(sol);
+      if(vinc.ok){
+        showToast('Esta solicitação já possui um vínculo válido com '+vinc.numero+'.',true);
+        return;
+      }
+      const antiga=sol.rcGerada||vinc.numero||'';
+      if(!confirm(`Reabrir esta solicitação para gerar uma nova RC correta?${antiga?`\\nO vínculo anterior ${antiga} será preservado apenas no histórico.`:''}`)) return;
+
+      try{
+        const ref=db.collection('solicitacoes').doc(idSolicitacao);
+        const historico=Array.isArray(sol.historicoVinculosRC)?[...sol.historicoVinculosRC]:[];
+        if(antiga){
+          historico.push({
+            rc:antiga,
+            rcId:sol.rcGeradaId||'',
+            motivo:'Vínculo histórico inconsistente',
+            desvinculadoPorUid:getUsuarioUid(),
+            desvinculadoPorNome:getUsuarioNome(),
+            desvinculadoEmLocal:new Date().toISOString()
+          });
+        }
+        await ref.update({
+          convertida:false,
+          rcGerada:firebase.firestore.FieldValue.delete(),
+          rcGeradaId:firebase.firestore.FieldValue.delete(),
+          convertidaEm:firebase.firestore.FieldValue.delete(),
+          convertidaPorUid:firebase.firestore.FieldValue.delete(),
+          convertidaPorEmail:firebase.firestore.FieldValue.delete(),
+          convertidaPorNome:firebase.firestore.FieldValue.delete(),
+          itensConvertidosSnapshot:firebase.firestore.FieldValue.delete(),
+          historicoVinculosRC:historico,
+          vinculoCorrigidoEm:firebase.firestore.FieldValue.serverTimestamp(),
+          vinculoCorrigidoPorUid:getUsuarioUid(),
+          vinculoCorrigidoPorNome:getUsuarioNome()
+        });
+
+        sol.convertida=false;
+        delete sol.rcGerada; delete sol.rcGeradaId;
+        delete sol.convertidaEm; delete sol.convertidaPorUid; delete sol.convertidaPorEmail; delete sol.convertidaPorNome;
+        delete sol.itensConvertidosSnapshot;
+        sol.historicoVinculosRC=historico;
+        try{v126SalvarCache('solicitacoes',solicitacoes);}catch(_){}
+        showToast('Solicitação reaberta. Agora o Compras pode convertê-la em uma nova RC com o material correto.');
+        render();
+      }catch(err){
+        console.error('Erro ao corrigir vínculo histórico:',err);
+        showToast('Erro ao corrigir vínculo: '+(err?.message||err),true);
+      }
+    }
+
     async function converterSolicitacaoEmRC(idSolicitacao) {
       if (!['usuario','gerente','admin'].includes(perfilAtual)) {
         showToast('Somente Compras, Gerente ou Administrador podem converter uma solicitação em RC.', true);
@@ -6052,10 +6133,22 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const divergencias=[];
         sol.itens.forEach((item,idx)=>{
           if(!item.descricao || !(Number(item.qtd)>0)) divergencias.push(`Item ${idx+1}: descrição ou quantidade inválida`);
-          if(item.materialId){
+          if(!item.materialId || !item.codigo){
+            divergencias.push(`Item ${idx+1}: material sem identificação válida de catálogo`);
+          }else{
             const cat=allItems.find(m=>m.id===item.materialId);
-            if(cat && item.codigo && cat.codigo && String(cat.codigo).trim()!==String(item.codigo).trim()){
-              divergencias.push(`Item ${idx+1}: código ${item.codigo} não corresponde ao cadastro ${cat.codigo}`);
+            if(!cat){
+              divergencias.push(`Item ${idx+1}: material ${item.codigo} não foi localizado no catálogo atual`);
+            }else{
+              if(cat.codigo && String(cat.codigo).trim()!==String(item.codigo).trim()){
+                divergencias.push(`Item ${idx+1}: código ${item.codigo} não corresponde ao cadastro ${cat.codigo}`);
+              }
+              // A descrição pode ter texto expandido, mas a identidade deve continuar sendo do mesmo item.
+              const codSolic=String(item.codigo||'').trim().toUpperCase();
+              const codCat=String(cat.codigo||'').trim().toUpperCase();
+              if(codSolic!==codCat){
+                divergencias.push(`Item ${idx+1}: identidade do material divergente`);
+              }
             }
           }
         });
@@ -6176,8 +6269,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const diasManutencaoPrevistos = Math.max(1,Number(getVal('solDiasManutencaoPrevistos')||1));
       const dataSaida = calcularDataFimInclusivaV121(dataInicioManutencao,diasManutencaoPrevistos);
       const valorServico = parseMoney(getVal('solValorServico'));
-      if (!centroCusto || !destino || !dataNecessidade || !dataInicioManutencao || !dataSaida || valorServico <= 0) {
-        showToast('Preencha filial, frota/projeto, data de necessidade, início da manutenção, dias previstos e valor do serviço.', true);
+      if (!centroCusto || !destino || !dataNecessidade || !dataInicioManutencao || !dataSaida) {
+        showToast('Preencha filial, frota/projeto, data de necessidade, início da manutenção e dias previstos.', true);
+        return;
+      }
+      if (!Number.isFinite(valorServico) || valorServico < 0) {
+        showToast('O valor do serviço não pode ser negativo.', true);
         return;
       }
 
@@ -6193,10 +6290,20 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const qtd = parseFloat(row.querySelector('.sol-item-qtd')?.value) || 0;
         const unidade = row.querySelector('.sol-item-unidade')?.value.trim() || 'un';
         if (descricao && qtd > 0) {
-          itens.push({ codigo, materialId, descricao, qtd, unidade, valorUnit, total: valorUnit * qtd });
+          // V13.2: não permite mais item digitado livremente sem selecionar do catálogo.
+          // Isso evita que descrição/código de um material seja associado a outro materialId.
+          if(!codigo || !materialId){
+            itens.push({ __invalido:true, codigo, materialId, descricao, qtd, unidade, valorUnit, total: valorUnit*qtd });
+          }else{
+            itens.push({ codigo, materialId, descricao, qtd, unidade, valorUnit, total: valorUnit * qtd });
+          }
         }
       });
       if (!itens.length) { showToast('Adicione pelo menos um item.', true); return; }
+      if(itens.some(i=>i.__invalido)){
+        showToast('Selecione cada material pela lista de materiais. Não é permitido salvar material apenas digitado no campo.', true);
+        return;
+      }
 
       // Se a Frota/Projeto ainda não existir, a Solicitação pode cadastrá-la.
       let destinoRef = getFrotaByNome(destino, centroCusto);
@@ -8125,6 +8232,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         });
       });
 
+      document.querySelectorAll('[data-corrigir-vinculo-sol]').forEach(btn=>{
+        btn.addEventListener('click',async()=>{
+          await v132ReabrirSolicitacaoComVinculoIncorreto(btn.dataset.corrigirVinculoSol);
+        });
+      });
+
       document.querySelectorAll('[data-editar-sol]').forEach(btn=>{
         btn.addEventListener('click',()=>{
           const sol=solicitacoes.find(s=>s.id===btn.dataset.editarSol);
@@ -8731,7 +8844,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.1";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.3";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8753,14 +8866,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V13.1:',err));
+      }).catch(err=>console.error('Carga inicial V13.3:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.1";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.3";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -9370,7 +9483,7 @@ document.addEventListener('change',e=>{
         const ds=document.getElementById('solDataSaida');
         const vs=document.getElementById('solValorServico');
         if(ds && !ds.value) ds.value=f.dataPrevisaoSaida||'';
-        if(vs && (!parseMoney(vs.value))) vs.value=numeroSeguro(f.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+        if(vs && !String(vs.value||'').trim()) vs.value=numeroSeguro(f.valorOrcamento).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
       }
     },0);
   }
