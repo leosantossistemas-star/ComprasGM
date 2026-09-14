@@ -1812,16 +1812,25 @@ auth.onAuthStateChanged(async (user) => {
     ============================================================ */
     async function salvarRC(rc) {
       if (rc.id) {
-        await db.collection('requisicoes').doc(rc.id).set(rc);
+        const {id, ...payload}=rc;
+        await db.collection('requisicoes').doc(id).set(payload);
       } else {
-        const docRef = await db.collection('requisicoes').add(rc);
+        const payload={...rc};
+        delete payload.id;
+        const docRef = await db.collection('requisicoes').add(payload);
         rc.id = docRef.id;
       }
+      // V13.0: mantém a tela/cache coerentes sem reler a coleção inteira.
+      const idx=rcs.findIndex(r=>r.id===rc.id || r.numero===rc.numero);
+      if(idx>=0) rcs[idx]={...rcs[idx],...rc}; else rcs.push(rc);
+      try{ if(typeof v126SalvarCache==='function') v126SalvarCache('requisicoes',rcs); }catch(_){}
       return rc;
     }
 
     async function excluirRC(id) {
       await db.collection('requisicoes').doc(id).delete();
+      rcs=rcs.filter(r=>r.id!==id);
+      try{ if(typeof v126SalvarCache==='function') v126SalvarCache('requisicoes',rcs); }catch(_){}
     }
 
     /* ============================================================
@@ -1829,16 +1838,28 @@ auth.onAuthStateChanged(async (user) => {
     ============================================================ */
     async function salvarSolicitacao(sol) {
       if (sol.id) {
-        await db.collection('solicitacoes').doc(sol.id).set(sol);
+        const {id, ...payload}=sol;
+        await db.collection('solicitacoes').doc(id).set(payload);
       } else {
-        const docRef = await db.collection('solicitacoes').add(sol);
+        const payload={...sol};
+        delete payload.id;
+        const docRef = await db.collection('solicitacoes').add(payload);
         sol.id = docRef.id;
       }
+
+      // V13.0: a versão anterior dependia de uma nova leitura para a tela enxergar a alteração.
+      // Agora o registro salvo substitui imediatamente a cópia local e o cache desta aba.
+      const idx=solicitacoes.findIndex(s=>s.id===sol.id);
+      const local={...sol};
+      if(idx>=0) solicitacoes[idx]={...solicitacoes[idx],...local}; else solicitacoes.push(local);
+      try{ if(typeof v126SalvarCache==='function') v126SalvarCache('solicitacoes',solicitacoes); }catch(_){}
       return sol;
     }
 
     async function excluirSolicitacao(id) {
       await db.collection('solicitacoes').doc(id).delete();
+      solicitacoes=solicitacoes.filter(s=>s.id!==id);
+      try{ if(typeof v126SalvarCache==='function') v126SalvarCache('solicitacoes',solicitacoes); }catch(_){}
     }
 
     /* ============================================================
@@ -2028,6 +2049,13 @@ auth.onAuthStateChanged(async (user) => {
       const rc = rcs.find(r => r.numero === numero);
       if (!rc) throw new Error('RC não encontrada.');
       await db.collection('requisicoes').doc(rc.id).update(newData);
+
+      // V12.9: como o modo ultra econômico não usa snapshot permanente,
+      // atualizamos imediatamente a cópia local após a confirmação do Firestore.
+      Object.assign(rc, newData);
+      try {
+        if (typeof v126SalvarCache === 'function') v126SalvarCache('requisicoes', rcs);
+      } catch (_) {}
       return true;
     }
 
@@ -2337,16 +2365,24 @@ auth.onAuthStateChanged(async (user) => {
     /* ============================================================
        HANDLERS DAS RCs (com correção de agilidade e bloqueio)
     ============================================================ */
-    function handleAprovarRC(numero) {
+    async function handleAprovarRC(numero) {
       if (!confirm(`Aprovar requisição ${numero}?`)) return;
-      updateRC(numero, {
-        status: 'aprovado',
-        aprovadoPorUid: getUsuarioUid(),
-        aprovadoPorEmail: getUsuarioEmail(),
-        aprovadoPorNome: getUsuarioNome(),
-        aprovadoEm: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      // V11.8: registra o aprovador para auditoria e filtros gerenciais.
+      try {
+        await updateRC(numero, {
+          status: 'aprovado',
+          aprovadoPorUid: getUsuarioUid(),
+          aprovadoPorEmail: getUsuarioEmail(),
+          aprovadoPorNome: getUsuarioNome(),
+          aprovadoEm: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        // V12.9: sem onSnapshot permanente, a tela precisa refletir a gravação localmente.
+        showToast(`RC ${numero} aprovada com sucesso.`);
+        render();
+      } catch (err) {
+        console.error('Erro ao aprovar RC:', err);
+        showToast('Erro ao aprovar RC: ' + (err?.message || err), true);
+      }
+      // V11.8/V12.9: registra o aprovador e mantém a interface sincronizada sem releitura ampla.
     }
 
     async function voltarRCParaComprasV118(numero) {
@@ -5419,10 +5455,104 @@ function gerarPDF(rcData) {
       document.querySelectorAll('.ot-item').forEach(r=>{const q=numeroSeguro(r.querySelector('.ot-qtd').value),u=parseMoney(r.querySelector('.ot-unit').value);r.querySelector('.ot-total').value=fmt.money(q*u);});
     }
 
+
+    /* ============================================================
+       V13.0 — SOLICITAÇÕES / RASTREABILIDADE / FRESCOR COLABORATIVO
+       ============================================================ */
+    const V130_SOL_FRESH_MS = 2 * 60 * 1000;
+    let v130UltimaCargaSolicitacoes = 0;
+    let v130LeiturasEstimadasSessao = 0;
+    const v130LeiturasPorOrigem = Object.create(null);
+
+    function v130RegistrarLeituras(origem,qtd){
+      const n=Math.max(0,Number(qtd)||0);
+      v130LeiturasEstimadasSessao+=n;
+      v130LeiturasPorOrigem[origem]=(v130LeiturasPorOrigem[origem]||0)+n;
+      const el=document.getElementById('sidebarSource');
+      if(el && perfilAtual==='admin'){
+        el.title='Estimativa local por documentos retornados: '+Object.entries(v130LeiturasPorOrigem).map(([k,v])=>`${k}: ${v}`).join(' | ');
+      }
+    }
+
+    function v130DataHora(valor,fallback=''){
+      try{
+        let d=null;
+        if(valor?.toDate) d=valor.toDate();
+        else if(valor?.seconds) d=new Date(Number(valor.seconds)*1000);
+        else if(valor) d=new Date(valor);
+        if(!d || Number.isNaN(d.getTime())) return fallback||'—';
+        return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      }catch(_){return fallback||'—';}
+    }
+
+    function v130NumeroRCdaSolicitacao(sol){
+      if(sol?.rcGerada) return sol.rcGerada;
+      const direta=rcs.find(r=>r.origemSolicitacaoId===sol?.id);
+      if(direta?.numero) return direta.numero;
+      const legado=rcs.find(r=>String(r.observacoes||'').includes(`ID: ${sol?.id}`));
+      return legado?.numero||'';
+    }
+
+    function v130SolicitacoesVisiveis(){
+      const ordenadas=[...solicitacoes].sort((a,b)=>{
+        const da=Date.parse(a.dataCriacao||a.dataAlteracao||a.dataNecessidade||0)||0;
+        const db=Date.parse(b.dataCriacao||b.dataAlteracao||b.dataNecessidade||0)||0;
+        return db-da;
+      });
+      if(['admin','gerente','usuario'].includes(perfilAtual)) return ordenadas;
+      const uid=getUsuarioUid(), email=String(getUsuarioEmail()||'').toLowerCase();
+      return ordenadas.filter(s=>s.criadoPorUid===uid || String(s.criadoPorEmail||'').toLowerCase()===email);
+    }
+
+    async function v130CarregarSolicitacoesFrescas(force=false){
+      const agora=Date.now();
+      if(!force && (agora-v130UltimaCargaSolicitacoes)<V130_SOL_FRESH_MS && solicitacoes.length) return true;
+      try{
+        const snap=await db.collection('solicitacoes').get();
+        const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
+        solicitacoes=arr;
+        v130UltimaCargaSolicitacoes=Date.now();
+        v125UltimaCarga['solicitacoes']=v130UltimaCargaSolicitacoes;
+        try{v126SalvarCache('solicitacoes',arr);}catch(_){}
+        v130RegistrarLeituras('solicitacoes',snap.size);
+        return true;
+      }catch(err){
+        const cache=typeof v126LerCache==='function'?v126LerCache('solicitacoes'):null;
+        if(cache?.data){ solicitacoes=cache.data; return false; }
+        throw err;
+      }
+    }
+
+    async function v130SolicitacaoAtualDoServidor(id){
+      const snap=await db.collection('solicitacoes').doc(id).get();
+      v130RegistrarLeituras('solicitacao_doc',snap.exists?1:0);
+      if(!snap.exists) throw new Error('Solicitação não encontrada no Firebase.');
+      return {id:snap.id,...snap.data()};
+    }
+
+    async function v130ProximoNumeroRCServidor(){
+      // Uma única leitura do RC de maior número evita usar uma numeração antiga do cache.
+      try{
+        const snap=await db.collection('requisicoes').orderBy('numero','desc').limit(1).get();
+        v130RegistrarLeituras('proximo_numero_rc',snap.size);
+        let max=0;
+        snap.forEach(doc=>{
+          const numero=String(doc.data()?.numero||'');
+          const m=numero.match(/RC\s*(\d+)/i);
+          if(m) max=Math.max(max,Number(m[1])||0);
+        });
+        if(max>0) return 'RC '+String(max+1).padStart(4,'0');
+      }catch(err){
+        console.warn('V13.0 — não foi possível consultar o último número de RC; usando referência local.',err);
+      }
+      return getNextRCNumber();
+    }
+
     function renderSolicitar() {
       const perfil = perfilAtual;
       const podeCriar = ['encarregado', 'gerente', 'admin'].includes(perfil);
-      const podeConverter = ['encarregado', 'gerente', 'admin'].includes(perfil);
+      // Fluxo correto: Encarregado solicita; Compras/Usuário converte; Gerente/Admin acompanham e podem operar.
+      const podeConverter = ['usuario', 'gerente', 'admin'].includes(perfil);
       const podeOperarSolicitacoes = ['usuario', 'gerente', 'admin'].includes(perfil);
 
       let html = `
@@ -5436,8 +5566,8 @@ function gerarPDF(rcData) {
           ` : `<p style="color:var(--text-muted);">Seu perfil não permite criar solicitações. Apenas Encarregado, Gerente e Administrador podem.</p>`}
         </div>
         <div class="card">
-          <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">A solicitação pode ser preparada/arquivada por Compras; conversão em RC por Encarregado, Gerente ou Administrador</div></div></div>
-          ${renderTabelaSolicitacoes(solicitacoes.filter(s=>solicitacaoDentroDos60Dias(s)), podeConverter, podeOperarSolicitacoes)}
+          <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">Encarregado solicita · Compras converte em RC · Gerente/Admin visualizam todas as solicitações e a RC gerada</div></div></div>
+          ${renderTabelaSolicitacoes(v130SolicitacoesVisiveis(), podeConverter, podeOperarSolicitacoes)}
         </div>
         ${renderHistoricoSolicitacoesDoCriador()}
       `;
@@ -5524,7 +5654,9 @@ function gerarPDF(rcData) {
             <div class="field"><label>Data prevista de saída</label><div>${fmt.date(sol.dataSaida || sol.dataPrevisaoSaida)}</div></div>
             <div class="field"><label>Valor do serviço</label><div><strong>${fmt.money(numeroSeguro(sol.valorServico || sol.valorOrcamento))}</strong></div></div>
             <div class="field"><label>Status</label><div>${sol.arquivada?'Arquivada':(sol.convertida?'Convertida':'Pendente')}</div></div>
-            <div class="field"><label>Criado por</label><div>${sol.criadoPorNome || sol.criadoPorEmail || '—'}</div></div>
+            <div class="field"><label>Solicitado por</label><div>${sol.criadoPorNome || sol.criadoPorEmail || '—'}</div></div>
+            <div class="field"><label>Data/hora da solicitação</label><div>${v130DataHora(sol.criadoEm, v130DataHora(sol.dataCriacao))}</div></div>
+            <div class="field"><label>RC gerada</label><div><strong>${v130NumeroRCdaSolicitacao(sol) || 'Ainda não gerada'}</strong></div></div>
           </div>
           <div class="table-wrap">
             <table>
@@ -5541,8 +5673,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const rows = lista.map(sol => {
         const status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Pendente');
         const statusCls = sol.arquivada ? 'badge-danger' : (sol.convertida ? 'badge-ok' : 'badge-pending');
+        const numeroRC=v130NumeroRCdaSolicitacao(sol);
+        const primeiro=(sol.itens||[])[0];
+        const resumoItens=primeiro
+          ? `${primeiro.codigo||'S/C'} — ${primeiro.descricao||'Material'}${(sol.itens||[]).length>1?` (+${sol.itens.length-1})`:''}`
+          : '—';
         const acoes = [];
         acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-sol="${sol.id}" title="Visualizar conteúdo da solicitação">🔍 Ver</button>`);
+        if(numeroRC) acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-numero="${numeroRC}" title="Abrir a RC originada desta solicitação">Ver ${numeroRC}</button>`);
 
         if (perfilAtual === 'admin') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-editar-sol="${sol.id}">Editar tudo</button>`);
@@ -5560,18 +5698,19 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           acoes.push(`<button class="btn btn-danger btn-sm" data-excluir-sol="${sol.id}">Excluir</button>`);
         }
         return `<tr>
+          <td><strong>${sol.criadoPorNome || sol.criadoPorEmail || '—'}</strong></td>
+          <td>${v130DataHora(sol.criadoEm, v130DataHora(sol.dataCriacao))}</td>
           <td>${getCentroCustoRegistro(sol)}</td>
           <td>${sol.destino || '—'}</td>
+          <td style="min-width:260px">${resumoItens}</td>
           <td>${fmt.date(sol.dataNecessidade)}</td>
-          <td>${fmt.date(sol.dataSaida || sol.dataPrevisaoSaida)}</td>
-          <td><strong>${fmt.money(numeroSeguro(sol.valorServico || sol.valorOrcamento))}</strong></td>
-          <td>${sol.itens ? sol.itens.length : 0} itens</td>
           <td><span class="badge ${statusCls}">${status}</span></td>
+          <td>${numeroRC?`<strong style="color:var(--accent)">${numeroRC}</strong>`:'—'}</td>
           <td>${acoes.join(' ')}</td>
         </tr>`;
       }).join('');
       return `<div class="table-wrap"><table>
-        <thead><tr><th>Filial</th><th>Destino</th><th>Data Necessidade</th><th>Data Saída</th><th>Valor Serviço</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Solicitado por</th><th>Data/Hora</th><th>Filial</th><th>Destino</th><th>Material solicitado</th><th>Necessidade</th><th>Status</th><th>RC Gerada</th><th>Ações</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
     }
@@ -5690,6 +5829,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const info=row.querySelector('.sol-item-info');
       const box=row.querySelector('.sol-sugestoes');
 
+      // V13.0: ao editar uma solicitação existente, preserva a identidade exata do item.
+      // Na V12.9 o dataset de descrição/valor não era restaurado na edição.
+      if(itemData){
+        busca.dataset.descricao=String(itemData.descricao||'');
+        busca.dataset.valorUnit=String(numeroSeguro(itemData.valorUnit ?? itemData.valorUnitario ?? 0));
+      }
+
       const desc=m=>[m.descricaoSimples,m.descricaoCurta,m.descricaoCompleta,m.descricao,m.item,m.especificacao,m.marca,m.modelo]
         .filter(Boolean).map(v=>String(v).trim()).filter((v,i,a)=>a.indexOf(v)===i).join(' — ') || 'Sem descrição';
       const valor=m=>numeroSeguro(m.custoUnitario||m.valorUnitario||m.valorUnit||m.preco||m.precoUnitario);
@@ -5743,70 +5889,128 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     };
 
     async function converterSolicitacaoEmRC(idSolicitacao) {
-      if (!['encarregado','gerente','admin'].includes(perfilAtual)) {
-        showToast('Seu perfil não possui permissão para converter solicitação em RC.', true);
+      if (!['usuario','gerente','admin'].includes(perfilAtual)) {
+        showToast('Somente Compras, Gerente ou Administrador podem converter uma solicitação em RC.', true);
         return;
       }
-      const sol = solicitacoes.find(s => s.id === idSolicitacao);
-      if (!sol) { showToast('Solicitação não encontrada.', true); return; }
-      if (sol.convertida) { showToast('Esta solicitação já foi convertida.', true); return; }
-      if (!sol.itens || !sol.itens.length) { showToast('Solicitação sem itens.', true); return; }
-
-      const numero = getNextRCNumber();
-      const hoje = new Date().toISOString().slice(0,10);
-      const centroCusto = getCentroCustoRegistro(sol);
-      const destinoRef = getFrotaByNome(sol.destino, centroCusto);
-      const rcData = {
-        numero,
-        data: hoje,
-        fornecedor: '',
-        prazoEntrega: sol.dataNecessidade || hoje,
-        dataPrevisaoSaida: sol.dataSaida || sol.dataPrevisaoSaida || '',
-        valorServico: numeroSeguro(sol.valorServico || sol.valorOrcamento),
-        valorOrcamento: numeroSeguro(sol.valorServico || sol.valorOrcamento),
-        condPag: 'À vista',
-        condicaoPagamento: 'A_VISTA',
-        numeroParcelas: 1,
-        parcelasPagamento: [{parcela:1,prazoDias:0,vencimento:hoje}],
-        vencimentos: [hoje],
-        dataBase: hoje,
-        vencimento: hoje,
-        solicitante: getUsuarioNome(),
-        aplicacao: sol.destino,
-        frotaId: destinoRef?.id || '',
-        centroCusto,
-        observacoes: `Solicitação convertida automaticamente (ID: ${sol.id})`,
-        itens: sol.itens.map(item => ({
-          codigo: item.codigo || '',
-          materialId: item.materialId || '',
-          descricao: item.descricao || 'Material',
-          qtd: parseFloat(item.qtd) || 1,
-          valorUnit: numeroSeguro(item.valorUnit),
-          total: numeroSeguro(item.total) || (numeroSeguro(item.valorUnit) * (parseFloat(item.qtd) || 1))
-        })),
-        total: sol.itens.reduce((s,item)=>s+(numeroSeguro(item.total)||(numeroSeguro(item.valorUnit)*(parseFloat(item.qtd)||1))),0),
-        status: 'rascunho',
-        criadoPor: perfilAtual,
-        criadoPorUid: getUsuarioUid(),
-        criadoPorEmail: getUsuarioEmail(),
-        criadoPorNome: getUsuarioNome(),
-        justificativa: '',
-      };
 
       try {
-        await salvarRC(rcData);
-        await db.collection('solicitacoes').doc(sol.id).update({
-          convertida: true,
-          convertidaEm: firebase.firestore.FieldValue.serverTimestamp(),
-          convertidaPorUid: getUsuarioUid(),
-          convertidaPorNome: getUsuarioNome(),
-          rcGerada: numero
+        // V13.0: lê APENAS o documento desta solicitação diretamente do servidor.
+        // Isso evita converter uma versão antiga que ficou no cache de outro usuário/aba.
+        const sol = await v130SolicitacaoAtualDoServidor(idSolicitacao);
+        if (sol.convertida) {
+          showToast(`Esta solicitação já foi convertida${sol.rcGerada?' em '+sol.rcGerada:''}.`, true);
+          return;
+        }
+        if (!Array.isArray(sol.itens) || !sol.itens.length) {
+          showToast('Solicitação sem itens.', true);
+          return;
+        }
+
+        // Confere a coerência código x materialId sem substituir silenciosamente o material pedido.
+        const divergencias=[];
+        sol.itens.forEach((item,idx)=>{
+          if(!item.descricao || !(Number(item.qtd)>0)) divergencias.push(`Item ${idx+1}: descrição ou quantidade inválida`);
+          if(item.materialId){
+            const cat=allItems.find(m=>m.id===item.materialId);
+            if(cat && item.codigo && cat.codigo && String(cat.codigo).trim()!==String(item.codigo).trim()){
+              divergencias.push(`Item ${idx+1}: código ${item.codigo} não corresponde ao cadastro ${cat.codigo}`);
+            }
+          }
         });
-        showToast(`Solicitação convertida em ${numero} (rascunho). Acesse a aba Requisições para editar/enviar.`);
-        sol.convertida = true;
+        if(divergencias.length){
+          showToast('Conversão bloqueada para evitar material incorreto: '+divergencias.join(' | '), true);
+          return;
+        }
+
+        const numero = await v130ProximoNumeroRCServidor();
+        const hoje = hojeISO();
+        const centroCusto = getCentroCustoRegistro(sol);
+        const destinoRef = getFrotaByNome(sol.destino, centroCusto);
+        const itensRC = sol.itens.map(item => {
+          const qtd=Number(item.qtd ?? item.quantidade ?? 1)||1;
+          const valorUnit=numeroSeguro(item.valorUnit ?? item.valorUnitario);
+          return {
+            codigo: String(item.codigo||''),
+            materialId: String(item.materialId||''),
+            descricao: String(item.descricao||'Material'),
+            unidade: String(item.unidade||item.un||''),
+            qtd,
+            valorUnit,
+            total: numeroSeguro(item.total) || (valorUnit*qtd),
+            origemSolicitacaoItem:true
+          };
+        });
+        const total=itensRC.reduce((s,item)=>s+numeroSeguro(item.total),0);
+
+        const rcData = {
+          numero,
+          data: hoje,
+          fornecedor: '',
+          prazoEntrega: sol.dataNecessidade || hoje,
+          dataPrevisaoSaida: sol.dataSaida || sol.dataPrevisaoSaida || '',
+          valorServico: numeroSeguro(sol.valorServico || sol.valorOrcamento),
+          valorOrcamento: numeroSeguro(sol.valorServico || sol.valorOrcamento),
+          condPag: 'À vista',
+          condicaoPagamento: 'A_VISTA',
+          numeroParcelas: 1,
+          parcelasPagamento: [{parcela:1,prazoDias:0,vencimento:hoje}],
+          vencimentos: [hoje],
+          dataBase: hoje,
+          vencimento: hoje,
+          solicitante: sol.criadoPorNome || sol.criadoPorEmail || 'Solicitação',
+          aplicacao: sol.destino,
+          frotaId: destinoRef?.id || '',
+          centroCusto,
+          observacoes: `Gerada a partir da Solicitação ${sol.id}`,
+          origemSolicitacaoId: sol.id,
+          origemSolicitacaoCriadoPorUid: sol.criadoPorUid || '',
+          origemSolicitacaoCriadoPorNome: sol.criadoPorNome || sol.criadoPorEmail || '',
+          itens: itensRC,
+          total,
+          status: 'rascunho',
+          criadoPor: perfilAtual,
+          criadoPorUid: getUsuarioUid(),
+          criadoPorEmail: getUsuarioEmail(),
+          criadoPorNome: getUsuarioNome(),
+          criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+          justificativa: ''
+        };
+
+        // Grava RC + vínculo na solicitação de forma atômica: ou os dois gravam ou nenhum grava.
+        const rcRef=db.collection('requisicoes').doc();
+        const solRef=db.collection('solicitacoes').doc(sol.id);
+        const batch=db.batch();
+        batch.set(rcRef,rcData);
+        batch.update(solRef,{
+          convertida:true,
+          convertidaEm:firebase.firestore.FieldValue.serverTimestamp(),
+          convertidaPorUid:getUsuarioUid(),
+          convertidaPorEmail:getUsuarioEmail(),
+          convertidaPorNome:getUsuarioNome(),
+          rcGerada:numero,
+          rcGeradaId:rcRef.id,
+          itensConvertidosSnapshot:itensRC.map(i=>({
+            codigo:i.codigo,materialId:i.materialId,descricao:i.descricao,unidade:i.unidade,qtd:i.qtd,valorUnit:i.valorUnit,total:i.total
+          }))
+        });
+        await batch.commit();
+
+        const rcLocal={...rcData,id:rcRef.id,criadoEm:null};
+        rcs.push(rcLocal);
+        const idx=solicitacoes.findIndex(s=>s.id===sol.id);
+        const solLocal={...sol,convertida:true,rcGerada:numero,rcGeradaId:rcRef.id,convertidaPorNome:getUsuarioNome(),convertidaEmLocal:new Date().toISOString()};
+        if(idx>=0) solicitacoes[idx]=solLocal; else solicitacoes.push(solLocal);
+        try{
+          v126SalvarCache('requisicoes',rcs);
+          v126SalvarCache('solicitacoes',solicitacoes);
+        }catch(_){}
+
+        showToast(`Solicitação convertida corretamente em ${numero}. O vínculo e os itens ficaram registrados.`);
         render();
       } catch (err) {
-        showToast('Erro ao converter: '+err.message, true);
+        console.error('Erro ao converter solicitação em RC:',err);
+        showToast('Erro ao converter: '+(err?.message||err), true);
       }
     }
 
@@ -5944,19 +6148,23 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         criadoPorEmail: existente?.criadoPorEmail || getUsuarioEmail(),
         criadoPorNome: existente?.criadoPorNome || getUsuarioNome(),
         dataCriacao: existente?.dataCriacao || agora.toISOString(),
+        criadoEm: existente?.criadoEm || firebase.firestore.FieldValue.serverTimestamp(),
         expiraEm,
         alteradoPorUid: editId ? getUsuarioUid() : '',
         alteradoPorEmail: editId ? getUsuarioEmail() : '',
-        alteradoEm: editId ? agora.toISOString() : ''
+        alteradoPorNome: editId ? getUsuarioNome() : '',
+        dataAlteracao: editId ? agora.toISOString() : '',
+        alteradoEm: editId ? firebase.firestore.FieldValue.serverTimestamp() : (existente?.alteradoEm || null)
       };
 
-      salvarSolicitacao(novaSol)
-        .then(() => {
-          showToast(editId ? 'Solicitação atualizada!' : 'Solicitação salva!');
-          document.getElementById('formSolicitacaoContainer').innerHTML = '';
-          render();
-        })
-        .catch(err => showToast('Erro: '+err.message, true));
+      try{
+        await salvarSolicitacao(novaSol);
+        showToast(editId ? 'Solicitação atualizada!' : 'Solicitação salva!');
+        document.getElementById('formSolicitacaoContainer').innerHTML = '';
+        render();
+      }catch(err){
+        showToast('Erro ao salvar solicitação: '+(err?.message||err), true);
+      }
     }
 
     /* ============================================================
@@ -7743,6 +7951,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         montarFormularioSolicitacao(null);
       });
 
+      document.querySelectorAll('[data-ver-rc-numero]').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          abrirVisualizacaoRC(btn.dataset.verRcNumero);
+        });
+      });
+
       document.querySelectorAll('[data-editar-sol]').forEach(btn=>{
         btn.addEventListener('click',()=>{
           const sol=solicitacoes.find(s=>s.id===btn.dataset.editarSol);
@@ -7770,7 +7984,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               arquivadoPorNome:getUsuarioNome(),
               arquivadoEm:firebase.firestore.FieldValue.serverTimestamp()
             });
+            const s=solicitacoes.find(x=>x.id===btn.dataset.arquivarSol); if(s)s.arquivada=true;
+            try{v126SalvarCache('solicitacoes',solicitacoes);}catch(_){}
             showToast('Solicitação arquivada.');
+            render();
           }catch(err){showToast('Erro ao arquivar: '+(err.message||err),true);}
         });
       });
@@ -7783,15 +8000,18 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               reabertoPorUid:getUsuarioUid(),
               reabertoEm:firebase.firestore.FieldValue.serverTimestamp()
             });
+            const s=solicitacoes.find(x=>x.id===btn.dataset.reabrirSol); if(s)s.arquivada=false;
+            try{v126SalvarCache('solicitacoes',solicitacoes);}catch(_){}
             showToast('Solicitação reaberta.');
+            render();
           }catch(err){showToast('Erro ao reabrir: '+(err.message||err),true);}
         });
       });
 
       document.querySelectorAll('[data-converter-sol]').forEach(btn => {
         btn.addEventListener('click', function() {
-          if (!['encarregado','gerente','admin'].includes(perfilAtual)) {
-            showToast('Somente Encarregado, Gerente ou Administrador podem converter uma solicitação em RC.', true);
+          if (!['usuario','gerente','admin'].includes(perfilAtual)) {
+            showToast('Somente Compras, Gerente ou Administrador podem converter uma solicitação em RC.', true);
             return;
           }
           const id = this.dataset.converterSol;
@@ -7819,14 +8039,28 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('rejeitarModal')?.addEventListener('click', (e) => {
         if (e.target === e.currentTarget) document.getElementById('rejeitarModal').classList.remove('active');
       });
-      document.getElementById('formRejeitar')?.addEventListener('submit', (e) => {
+      document.getElementById('formRejeitar')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const justificativa = document.getElementById('rejeitarJustificativa').value.trim();
         if (!justificativa) { showToast('Informe a justificativa.', true); return; }
         const numero = document.getElementById('rejeitarModal').dataset.rcNumero;
         if (numero) {
-          updateRC(numero, { status: 'rejeitado', justificativa });
-          document.getElementById('rejeitarModal').classList.remove('active');
+          try {
+            await updateRC(numero, {
+              status: 'rejeitado',
+              justificativa,
+              rejeitadoPorUid: getUsuarioUid(),
+              rejeitadoPorEmail: getUsuarioEmail(),
+              rejeitadoPorNome: getUsuarioNome(),
+              rejeitadoEm: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            document.getElementById('rejeitarModal').classList.remove('active');
+            showToast(`RC ${numero} rejeitada.`);
+            render();
+          } catch (err) {
+            console.error('Erro ao rejeitar RC:', err);
+            showToast('Erro ao rejeitar RC: ' + (err?.message || err), true);
+          }
         }
       });
 
@@ -8114,8 +8348,51 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         return obj;
       }catch(_){return null;}
     }
+
     function v126CacheValido(obj){
       return !!(obj && (Date.now()-Number(obj.ts)) < V126_CACHE_MS);
+    }
+
+    // V13.0: cache cooperativo entre abas abertas no mesmo navegador.
+    // sessionStorage é isolado por aba; sem isso, abrir várias abas fazia cada uma reler coleções inteiras.
+    const v130CanalCache = (()=>{try{return new BroadcastChannel('cryotronics-v130-cache');}catch(_){return null;}})();
+    const v130RespostasCache = new Map();
+    function v130DadosColecao(nome){
+      switch(nome){
+        case 'materiais': return allItems;
+        case 'fornecedores': return fornecedores;
+        case 'frotas': return frotas;
+        case 'requisicoes': return rcs;
+        case 'recebimentos_nf': return recebimentosNF;
+        case 'solicitacoes': return solicitacoes;
+        case 'orcamentos_tecnicos': return orcamentosTecnicos;
+        case 'almoxarifado_itens': return almoxItensV107;
+        case 'almoxarifado_movimentacoes': return almoxMovV107;
+        default:return null;
+      }
+    }
+    if(v130CanalCache){
+      v130CanalCache.onmessage=(ev)=>{
+        const m=ev.data||{};
+        if(m.uid!==v126UidCache()) return;
+        if(m.tipo==='pedir'){
+          const data=v130DadosColecao(m.nome);
+          if(Array.isArray(data)&&data.length){
+            v130CanalCache.postMessage({tipo:'responder',uid:m.uid,nome:m.nome,req:m.req,ts:Date.now(),data});
+          }
+        }else if(m.tipo==='responder' && v130RespostasCache.has(m.req)){
+          v130RespostasCache.get(m.req)(m);
+        }
+      };
+    }
+    function v130PedirCacheOutraAba(nome){
+      if(!v130CanalCache || String(nome).startsWith('rh_')) return Promise.resolve(null);
+      return new Promise(resolve=>{
+        const req='r'+Date.now()+Math.random().toString(36).slice(2);
+        const timer=setTimeout(()=>{v130RespostasCache.delete(req);resolve(null);},220);
+        v130RespostasCache.set(req,(m)=>{clearTimeout(timer);v130RespostasCache.delete(req);resolve(m);});
+        v130CanalCache.postMessage({tipo:'pedir',uid:v126UidCache(),nome,req});
+      });
     }
 
     function v125AplicarSnapshot(nome,snapshotOuArray){
@@ -8148,7 +8425,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<V126_CACHE_MS) return;
       if(v125Carregando[nome]) return v125Carregando[nome];
 
-      // V12.6: antes de tocar no Firestore, tenta restaurar cache da sessão.
+      // V12.6/V13.0: antes de tocar no Firestore, tenta cache desta aba e depois outra aba aberta.
       if(!force){
         const local=v126LerCache(nome);
         if(v126CacheValido(local)){
@@ -8156,11 +8433,19 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           v125UltimaCarga[nome]=Number(local.ts);
           return;
         }
+        const compartilhado=await v130PedirCacheOutraAba(nome);
+        if(compartilhado?.data && Array.isArray(compartilhado.data)){
+          v125AplicarSnapshot(nome,compartilhado.data);
+          v125UltimaCarga[nome]=Number(compartilhado.ts)||Date.now();
+          v126SalvarCache(nome,compartilhado.data);
+          return;
+        }
       }
 
       v125Carregando[nome]=(async()=>{
         try{
           const snap=await db.collection(nome).get();
+          try{ if(typeof v130RegistrarLeituras==='function') v130RegistrarLeituras(nome,snap.size); }catch(_){}
           const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
           v125AplicarSnapshot(nome,arr);
           v125UltimaCarga[nome]=Date.now();
@@ -8227,7 +8512,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         requisicoes:['requisicoes','frotas','fornecedores','materiais'],
         recebimentoNFs:['recebimentos_nf','requisicoes','frotas','fornecedores','materiais','almoxarifado_itens'],
         pagamentosNF:['recebimentos_nf'],
-        solicitar:['solicitacoes','frotas','materiais'],
+        solicitar:['frotas','materiais'],
         orcamentoTecnico:['orcamentos_tecnicos','frotas','materiais'],
         almoxarifado:['almoxarifado_itens','almoxarifado_movimentacoes','materiais','frotas'],
         dashboardAlmoxV109:['almoxarifado_itens','almoxarifado_movimentacoes','materiais'],
@@ -8241,6 +8526,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const deps=v125Dependencias(sec);
       try{
         await Promise.all(deps.map(c=>v125CarregarColecao(c,force)));
+        // V13.0: Solicitar RC precisa enxergar imediatamente solicitações feitas por outros usuários.
+        // A coleção costuma ser pequena e tem frescor de 2 min; na conversão, o documento exato é lido novamente.
+        if(sec==='solicitar') await v130CarregarSolicitacoesFrescas(force);
         if(['almoxarifado','dashboardAlmoxV109','recebimentoNFs','controleAcessoV104'].includes(sec)){
           await v125CarregarConfigAlmox(force).catch(()=>{});
         }
@@ -8275,7 +8563,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V12.8";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.0";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8297,14 +8585,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V12.7:',err));
+      }).catch(err=>console.error('Carga inicial V13.0:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V12.8";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.0";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
