@@ -1367,8 +1367,6 @@ auth.onAuthStateChanged(async (user) => {
 
           // Importação histórica autorizada pelo usuário.
           // É idempotente: se o lote já existir no Firestore, nada é duplicado.
-          setTimeout(() => importarHistoricoEmbutidoSeNecessario(), 1200);
-          setTimeout(() => reconciliarRCsFornecidasV111(), 2600);
         }
       } catch (err) {
         console.error('Erro ao carregar perfil:', err);
@@ -5590,23 +5588,14 @@ function gerarPDF(rcData) {
     }
 
     async function v130CarregarSolicitacoesFrescas(force=false){
-      const agora=Date.now();
-      if(!force && solicitacoes.length){
-        const ts=Math.max(Number(v130UltimaCargaSolicitacoes)||0, Number(v125UltimaCarga['solicitacoes'])||0);
-        if(ts && (agora-ts)<V126_CACHE_MS) return true;
-      }
       try{
-        const snap=await db.collection('solicitacoes').get();
-        const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
-        solicitacoes=arr;
-        v130UltimaCargaSolicitacoes=Date.now();
-        v125UltimaCarga['solicitacoes']=v130UltimaCargaSolicitacoes;
-        try{v126SalvarCache('solicitacoes',arr);}catch(_){}
-        v130RegistrarLeituras('solicitacoes',snap.size);
+        await v125CarregarColecao('solicitacoes',force);
+        v130UltimaCargaSolicitacoes=Number(v125UltimaCarga['solicitacoes'])||Date.now();
         return true;
       }catch(err){
+        console.warn('V13.5 — falha ao carregar solicitações:',err);
         const cache=typeof v126LerCache==='function'?v126LerCache('solicitacoes'):null;
-        if(cache?.data){ solicitacoes=cache.data; return false; }
+        if(cache?.data){solicitacoes=cache.data;return false;}
         throw err;
       }
     }
@@ -8728,6 +8717,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       v125Carregando[nome]=(async()=>{
         try{
+          console.warn(`[V13.5 Firestore] leitura de coleção: ${nome}`);
           const snap=await db.collection(nome).get();
           try{ if(typeof v130RegistrarLeituras==='function') v130RegistrarLeituras(nome,snap.size); }catch(_){}
           const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
@@ -8787,7 +8777,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const mapa={
         // V13.4 — somente dados realmente necessários para desenhar a tela inicial.
         // Dependências de edição/cadastro continuam sendo carregadas sob demanda pelos próprios fluxos.
-        dashboard:['requisicoes'],
+        dashboard:[],
         dashboardCustos:['requisicoes','recebimentos_nf','frotas'],
         dashboardCustosExplodidos:['requisicoes','recebimentos_nf','frotas'],
         materiais:['materiais'],
@@ -8863,7 +8853,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.4";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.5";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8885,14 +8875,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V13.4:',err));
+      }).catch(err=>console.error('Carga inicial V13.5:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.4";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.5";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
