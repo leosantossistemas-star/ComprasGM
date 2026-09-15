@@ -5591,7 +5591,10 @@ function gerarPDF(rcData) {
 
     async function v130CarregarSolicitacoesFrescas(force=false){
       const agora=Date.now();
-      if(!force && (agora-v130UltimaCargaSolicitacoes)<V130_SOL_FRESH_MS && solicitacoes.length) return true;
+      if(!force && solicitacoes.length){
+        const ts=Math.max(Number(v130UltimaCargaSolicitacoes)||0, Number(v125UltimaCarga['solicitacoes'])||0);
+        if(ts && (agora-ts)<V126_CACHE_MS) return true;
+      }
       try{
         const snap=await db.collection('solicitacoes').get();
         const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
@@ -8601,7 +8604,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
        - Botão Atualizar dados continua disponível para leitura forçada consciente.
        - Falhas de cache nunca impedem o uso do sistema.
        ============================================================ */
-    const V126_CACHE_MS = 30 * 60 * 1000;
+    const V126_CACHE_MS = 4 * 60 * 60 * 1000; // V13.4: 4h; Atualizar dados continua forçando releitura
     const V126_CACHE_PREFIX = 'cryotronics_v126_';
     const v125UltimaCarga = Object.create(null); // nome mantido por compatibilidade interna
     const v125Carregando = Object.create(null);
@@ -8782,25 +8785,41 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     function v125Dependencias(sec){
       const mapa={
-        dashboard:['requisicoes','solicitacoes','frotas'],
+        // V13.4 — somente dados realmente necessários para desenhar a tela inicial.
+        // Dependências de edição/cadastro continuam sendo carregadas sob demanda pelos próprios fluxos.
+        dashboard:['requisicoes'],
         dashboardCustos:['requisicoes','recebimentos_nf','frotas'],
         dashboardCustosExplodidos:['requisicoes','recebimentos_nf','frotas'],
         materiais:['materiais'],
         categorias:['materiais'],
         fornecedores:['fornecedores'],
         novo:['materiais','fornecedores'],
-        frotas:['frotas','requisicoes','recebimentos_nf'],
-        requisicoes:['requisicoes','frotas','fornecedores','materiais'],
+        frotas:['frotas'],
+        requisicoes:['requisicoes'],
         recebimentoNFs:['recebimentos_nf','requisicoes','frotas','fornecedores','materiais','almoxarifado_itens'],
         pagamentosNF:['recebimentos_nf'],
         solicitar:['frotas','materiais'],
         orcamentoTecnico:['orcamentos_tecnicos','frotas','materiais'],
-        almoxarifado:['almoxarifado_itens','almoxarifado_movimentacoes','materiais','frotas'],
-        dashboardAlmoxV109:['almoxarifado_itens','almoxarifado_movimentacoes','materiais'],
+        almoxarifado:['almoxarifado_itens','almoxarifado_movimentacoes'],
+        dashboardAlmoxV109:['almoxarifado_itens','almoxarifado_movimentacoes'],
         rh:['rh_colaboradores','rh_cargos','rh_folhas','rh_ferias','rh_asos','rh_ccts','rh_entregas_epi','rh_historico'],
         controleAcessoV104:[]
       };
       return mapa[sec]||[];
+    }
+
+    async function v134GarantirColecoes(nomes=[]){
+      // Carrega somente quando uma ação realmente precisa desses cadastros.
+      // Respeita cache de 4h e compartilhamento entre abas; não força servidor.
+      const faltantes=nomes.filter(n=>{
+        if(n==='materiais') return !Array.isArray(allItems)||!allItems.length;
+        if(n==='fornecedores') return !Array.isArray(fornecedores)||!fornecedores.length;
+        if(n==='frotas') return !Array.isArray(frotas)||!frotas.length;
+        if(n==='requisicoes') return !Array.isArray(rcs)||!rcs.length;
+        if(n==='almoxarifado_itens') return !Array.isArray(almoxItensV107)||!almoxItensV107.length;
+        return true;
+      });
+      if(faltantes.length) await Promise.all(faltantes.map(n=>v125CarregarColecao(n,false)));
     }
 
     async function v125CarregarSecao(sec=state.section,force=false){
@@ -8844,7 +8863,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.3";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.4";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8866,14 +8885,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V13.3:',err));
+      }).catch(err=>console.error('Carga inicial V13.4:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.3";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.4";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
