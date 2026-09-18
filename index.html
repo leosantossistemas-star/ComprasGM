@@ -2364,15 +2364,176 @@ auth.onAuthStateChanged(async (user) => {
     /* ============================================================
        HANDLERS DAS RCs (com correção de agilidade e bloqueio)
     ============================================================ */
+
+    /* ============================================================
+       V13.6 — PEDIDO DE COMPRA (PO)
+       A RC é a solicitação/aprovação interna. O PO é o documento
+       comercial liberado ao fornecedor após a aprovação.
+       ============================================================ */
+    function poNumeroDaRC(rc){
+      const n=String(rc?.numero||'').replace(/[^\d]/g,'') || String(rc?.numero||'').replace(/\s+/g,'-');
+      return `PO-${n}`;
+    }
+
+    function itensSnapshotPO(rc){
+      return (rc?.itens||[]).map((i,idx)=>{
+        const qtd=numeroSeguro(i.qtd ?? i.quantidade);
+        const valorUnit=numeroSeguro(i.valorUnit ?? i.valorUnitario);
+        return {
+          ordem:idx+1,
+          materialId:i.materialId||'',
+          codigo:i.codigo||'',
+          descricao:clean(i.descricao||''),
+          unidade:i.unidade||i.unid||'',
+          quantidade:qtd,
+          valorUnitario:valorUnit,
+          valorTotal:Math.round((numeroSeguro(i.total)||(qtd*valorUnit))*100)/100
+        };
+      });
+    }
+
+    function montarPOdaRC(rc, dataAprovacaoLocal=new Date().toISOString()){
+      const itens=itensSnapshotPO(rc);
+      return {
+        numero:poNumeroDaRC(rc),
+        status:'ATIVO',
+        rcNumero:rc.numero||'',
+        rcId:rc.id||'',
+        fornecedor:rc.fornecedor||'',
+        centroCusto:getCentroCustoRegistro(rc),
+        destino:rc.aplicacao||'',
+        solicitante:rc.solicitante||'',
+        dataRC:rc.data||'',
+        dataAprovacaoLocal,
+        aprovadoPorUid:getUsuarioUid(),
+        aprovadoPorEmail:getUsuarioEmail(),
+        aprovadoPorNome:getUsuarioNome(),
+        prazoEntrega:rc.prazoEntrega||'',
+        condicaoPagamento:rc.condPag||rc.condicaoPagamento||'',
+        dataBase:rc.dataBase||'',
+        vencimento:rc.vencimento||'',
+        observacoes:rc.observacoes||'',
+        itens,
+        valorTotal:itens.reduce((t,i)=>t+numeroSeguro(i.valorTotal),0)
+      };
+    }
+
+    function poEfetivoDaRC(rc){
+      if(!rc) return null;
+      if(rc.po && Array.isArray(rc.po.itens) && rc.po.itens.length) return rc.po;
+      // Compatibilidade para RCs históricas aprovadas antes da V13.6:
+      if(statusRCV119(rc.status)==='aprovado'){
+        const itens=itensSnapshotPO(rc);
+        return {
+          numero:poNumeroDaRC(rc),status:'LEGADO',rcNumero:rc.numero||'',rcId:rc.id||'',
+          fornecedor:rc.fornecedor||'',centroCusto:getCentroCustoRegistro(rc),destino:rc.aplicacao||'',
+          solicitante:rc.solicitante||'',dataRC:rc.data||'',
+          dataAprovacaoLocal:rc.aprovadoEm?.toDate ? rc.aprovadoEm.toDate().toISOString() : (rc.data||''),
+          aprovadoPorNome:rc.aprovadoPorNome||rc.aprovadoPorEmail||'Aprovação histórica',
+          prazoEntrega:rc.prazoEntrega||'',condicaoPagamento:rc.condPag||rc.condicaoPagamento||'',
+          dataBase:rc.dataBase||'',vencimento:rc.vencimento||'',observacoes:rc.observacoes||'',
+          itens,valorTotal:itens.reduce((t,i)=>t+numeroSeguro(i.valorTotal),0)
+        };
+      }
+      return null;
+    }
+
+    function dataHoraPO(po){
+      const v=po?.dataAprovacaoLocal;
+      if(!v) return '—';
+      const d=new Date(v.length===10?v+'T12:00:00':v);
+      return isNaN(d.getTime()) ? String(v) : d.toLocaleString('pt-BR');
+    }
+
+    function gerarPDFPO(rc){
+      const po=poEfetivoDaRC(rc);
+      if(!po){showToast('Esta RC ainda não possui Pedido de Compra aprovado.',true);return;}
+      const container=document.createElement('div');
+      container.style.cssText='position:absolute;left:-9999px;top:0;width:900px;background:#fff;color:#111;padding:34px;font-family:Arial,sans-serif;';
+      container.innerHTML=`
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:4px solid #111;padding-bottom:16px;margin-bottom:20px">
+          <div>
+            <div style="font-size:30px;font-weight:900;letter-spacing:2px">MECHATRONICS</div>
+            <div style="font-size:12px;font-weight:700;letter-spacing:1px">GRUPO MECHATRONICS · CRYOTRONICS</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:24px;font-weight:900">PEDIDO DE COMPRA</div>
+            <div style="font-size:18px;font-weight:800">${po.numero}</div>
+            <div style="font-size:11px">Origem: ${po.rcNumero}</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px">
+          <tr><td style="border:1px solid #bbb;padding:8px"><strong>Fornecedor</strong><br>${po.fornecedor||'—'}</td>
+              <td style="border:1px solid #bbb;padding:8px"><strong>Centro de custo</strong><br>${po.centroCusto||'—'}</td>
+              <td style="border:1px solid #bbb;padding:8px"><strong>Frota / Destino</strong><br>${po.destino||'—'}</td></tr>
+          <tr><td style="border:1px solid #bbb;padding:8px"><strong>Data da RC</strong><br>${po.dataRC?fmt.date(po.dataRC):'—'}</td>
+              <td style="border:1px solid #bbb;padding:8px"><strong>Data de aprovação</strong><br>${dataHoraPO(po)}</td>
+              <td style="border:1px solid #bbb;padding:8px"><strong>Aprovado por</strong><br>${po.aprovadoPorNome||'—'}</td></tr>
+          <tr><td style="border:1px solid #bbb;padding:8px"><strong>Prazo de entrega</strong><br>${po.prazoEntrega||'—'}</td>
+              <td style="border:1px solid #bbb;padding:8px"><strong>Condição de pagamento</strong><br>${po.condicaoPagamento||'—'}</td>
+              <td style="border:1px solid #bbb;padding:8px"><strong>Solicitante</strong><br>${po.solicitante||'—'}</td></tr>
+        </table>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead><tr style="background:#eee">
+            <th style="border:1px solid #aaa;padding:7px">Item</th>
+            <th style="border:1px solid #aaa;padding:7px">Código</th>
+            <th style="border:1px solid #aaa;padding:7px;text-align:left">Material / Descrição</th>
+            <th style="border:1px solid #aaa;padding:7px">UN</th>
+            <th style="border:1px solid #aaa;padding:7px">Qtd.</th>
+            <th style="border:1px solid #aaa;padding:7px">Valor negociado</th>
+            <th style="border:1px solid #aaa;padding:7px">Total</th>
+          </tr></thead>
+          <tbody>${(po.itens||[]).map(i=>`<tr>
+            <td style="border:1px solid #bbb;padding:7px;text-align:center">${i.ordem}</td>
+            <td style="border:1px solid #bbb;padding:7px">${i.codigo||'—'}</td>
+            <td style="border:1px solid #bbb;padding:7px">${i.descricao||'—'}</td>
+            <td style="border:1px solid #bbb;padding:7px;text-align:center">${i.unidade||'—'}</td>
+            <td style="border:1px solid #bbb;padding:7px;text-align:right">${i.quantidade}</td>
+            <td style="border:1px solid #bbb;padding:7px;text-align:right">${fmt.money(i.valorUnitario)}</td>
+            <td style="border:1px solid #bbb;padding:7px;text-align:right"><strong>${fmt.money(i.valorTotal)}</strong></td>
+          </tr>`).join('')}
+          <tr><td colspan="6" style="border:1px solid #aaa;padding:9px;text-align:right;font-size:13px"><strong>VALOR TOTAL DO PO</strong></td>
+              <td style="border:1px solid #aaa;padding:9px;text-align:right;font-size:13px"><strong>${fmt.money(po.valorTotal)}</strong></td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:18px;border:1px solid #bbb;padding:10px;font-size:11px"><strong>Observações:</strong> ${po.observacoes||'Sem observações.'}</div>
+        <div style="margin-top:16px;font-size:10px;color:#555">
+          Documento comercial emitido após aprovação da RC. Fornecimento e faturamento devem respeitar exclusivamente os itens, quantidades e valores deste Pedido de Compra.
+        </div>`;
+      document.body.appendChild(container);
+      html2canvas(container,{scale:2,useCORS:true}).then(canvas=>{
+        const {jsPDF}=window.jspdf;
+        const pdf=new jsPDF('p','mm','a4');
+        const img=canvas.toDataURL('image/png');
+        const w=210, h=canvas.height*w/canvas.width, page=297;
+        let left=h,pos=0;
+        pdf.addImage(img,'PNG',0,pos,w,h); left-=page;
+        while(left>0){pos=left-h;pdf.addPage();pdf.addImage(img,'PNG',0,pos,w,h);left-=page;}
+        pdf.save(`${po.numero}_${po.fornecedor||'Fornecedor'}.pdf`);
+        container.remove();
+        showToast(`${po.numero} gerado em PDF.`);
+      }).catch(err=>{
+        console.error(err);container.remove();showToast('Erro ao gerar o Pedido de Compra em PDF.',true);
+      });
+    }
+
     async function handleAprovarRC(numero) {
       if (!confirm(`Aprovar requisição ${numero}?`)) return;
       try {
+        const rcAtual=rcs.find(r=>r.numero===numero);
+        if(!rcAtual) throw new Error('RC não encontrada para geração do Pedido de Compra.');
+        const agoraPO=new Date().toISOString();
+        const po=montarPOdaRC(rcAtual,agoraPO);
         await updateRC(numero, {
           status: 'aprovado',
           aprovadoPorUid: getUsuarioUid(),
           aprovadoPorEmail: getUsuarioEmail(),
           aprovadoPorNome: getUsuarioNome(),
-          aprovadoEm: firebase.firestore.FieldValue.serverTimestamp()
+          aprovadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+          po,
+          poNumero:po.numero,
+          poStatus:'ATIVO',
+          poGeradoEm:firebase.firestore.FieldValue.serverTimestamp()
         });
         // V12.9: sem onSnapshot permanente, a tela precisa refletir a gravação localmente.
         showToast(`RC ${numero} aprovada com sucesso.`);
@@ -2410,7 +2571,13 @@ auth.onAuthStateChanged(async (user) => {
           aprovadoPorUid:'',
           aprovadoPorEmail:'',
           aprovadoPorNome:'',
-          aprovadoEm:null
+          aprovadoEm:null,
+          ...(eraAprovada ? {
+            poStatus:'CANCELADO',
+            poCanceladoEm:firebase.firestore.FieldValue.serverTimestamp(),
+            poCanceladoPorUid:getUsuarioUid(),
+            poCanceladoPorNome:getUsuarioNome()
+          } : {})
         });
         showToast(`RC ${numero} devolvida para Compras. O fluxo de aprovação deverá ser feito novamente.`);
         render();
@@ -3507,6 +3674,38 @@ auth.onAuthStateChanged(async (user) => {
       });
     }
 
+
+    function v136DadosPermanenciaFrotas(){
+      const hoje=inicioDoDia(new Date());
+      return frotas
+        .filter(f=>f.tipoCadastro!=='PROJETO' && normalize(f.nome||'')!=='teste')
+        .map(f=>{
+          const inicio=dataJSRegistro(f.dataEntrada) || dataJSRegistro(f.criadoEm);
+          const encerrada=f.statusOperacional==='CONCLUIDO' || f.concluido===true;
+          const fim=encerrada && f.dataConclusaoReal ? dataJSRegistro(f.dataConclusaoReal) : hoje;
+          const dias=inicio&&fim ? Math.max(0,diasEntreDatas(inicio,fim)) : 0;
+          return {frota:f.nome||'Sem identificação',centro:getCentroCustoRegistro(f),inicio,fim,dias,encerrada,
+            status:encerrada?'ENCERRADA':'EM MANUTENÇÃO'};
+        })
+        .sort((a,b)=>b.dias-a.dias);
+    }
+
+    function v136GraficoPermanenciaFrotas(){
+      const dados=v136DadosPermanenciaFrotas();
+      if(!dados.length) return `<div style="padding:22px;color:var(--text-muted)">Sem frotas cadastradas.</div>`;
+      const max=Math.max(1,...dados.map(x=>x.dias));
+      return `<div style="display:flex;flex-direction:column;gap:10px;max-height:520px;overflow:auto;padding-right:6px">
+        ${dados.map(x=>`<div style="display:grid;grid-template-columns:minmax(120px,190px) 1fr 95px 130px;gap:10px;align-items:center">
+          <div><strong>${x.frota}</strong><div style="font-size:10px;color:var(--text-muted)">${x.centro}</div></div>
+          <div style="height:18px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;overflow:hidden">
+            <div style="height:100%;width:${Math.max(1,x.dias/max*100)}%;background:${x.encerrada?'#6c757d':'var(--accent)'}"></div>
+          </div>
+          <div style="text-align:right"><strong>${x.dias} dia(s)</strong></div>
+          <div><span class="badge ${x.encerrada?'badge-ok':'badge-pending'}">${x.status}</span></div>
+        </div>`).join('')}
+      </div>`;
+    }
+
     function renderDashboardCustos() {
       const f=state.custosFilters||{};
       let movimentos=getMovimentosCustos(recebimentosNF);
@@ -3603,6 +3802,11 @@ auth.onAuthStateChanged(async (user) => {
         </div>
 
         <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><div><div class="card-title">Tempo de permanência das frotas</div><div class="card-sub">Da entrada até hoje para frotas em manutenção; da entrada até a conclusão para frotas encerradas.</div></div></div>
+          ${v136GraficoPermanenciaFrotas()}
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
           <div class="card-header"><div><div class="card-title">Ranking de custo real por frota / destino</div><div class="card-sub">Frotas, Estoque, Oficina, Despesas Administrativas e demais destinos.</div></div></div>
           ${destinos.length?`<div style="display:flex;flex-direction:column;gap:10px">${destinos.map(([n,v],i)=>`
             <div style="display:grid;grid-template-columns:36px minmax(150px,270px) 1fr 130px;gap:12px;align-items:center">
@@ -3670,15 +3874,18 @@ auth.onAuthStateChanged(async (user) => {
     }
 
     function itensExatosDaRC(rc) {
-      return (rc?.itens || []).map((i,idx)=>({
-        ordem: idx + 1,
+      // V13.6: após aprovação, o PO é a fonte comercial autoritativa para recebimento/NF.
+      const po=poEfetivoDaRC(rc);
+      const fonte=(po?.itens?.length ? po.itens : (rc?.itens||[]));
+      return fonte.map((i,idx)=>({
+        ordem: i.ordem || idx + 1,
         materialId: i.materialId || '',
         codigo: i.codigo || '',
         descricao: clean(i.descricao || ''),
         unidade: i.unidade || i.unid || '',
-        quantidade: numeroSeguro(i.qtd ?? i.quantidade),
-        valorUnitario: numeroSeguro(i.valorUnit ?? i.valorUnitario),
-        valorTotal: numeroSeguro(i.total) || (numeroSeguro(i.qtd ?? i.quantidade) * numeroSeguro(i.valorUnit ?? i.valorUnitario))
+        quantidade: numeroSeguro(i.quantidade ?? i.qtd),
+        valorUnitario: numeroSeguro(i.valorUnitario ?? i.valorUnit),
+        valorTotal: numeroSeguro(i.valorTotal ?? i.total) || (numeroSeguro(i.quantidade ?? i.qtd) * numeroSeguro(i.valorUnitario ?? i.valorUnit))
       }));
     }
 
@@ -4117,7 +4324,8 @@ auth.onAuthStateChanged(async (user) => {
                   <option value="PARCIAL" ${(ed?.tipoRecebimento || (ed?.recebimentoParcial?'PARCIAL':'INTEGRAL'))==='PARCIAL'?'selected':''}>Parcial - informar quantidades manualmente</option>
                 </select>
               </div>
-              <div class="field"><label>Fornecedor da RC</label><input id="nfFornecedor" readonly value="${ed?.tipoDocumento==='NF'?(ed?.fornecedor||rcEd?.fornecedor||''):(rcEd?.fornecedor||'')}"></div>
+              <div class="field"><label>Pedido de Compra (PO)</label><input id="nfPO" readonly value="${ed?.tipoDocumento==='NF'?(ed?.poNumero||poEfetivoDaRC(rcEd)?.numero||''):(poEfetivoDaRC(rcEd)?.numero||'')}"></div>
+              <div class="field"><label>Fornecedor do PO</label><input id="nfFornecedor" readonly value="${ed?.tipoDocumento==='NF'?(ed?.fornecedor||poEfetivoDaRC(rcEd)?.fornecedor||rcEd?.fornecedor||''):(poEfetivoDaRC(rcEd)?.fornecedor||rcEd?.fornecedor||'')}"></div>
               <div class="field"><label>Destino / Frota / Projeto</label><input id="nfDestino" readonly value="${ed?.tipoDocumento==='NF'?(ed?.destino||rcEd?.aplicacao||''):(rcEd?.aplicacao||'')}"></div>
               <div class="field"><label>Centro de custo</label><input id="nfCentroCusto" readonly value="${getCentroCustoRegistro(ed?.tipoDocumento==='NF'?ed:(rcEd||{}))}"></div>
               <div class="field"><label>Valor desta NF</label><input id="nfValorTotalVisual" readonly value="${fmt.money(ed?.tipoDocumento==='NF'?(ed?.valorTotal||numeroSeguro(rcEd?.total)||totalItensRC(rcEd)):(numeroSeguro(rcEd?.total)||totalItensRC(rcEd)))}"></div>
@@ -4404,6 +4612,18 @@ auth.onAuthStateChanged(async (user) => {
             <div class="field"><label>&nbsp;</label><button class="btn btn-accent" id="btnApplyRCFiltros" style="width:100%">Aplicar</button></div>
           </div>
         </div>
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header"><div><div class="card-title">🧾 Pedidos de Compra</div><div class="card-sub">POs liberados a partir de RCs aprovadas. O fornecedor e a NF devem seguir exatamente o PO.</div></div></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>PO</th><th>RC</th><th>Fornecedor</th><th>Frota/Destino</th><th>Aprovação</th><th>Valor</th><th>Status</th><th>Ação</th></tr></thead>
+            <tbody>${rcs.filter(r=>statusRCV119(r.status)==='aprovado').map(r=>{const p=poEfetivoDaRC(r);return `<tr>
+              <td><strong>${p?.numero||'—'}</strong></td><td>${r.numero}</td><td>${p?.fornecedor||'—'}</td><td>${p?.destino||'—'}</td>
+              <td>${p?dataHoraPO(p):'—'}</td><td><strong>${fmt.money(p?.valorTotal||0)}</strong></td>
+              <td><span class="badge badge-ok">${p?.status==='LEGADO'?'PO histórico':'ATIVO'}</span></td>
+              <td><button class="btn btn-success btn-sm" data-po-rc="${r.numero}">Imprimir PDF</button></td>
+            </tr>`}).join('')||'<tr><td colspan="8">Nenhum Pedido de Compra disponível.</td></tr>'}</tbody>
+          </table></div>
+        </div>
         <div class="card">
           <div class="card-header"><div><div class="card-title">Lista de Requisições</div><div class="card-sub">Clique em uma linha para ver detalhes</div></div></div>
           ${renderRCTable(filtered)}
@@ -4455,8 +4675,11 @@ auth.onAuthStateChanged(async (user) => {
 
         // PDF e WhatsApp: disponíveis apenas se NÃO for rejeitado e NÃO for rascunho/arquivado
         if (statusNormal !== 'rejeitado' && statusNormal !== 'rascunho' && statusNormal !== 'arquivado') {
-          acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-pdf="${rc.numero}">PDF</button>`);
+          acoes.push(`<button class="btn btn-ghost btn-sm" data-ver-rc-pdf="${rc.numero}">PDF RC</button>`);
           acoes.push(`<button class="btn btn-ghost btn-sm" data-whats-rc="${rc.numero}">Whats</button>`);
+        }
+        if(statusNormal==='aprovado'){
+          acoes.push(`<button class="btn btn-success btn-sm" data-po-rc="${rc.numero}" title="Pedido de Compra liberado após aprovação">PO</button>`);
         }
 
         if (perfil === 'admin') {
@@ -7226,6 +7449,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             tipoDocumento: 'NF',
             rcId: rc.id || '',
             rcNumero: rc.numero,
+            poNumero: poEfetivoDaRC(rc)?.numero || '',
+            poStatusNoRecebimento: poEfetivoDaRC(rc)?.status || '',
             rcStatusNoRecebimento: rc.status,
             centroCusto: getCentroCustoRegistro(rc),
             dataDocumento: dataNFInformada,
@@ -7234,7 +7459,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             destino: rc.aplicacao || '',
             osProjeto: rc.osProjeto || '',
             itensRecebidos: itens,
-            descricao: `${itens.length} item(ns) conforme ${rc.numero}`,
+            descricao: `${itens.length} item(ns) conforme ${poEfetivoDaRC(rc)?.numero || rc.numero}`,
             quantidade: itens.reduce((s,i)=>s+numeroSeguro(i.quantidade),0),
             valorUnitario: 0,
             valorTotal: totalRC,
@@ -7262,6 +7487,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
               : 'RECEBIMENTO_INTEGRAL_DO_SALDO_DA_RC',
             recebimentoParcial: tipoRecebimento === 'PARCIAL',
             valorAprovadoRC: numeroSeguro(rc.total) || totalItensRC(rc),
+            valorAprovadoPO: numeroSeguro(poEfetivoDaRC(rc)?.valorTotal) || totalItensRC(rc),
             valorRecebidoNestaNF: totalRC,
             saldoResidualAposNF: itensBase.reduce((s,i)=>{
               const recebidoAgora = numeroSeguro(itens.find(x=>x.ordem===i.ordem)?.quantidadeRecebida);
@@ -8139,6 +8365,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           return;
         }
 
+        if (target.dataset.poRc) {
+          const rc=rcs.find(r=>r.numero===target.dataset.poRc);
+          if(rc) gerarPDFPO(rc);
+          return;
+        }
+
         if (target.dataset.verRcPdf) {
           const numero = target.dataset.verRcPdf;
           const rc = rcs.find(r => r.numero === numero);
@@ -8853,7 +9085,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.5";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.6";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -8875,14 +9107,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V13.5:',err));
+      }).catch(err=>console.error('Carga inicial V13.6:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.5";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.6";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
