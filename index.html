@@ -4563,6 +4563,21 @@ auth.onAuthStateChanged(async (user) => {
     /* ============================================================
        SEÇÃO REQUISIÇÕES DE COMPRA (usa rcs global)
     ============================================================ */
+    function v137AtualizarBuscaPO(){
+      const input=document.getElementById('poBuscaRC'), box=document.getElementById('poResultadoBusca');
+      if(!input||!box)return;
+      const q=String(input.value||'').trim().toUpperCase(), dig=q.replace(/[^\d]/g,'');
+      if(!q){box.innerHTML='<span style="color:var(--text-muted);font-size:12px">Informe o número de uma RC aprovada.</span>';return;}
+      const r=rcs.find(x=>{
+        if(statusRCV119(x.status)!=='aprovado')return false;
+        const n=String(x.numero||'').toUpperCase(), nd=n.replace(/[^\d]/g,'');
+        return n===q || (dig && nd===dig);
+      });
+      if(!r){box.innerHTML='<span class="badge badge-warn">RC aprovada não encontrada</span>';return;}
+      const p=poEfetivoDaRC(r);
+      box.innerHTML=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span><strong>${r.numero}</strong> · ${p?.fornecedor||r.fornecedor||'Fornecedor não informado'} · ${fmt.money(p?.valorTotal||r.total||0)}</span><button class="btn btn-success btn-sm" data-po-rc="${r.numero}">Abrir / Imprimir PO</button></div>`;
+    }
+
     function renderRequisicoes() {
       const filtered = getFilteredRCs();
       const perfil = perfilAtual;
@@ -4613,16 +4628,11 @@ auth.onAuthStateChanged(async (user) => {
           </div>
         </div>
         <div class="card" style="margin-bottom:20px">
-          <div class="card-header"><div><div class="card-title">🧾 Pedidos de Compra</div><div class="card-sub">POs liberados a partir de RCs aprovadas. O fornecedor e a NF devem seguir exatamente o PO.</div></div></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>PO</th><th>RC</th><th>Fornecedor</th><th>Frota/Destino</th><th>Aprovação</th><th>Valor</th><th>Status</th><th>Ação</th></tr></thead>
-            <tbody>${rcs.filter(r=>statusRCV119(r.status)==='aprovado').map(r=>{const p=poEfetivoDaRC(r);return `<tr>
-              <td><strong>${p?.numero||'—'}</strong></td><td>${r.numero}</td><td>${p?.fornecedor||'—'}</td><td>${p?.destino||'—'}</td>
-              <td>${p?dataHoraPO(p):'—'}</td><td><strong>${fmt.money(p?.valorTotal||0)}</strong></td>
-              <td><span class="badge badge-ok">${p?.status==='LEGADO'?'PO histórico':'ATIVO'}</span></td>
-              <td><button class="btn btn-success btn-sm" data-po-rc="${r.numero}">Imprimir PDF</button></td>
-            </tr>`}).join('')||'<tr><td colspan="8">Nenhum Pedido de Compra disponível.</td></tr>'}</tbody>
-          </table></div>
+          <div class="card-header"><div><div class="card-title">🧾 Pedido de Compra</div><div class="card-sub">Pesquise uma RC aprovada para consultar e imprimir o respectivo PO.</div></div></div>
+          <div style="display:grid;grid-template-columns:minmax(240px,420px) 1fr;gap:14px;align-items:end">
+            <div class="field" style="margin:0"><label>Pesquisar RC aprovada</label><input id="poBuscaRC" type="search" autocomplete="off" placeholder="Ex.: RC 0858 ou 0858"></div>
+            <div id="poResultadoBusca"><span style="color:var(--text-muted);font-size:12px">Informe o número de uma RC aprovada.</span></div>
+          </div>
         </div>
         <div class="card">
           <div class="card-header"><div><div class="card-title">Lista de Requisições</div><div class="card-sub">Clique em uma linha para ver detalhes</div></div></div>
@@ -9085,7 +9095,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.6";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.7";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9107,14 +9117,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V13.6:',err));
+      }).catch(err=>console.error('Carga inicial V13.7:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.6";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.7";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13623,6 +13633,10 @@ document.addEventListener('change',e=>{
 document.addEventListener('input',e=>{if(e.target.id==='buscaA107'){state.almoxFilters=state.almoxFilters||{};state.almoxFilters.busca=e.target.value;render();}});
 document.addEventListener('click',async e=>{if(e.target.closest('#novoA107')){document.body.insertAdjacentHTML('beforeend',modalA107({categoria:'INSUMO',centroCusto:'SANTOS'}));return;}let ed=e.target.closest('[data-ed-a107]');if(ed){let i=almoxItensV107.find(x=>x.id===ed.dataset.edA107);if(i)document.body.insertAdjacentHTML('beforeend',modalA107(i));return;}let dl=e.target.closest('[data-del-a107]');if(dl){if(confirm('Excluir este item?'))await db.collection('almoxarifado_itens').doc(dl.dataset.delA107).delete();return;}if(e.target.closest('[data-close-a107]'))document.getElementById('modalA107')?.remove();});
 document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.preventDefault();try{await salvarA107();document.getElementById('modalA107')?.remove();showToast('Item salvo.');}catch(err){showToast(err.message,true);}}});
+
+      document.addEventListener('input', function(e){
+        if(e.target && e.target.id==='poBuscaRC') v137AtualizarBuscaPO();
+      });
 </script>
 </body>
 </html>
