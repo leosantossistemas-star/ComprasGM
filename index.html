@@ -530,7 +530,7 @@
     </div>
     <ul class="nav">
       <li><button class="nav-btn active" data-section="dashboard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard Aprovações</button></li>
-      <li><button class="nav-btn" data-section="dashboardCustos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-5 3 3 5-8"/></svg>Dashboard Custos</button></li>
+      <li><button class="nav-btn" data-section="dashboardCustos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-5 3 3 5-8"/></svg>Dashboard Custos</button></li><li><button class="nav-btn" data-section="tempoFrotas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Tempo de Frotas</button></li>
       <li><button class="nav-btn" data-section="dashboardCustosExplodidos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M22 19V3"/></svg>Custos Explodidos</button></li>
       <li id="navControleAcessoV104" style="display:none">
         <button class="nav-btn" data-section="controleAcessoV104">
@@ -6679,12 +6679,157 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     /* ============================================================
        RENDER PRINCIPAL (com nova seção)
     ============================================================ */
+
+    // =========== V14.2 — ABA TEMPO DE FROTAS ===========
+    window.filtrosTempoFrotasV142 = window.filtrosTempoFrotasV142 || {dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};
+
+    function dataFrotaV142(v){
+      if(!v) return null;
+      if(v.toDate && typeof v.toDate==='function') return v.toDate();
+      if(v.seconds) return new Date(v.seconds*1000);
+      if(v instanceof Date) return isNaN(v.getTime())?null:v;
+      if(typeof v==='string'){
+        const t=v.trim();
+        let m=t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if(m) return new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
+        m=t.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        if(m) return new Date(Number(m[3]),Number(m[2])-1,Number(m[1]));
+        const d=new Date(t); return isNaN(d.getTime())?null:d;
+      }
+      return null;
+    }
+    function isoDataV142(d){
+      return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : '';
+    }
+    function brDataV142(iso){
+      if(!iso) return '';
+      const m=String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m?`${m[3]}/${m[2]}/${m[1]}`:'';
+    }
+    function baseTempoFrotasV142(){
+      const hoje=inicioDoDia(new Date());
+      return (frotas||[])
+        .filter(f=>!isDestinoPadrao(f) && f.tipoCadastro!=='PROJETO' && normalize(f.nome||'')!=='teste')
+        .map(f=>{
+          // A data de entrada informada na frota é a fonte principal.
+          // criadoEm é fallback somente para registros históricos sem dataEntrada.
+          const inicio=dataFrotaV142(f.dataEntrada) || dataFrotaV142(f.dataInicioManutencao) || dataFrotaV142(f.criadoEm);
+          if(!inicio) return null;
+          const encerrada=f.statusOperacional==='CONCLUIDO' || f.concluido===true;
+          const conclusao=encerrada ? (dataFrotaV142(f.dataConclusaoReal)||dataFrotaV142(f.dataSaidaReal)||dataFrotaV142(f.dataSaida)) : null;
+          const fim=conclusao || hoje;
+          return {
+            id:f.id, frota:f.nome||'Sem identificação', centro:getCentroCustoRegistro(f),
+            inicio:inicioDoDia(inicio), fim:inicioDoDia(fim), conclusao,
+            dias:Math.max(0,diasEntreDatas(inicio,fim)||0),
+            encerrada, situacao:encerrada?'JÁ SAIU':'NA OFICINA'
+          };
+        }).filter(Boolean);
+    }
+    function tempoFrotasFiltradasV142(){
+      const q=window.filtrosTempoFrotasV142||{}, busca=normalize(q.frota||'');
+      return baseTempoFrotasV142().filter(x=>{
+        const entrada=isoDataV142(x.inicio);
+        if(q.dataIni && entrada<q.dataIni) return false;
+        if(q.dataFim && entrada>q.dataFim) return false;
+        if(q.centro && x.centro!==q.centro) return false;
+        if(q.situacao==='aqui' && x.encerrada) return false;
+        if(q.situacao==='saiu' && !x.encerrada) return false;
+        if(busca && !normalize(x.frota).includes(busca)) return false;
+        return true;
+      }).sort((a,b)=>b.dias-a.dias);
+    }
+    function renderTempoFrotasV142(){
+      const q=window.filtrosTempoFrotasV142||{};
+      const centros=[...new Set(baseTempoFrotasV142().map(x=>x.centro).filter(Boolean))].sort();
+      return `
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">Filtros — Tempo de Frotas</div>
+          <div class="card-sub">Mesmo padrão de calendário dos demais dashboards. O período considera a data real de entrada da frota.</div></div>
+          <button class="btn btn-ghost" id="tfLimpar142">Limpar filtros</button></div>
+          <div class="filters-grid">
+            <div class="field"><label>ENTRADA INICIAL</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px;position:relative">
+              <input id="tfIniTxt142" value="${brDataV142(q.dataIni)}" placeholder="dd/mm/aaaa" maxlength="10">
+              <button class="btn btn-ghost" id="tfIniBtn142" type="button">📅</button>
+              <input type="date" id="tfIniCal142" value="${q.dataIni||''}" style="position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0">
+            </div></div>
+            <div class="field"><label>ENTRADA FINAL</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px;position:relative">
+              <input id="tfFimTxt142" value="${brDataV142(q.dataFim)}" placeholder="dd/mm/aaaa" maxlength="10">
+              <button class="btn btn-ghost" id="tfFimBtn142" type="button">📅</button>
+              <input type="date" id="tfFimCal142" value="${q.dataFim||''}" style="position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0">
+            </div></div>
+            <div class="field"><label>CENTRO</label><select id="tfCentro142"><option value="">Todos</option>${centros.map(v=>`<option value="${v}" ${q.centro===v?'selected':''}>${v}</option>`).join('')}</select></div>
+            <div class="field"><label>SITUAÇÃO</label><select id="tfSituacao142"><option value="">Todas</option><option value="aqui" ${q.situacao==='aqui'?'selected':''}>Na oficina</option><option value="saiu" ${q.situacao==='saiu'?'selected':''}>Já saiu</option></select></div>
+            <div class="field"><label>FROTA</label><input id="tfFrota142" value="${q.frota||''}" placeholder="Ex.: 9571"></div>
+          </div>
+        </div>
+        <div class="kpi-grid" style="margin-top:16px">
+          <div class="kpi"><div class="kpi-label">FROTAS NO FILTRO</div><div class="kpi-value" id="tfQtd142">—</div></div>
+          <div class="kpi"><div class="kpi-label">TEMPO MÉDIO</div><div class="kpi-value" id="tfMedia142">—</div><div class="kpi-sub">Média das frotas exibidas</div></div>
+          <div class="kpi"><div class="kpi-label">NA OFICINA</div><div class="kpi-value" id="tfAqui142">—</div></div>
+          <div class="kpi"><div class="kpi-label">JÁ SAÍRAM</div><div class="kpi-value" id="tfSairam142">—</div></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div>
+          <div class="card-sub">Frota ativa: entrada até hoje. Frota encerrada: entrada até a data real de conclusão.</div></div></div>
+          <div style="height:520px;position:relative"><canvas id="chartTempoFrotas142"></canvas></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div>
+          <div class="card-sub">Média das frotas encerradas em cada mês. Este gráfico permanece independente dos filtros acima.</div></div></div>
+          <div style="height:330px;position:relative"><canvas id="chartMedia12Tempo142"></canvas></div>
+        </div>`;
+    }
+    function drawTempoFrotasV142(){
+      if(typeof Chart==='undefined') return;
+      const dados=tempoFrotasFiltradasV142();
+      const put=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+      put('tfQtd142',dados.length);
+      put('tfMedia142',dados.length?(dados.reduce((s,x)=>s+x.dias,0)/dados.length).toFixed(1).replace('.',',')+' dias':'—');
+      put('tfAqui142',dados.filter(x=>!x.encerrada).length);
+      put('tfSairam142',dados.filter(x=>x.encerrada).length);
+
+      const c1=document.getElementById('chartTempoFrotas142');
+      if(c1){
+        if(window.chartTempoFrotas142) window.chartTempoFrotas142.destroy();
+        window.chartTempoFrotas142=new Chart(c1,{
+          type:'bar',
+          data:{labels:dados.map(x=>x.frota),datasets:[{label:'Dias de permanência',data:dados.map(x=>x.dias),
+            backgroundColor:dados.map(x=>x.encerrada?'rgba(130,140,145,.82)':'rgba(151,255,0,.82)')}]},
+          options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+            plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:ctx=>{const x=dados[ctx.dataIndex];return [`Situação: ${x.situacao}`,`Entrada: ${x.inicio.toLocaleDateString('pt-BR')}`,`Saída: ${x.encerrada?x.fim.toLocaleDateString('pt-BR'):'Ainda na oficina'}`,`Centro: ${x.centro||'—'}`];}}}},
+            scales:{x:{beginAtZero:true,title:{display:true,text:'Dias de permanência'}},y:{ticks:{autoSkip:false}}}}
+        });
+      }
+
+      const encerradas=baseTempoFrotasV142().filter(x=>x.encerrada && x.conclusao);
+      const hoje=new Date(), meses=[];
+      for(let i=11;i>=0;i--) meses.push(new Date(hoje.getFullYear(),hoje.getMonth()-i,1));
+      const medias=meses.map(m=>{
+        const arr=encerradas.filter(x=>x.fim.getFullYear()===m.getFullYear()&&x.fim.getMonth()===m.getMonth());
+        return {media:arr.length?arr.reduce((s,x)=>s+x.dias,0)/arr.length:null,qtd:arr.length};
+      });
+      const c2=document.getElementById('chartMedia12Tempo142');
+      if(c2){
+        if(window.chartMedia12Tempo142) window.chartMedia12Tempo142.destroy();
+        window.chartMedia12Tempo142=new Chart(c2,{
+          type:'line',
+          data:{labels:meses.map(m=>m.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})),
+            datasets:[{label:'Tempo médio (dias)',data:medias.map(x=>x.media),spanGaps:true,tension:.25}]},
+          options:{responsive:true,maintainAspectRatio:false,
+            plugins:{tooltip:{callbacks:{afterLabel:ctx=>`Frotas encerradas no mês: ${medias[ctx.dataIndex].qtd}`}}},
+            scales:{y:{beginAtZero:true,title:{display:true,text:'Média de dias'}}}}
+        });
+      }
+    }
+
     function render() {
       try {
         const sec = state.section;
         const titleMap = {
           dashboard: { title: 'Dashboard Aprovações', meta: 'Solicitações, RCs, aprovações e limites de compra' },
           dashboardCustos: { title: 'Dashboard Custos', meta: 'Custos reais por vencimento, frota, centro, fornecedor, estoque e conta contábil' },
+          tempoFrotas: { title: 'Tempo de Frotas', meta: 'Permanência das carretas na oficina, situação atual e histórico mensal' },
           dashboardCustosExplodidos: { title: 'Dashboard Custos Explodidos', meta: 'Composição detalhada do custo das frotas e compras aprovadas por centro' },
           controleAcessoV104: { title: 'Controles do Administrador', meta: 'Acesso externo e integração física do estoque' },
           almoxarifado: { title: 'Almoxarifado', meta: 'Estoque físico, ativos, movimentações, saldos e sugestão de compras' },
@@ -6710,6 +6855,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         let html = '';
         if (sec === 'dashboard') html = renderDashboard();
         else if (sec === 'dashboardCustos') html = renderDashboardCustos();
+        else if (sec === 'tempoFrotas') html = renderTempoFrotasV142();
         else if (sec === 'dashboardCustosExplodidos') html = renderDashboardCustosExplodidosV102();
         else if (sec === 'controleAcessoV104') html = renderControleAcessoV104();
         else if (sec === 'almoxarifado') html = renderAlmoxarifadoV107();
@@ -6729,6 +6875,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
         document.getElementById('appContent').innerHTML = html;
         if(sec==='dashboardAlmoxV109') setTimeout(drawDashboardAlmoxV109,100);
+        if(sec==='tempoFrotas') setTimeout(drawTempoFrotasV142,100);
         bindEvents();
         if (sec === 'solicitar' && state.solicitacaoPrefillOrcamento) {
           const dados=state.solicitacaoPrefillOrcamento;
@@ -9042,6 +9189,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         // Dependências de edição/cadastro continuam sendo carregadas sob demanda pelos próprios fluxos.
         dashboard:[],
         dashboardCustos:['requisicoes','recebimentos_nf','frotas'],
+        tempoFrotas:['frotas'],
         dashboardCustosExplodidos:['requisicoes','recebimentos_nf','frotas'],
         materiais:['materiais'],
         categorias:['materiais'],
@@ -9116,7 +9264,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.1";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.2";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9145,7 +9293,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.1";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.2";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13689,290 +13837,38 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 </script>
 
 
+
 <script>
-/* ============================================================
-   V14.1 — GRÁFICOS DE PERMANÊNCIA DAS FROTAS
-   Somente Dashboard Custos. Não executa novas leituras Firebase:
-   usa exclusivamente o array frotas já carregado pelo sistema.
-   ============================================================ */
+/* V14.2 — eventos dos filtros da aba Tempo de Frotas */
 (function(){
-  window.filtroPermanenciaV140 = window.filtroPermanenciaV140 || {
-    dataIni:'', dataFim:'', centro:'', situacao:'', frota:''
-  };
-
-  function isoLocalV140(d){
-    if(!d || !(d instanceof Date) || isNaN(d)) return '';
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  function dadosPermanenciaBaseV140(){
-    const hoje=inicioDoDia(new Date());
-    return (frotas||[])
-      .filter(f=>!isDestinoPadrao(f) && f.tipoCadastro!=='PROJETO' && normalize(f.nome||'')!=='teste')
-      .map(f=>{
-        const inicio=dataJSRegistro(f.dataEntrada) || dataJSRegistro(f.criadoEm);
-        const encerrada=f.statusOperacional==='CONCLUIDO' || f.concluido===true;
-        const conclusao=encerrada && f.dataConclusaoReal ? dataJSRegistro(f.dataConclusaoReal) : null;
-        const fim=conclusao || hoje;
-        const dias=inicio && fim ? Math.max(0,diasEntreDatas(inicioDoDia(inicio),inicioDoDia(fim))) : 0;
-        return {
-          id:f.id, frota:f.nome||'Sem identificação', centro:getCentroCustoRegistro(f),
-          inicio, conclusao, fim, dias, encerrada,
-          situacao:encerrada?'JÁ SAIU':'NA OFICINA'
-        };
-      })
-      .filter(x=>x.inicio);
-  }
-  function dadosPermanenciaFiltradosV140(){
-    const f=window.filtroPermanenciaV140||{}, q=normalize(f.frota||'');
-    return dadosPermanenciaBaseV140().filter(x=>{
-      const entrada=isoLocalV140(x.inicio);
-      if(f.dataIni && entrada<f.dataIni) return false;
-      if(f.dataFim && entrada>f.dataFim) return false;
-      if(f.centro && x.centro!==f.centro) return false;
-      if(f.situacao==='aqui' && x.encerrada) return false;
-      if(f.situacao==='saiu' && !x.encerrada) return false;
-      if(q && !normalize(x.frota).includes(q)) return false;
-      return true;
-    }).sort((a,b)=>b.dias-a.dias);
-  }
-  function cardGraficosPermanenciaV140(){
-    const f=window.filtroPermanenciaV140||{};
-    const centros=[...new Set(dadosPermanenciaBaseV140().map(x=>x.centro).filter(Boolean))].sort();
-    return `<div class="card" id="permanenciaFrotasV140" style="margin-top:18px;margin-bottom:20px">
-      <div class="card-header">
-        <div>
-          <div class="card-title">⏱ Permanência das Frotas na Oficina</div>
-          <div class="card-sub">A frota em manutenção conta da entrada até hoje. Ao ser encerrada, o tempo fica congelado na data real de conclusão.</div>
-        </div>
-        <button class="btn btn-ghost" id="permLimparV140">Limpar filtros</button>
-      </div>
-      <div class="filters-grid" style="margin-bottom:16px">
-        <div class="field"><label>Entrada inicial</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="permIniTxtV140" value="${isoParaBRData(f.dataIni||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="permIniBtnV140">📅</button><input type="date" id="permIniCalV140" value="${f.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
-        <div class="field"><label>Entrada final</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="permFimTxtV140" value="${isoParaBRData(f.dataFim||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="permFimBtnV140">📅</button><input type="date" id="permFimCalV140" value="${f.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
-        <div class="field"><label>Centro</label><select id="permCentroV140"><option value="">Todos</option>${centros.map(v=>`<option value="${v}" ${f.centro===v?'selected':''}>${v}</option>`).join('')}</select></div>
-        <div class="field"><label>Situação</label><select id="permSituacaoV140"><option value="">Todas</option><option value="aqui" ${f.situacao==='aqui'?'selected':''}>Na oficina</option><option value="saiu" ${f.situacao==='saiu'?'selected':''}>Já saiu</option></select></div>
-        <div class="field"><label>Frota</label><input id="permFrotaV140" value="${f.frota||''}" placeholder="Ex.: 9571"></div>
-      </div>
-      <div class="kpi-grid" style="margin-bottom:16px">
-        <div class="kpi"><div class="kpi-label">FROTAS NO FILTRO</div><div class="kpi-value" id="permQtdV140">—</div></div>
-        <div class="kpi"><div class="kpi-label">TEMPO MÉDIO NO PERÍODO</div><div class="kpi-value" id="permMediaV140">—</div><div class="kpi-sub">Média das frotas exibidas</div></div>
-        <div class="kpi"><div class="kpi-label">NA OFICINA</div><div class="kpi-value" id="permAquiV140">—</div></div>
-        <div class="kpi"><div class="kpi-label">JÁ SAÍRAM</div><div class="kpi-value" id="permSairamV140">—</div></div>
-      </div>
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div><div class="card-sub">Dias corridos entre entrada e hoje/encerramento. Passe o mouse sobre a barra para ver entrada, saída e situação.</div></div></div>
-        <div style="height:420px;position:relative"><canvas id="chartPermanenciaV140"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div><div class="card-sub">Indicador permanente: média mensal somente das frotas efetivamente encerradas, agrupadas pelo mês da saída. Este gráfico não é alterado pelo filtro acima.</div></div></div>
-        <div style="height:320px;position:relative"><canvas id="chartMedia12V140"></canvas></div>
-      </div>
-    </div>`;
-  }
-
-  const renderCustosAnteriorV140=window.renderDashboardCustos;
-  window.renderDashboardCustos=function(){ return renderCustosAnteriorV140(); };
-
-  function desenharGraficosV140(){
-    if(state.section!=='dashboardCustos' || typeof Chart==='undefined') return;
-    const dados=dadosPermanenciaFiltradosV140();
-    const qtd=document.getElementById('permQtdV140'), med=document.getElementById('permMediaV140'),
-          aq=document.getElementById('permAquiV140'), sa=document.getElementById('permSairamV140');
-    const media=dados.length ? dados.reduce((s,x)=>s+x.dias,0)/dados.length : 0;
-    if(qtd)qtd.textContent=dados.length;
-    if(med)med.textContent=dados.length?`${media.toFixed(1).replace('.',',')} dias`:'—';
-    if(aq)aq.textContent=dados.filter(x=>!x.encerrada).length;
-    if(sa)sa.textContent=dados.filter(x=>x.encerrada).length;
-
-    const c1=document.getElementById('chartPermanenciaV140');
-    if(c1){
-      if(c1._chart)c1._chart.destroy();
-      c1._chart=new Chart(c1,{
-        type:'bar',
-        data:{
-          labels:dados.map(x=>x.frota),
-          datasets:[{
-            label:'Dias de permanência',
-            data:dados.map(x=>x.dias),
-            backgroundColor:dados.map(x=>x.encerrada?'rgba(116,126,132,.78)':'rgba(151,255,0,.78)'),
-            borderColor:dados.map(x=>x.encerrada?'rgba(160,170,176,1)':'rgba(151,255,0,1)'),
-            borderWidth:1
-          }]
-        },
-        options:{
-          responsive:true,maintainAspectRatio:false,indexAxis:'y',
-          plugins:{
-            legend:{display:false},
-            tooltip:{callbacks:{
-              afterLabel:(ctx)=>{
-                const x=dados[ctx.dataIndex];
-                const ent=x.inicio?x.inicio.toLocaleDateString('pt-BR'):'—';
-                const sai=x.encerrada&&x.conclusao?x.conclusao.toLocaleDateString('pt-BR'):'Ainda na oficina';
-                return [`Situação: ${x.situacao}`,`Entrada: ${ent}`,`Saída: ${sai}`,`Centro: ${x.centro||'—'}`];
-              }
-            }}
-          },
-          scales:{
-            x:{beginAtZero:true,title:{display:true,text:'Dias de permanência',color:'#9da7a1'},ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}},
-            y:{ticks:{color:'#d9dedb',autoSkip:false},grid:{display:false}}
-          }
-        }
-      });
-    }
-
-    const base=dadosPermanenciaBaseV140().filter(x=>x.encerrada&&x.conclusao);
-    const hoje=new Date(), meses=[];
-    for(let i=11;i>=0;i--){
-      const d=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);
-      meses.push({ano:d.getFullYear(),mes:d.getMonth(),key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})});
-    }
-    const medias=meses.map(m=>{
-      const a=base.filter(x=>x.conclusao.getFullYear()===m.ano&&x.conclusao.getMonth()===m.mes);
-      return {media:a.length?a.reduce((s,x)=>s+x.dias,0)/a.length:null,qtd:a.length};
-    });
-    const c2=document.getElementById('chartMedia12V140');
-    if(c2){
-      if(c2._chart)c2._chart.destroy();
-      c2._chart=new Chart(c2,{
-        type:'line',
-        data:{labels:meses.map(x=>x.label),datasets:[{label:'Tempo médio (dias)',data:medias.map(x=>x.media),tension:.25,spanGaps:true,fill:false}]},
-        options:{
-          responsive:true,maintainAspectRatio:false,
-          plugins:{legend:{labels:{color:'#d9dedb'}},tooltip:{callbacks:{afterLabel:(ctx)=>`Frotas encerradas no mês: ${medias[ctx.dataIndex].qtd}`}}},
-          scales:{
-            x:{ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}},
-            y:{beginAtZero:true,title:{display:true,text:'Média de dias',color:'#9da7a1'},ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}}
-          }
-        }
-      });
-    }
-  }
-
-  let agendado=false;
-  const observer=new MutationObserver(()=>{
-    if(state.section==='dashboardCustos' && document.getElementById('chartPermanenciaV140') && !agendado){
-      agendado=true;
-      setTimeout(()=>{agendado=false;desenharGraficosV140();},50);
-    }
-  });
-  observer.observe(document.body,{childList:true,subtree:true});
-
-  function aplicarDataPermV140(txt,key){
-    const el=document.getElementById(txt); if(!el)return;
-    const iso=brParaISOData(el.value);
-    if(el.value.trim()&&!iso){showToast('Data inválida. Use dd/mm/aaaa.',true);return;}
-    window.filtroPermanenciaV140[key]=iso||''; render();
+  function aplicarTextoData142(id,key){
+    const el=document.getElementById(id); if(!el)return;
+    const v=brParaISOData(el.value);
+    if(el.value.trim()&&!v){showToast('Data inválida. Use dd/mm/aaaa.',true);return;}
+    window.filtrosTempoFrotasV142[key]=v||''; render();
   }
   document.addEventListener('change',e=>{
-    const map={permCentroV140:'centro',permSituacaoV140:'situacao'};
-    if(map[e.target?.id]){window.filtroPermanenciaV140[map[e.target.id]]=e.target.value||'';render();return;}
-    if(e.target?.id==='permIniTxtV140')return aplicarDataPermV140('permIniTxtV140','dataIni');
-    if(e.target?.id==='permFimTxtV140')return aplicarDataPermV140('permFimTxtV140','dataFim');
-    if(e.target?.id==='permIniCalV140'){window.filtroPermanenciaV140.dataIni=e.target.value||'';render();return;}
-    if(e.target?.id==='permFimCalV140'){window.filtroPermanenciaV140.dataFim=e.target.value||'';render();return;}
+    const m={tfCentro142:'centro',tfSituacao142:'situacao'};
+    if(m[e.target?.id]){window.filtrosTempoFrotasV142[m[e.target.id]]=e.target.value||'';render();return;}
+    if(e.target?.id==='tfIniTxt142')return aplicarTextoData142('tfIniTxt142','dataIni');
+    if(e.target?.id==='tfFimTxt142')return aplicarTextoData142('tfFimTxt142','dataFim');
+    if(e.target?.id==='tfIniCal142'){window.filtrosTempoFrotasV142.dataIni=e.target.value||'';render();return;}
+    if(e.target?.id==='tfFimCal142'){window.filtrosTempoFrotasV142.dataFim=e.target.value||'';render();return;}
   });
   document.addEventListener('input',e=>{
-    if(e.target?.id==='permFrotaV140') window.filtroPermanenciaV140.frota=e.target.value||'';
+    if(e.target?.id==='tfFrota142') window.filtrosTempoFrotasV142.frota=e.target.value||'';
   });
   document.addEventListener('keydown',e=>{
-    if(e.key==='Enter'&&e.target?.id==='permFrotaV140'){e.preventDefault();render();}
+    if(e.key==='Enter'&&e.target?.id==='tfFrota142'){e.preventDefault();render();}
   });
   document.addEventListener('click',e=>{
-    if(e.target?.id==='permLimparV140'){window.filtroPermanenciaV140={dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};render();return;}
-    const pick={permIniBtnV140:'permIniCalV140',permFimBtnV140:'permFimCalV140'};
-    if(pick[e.target?.id]){const c=document.getElementById(pick[e.target.id]);try{c.showPicker()}catch(_){c.click()}}
-  });
-})();
-</script>
-
-
-<script>
-/* V14.1 — ABA EXCLUSIVA TEMPO DE FROTAS */
-(function(){
-  function dataFrotaV141(v){
-    if(!v)return null;
-    try{
-      if(v.toDate)return v.toDate();
-      if(v.seconds)return new Date(v.seconds*1000);
-      if(v instanceof Date)return isNaN(v)?null:v;
-      if(typeof v==='string'){
-        const br=v.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-        if(br)return new Date(+br[3],+br[2]-1,+br[1]);
-        const d=new Date(v); if(!isNaN(d))return d;
-      }
-    }catch(_){}
-    return null;
-  }
-  function baseFrotasV141(){
-    const hoje=new Date(); hoje.setHours(0,0,0,0);
-    return (frotas||[]).map(f=>{
-      const inicio=dataFrotaV141(f.dataEntrada)||dataFrotaV141(f.dataInicioManutencao)||dataFrotaV141(f.criadoEm)||dataFrotaV141(f.createdAt);
-      const encerrada=f.concluido===true || String(f.statusOperacional||'').toUpperCase()==='CONCLUIDO' || !!f.dataConclusaoReal;
-      const fim=encerrada?(dataFrotaV141(f.dataConclusaoReal)||dataFrotaV141(f.dataSaidaReal)||dataFrotaV141(f.dataSaida)||hoje):hoje;
-      if(!inicio)return null;
-      const a=new Date(inicio);a.setHours(0,0,0,0);const b=new Date(fim);b.setHours(0,0,0,0);
-      return {frota:f.nome||f.frota||f.numero||'Sem identificação',centro:(typeof getCentroCustoRegistro==='function'?getCentroCustoRegistro(f):(f.centroCusto||f.centro||'')),inicio:a,fim:b,dias:Math.max(0,Math.round((b-a)/86400000)),encerrada,situacao:encerrada?'JÁ SAIU':'NA OFICINA'};
-    }).filter(Boolean);
-  }
-  window.filtroTempoFrotasV141=window.filtroTempoFrotasV141||{ini:'',fim:'',centro:'',situacao:'',frota:''};
-  function filtradasV141(){
-    const q=window.filtroTempoFrotasV141,b=baseFrotasV141();
-    return b.filter(x=>{
-      const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      if(q.ini&&iso(x.inicio)<q.ini)return false;if(q.fim&&iso(x.inicio)>q.fim)return false;
-      if(q.centro&&x.centro!==q.centro)return false;if(q.situacao==='aqui'&&x.encerrada)return false;if(q.situacao==='saiu'&&!x.encerrada)return false;
-      if(q.frota&&!String(x.frota).toLowerCase().includes(String(q.frota).toLowerCase()))return false;return true;
-    }).sort((a,b)=>b.dias-a.dias);
-  }
-  window.renderTempoFrotasV141=function(){
-    const q=window.filtroTempoFrotasV141, centros=[...new Set(baseFrotasV141().map(x=>x.centro).filter(Boolean))].sort();
-    return `<div class="page-header"><div><h1>Tempo de Frotas</h1><p>Permanência das carretas na oficina, situação atual e histórico mensal.</p></div></div>
-    <div class="card"><div class="card-header"><div><div class="card-title">Filtros de permanência</div><div class="card-sub">O período considera a data de entrada da frota.</div></div><button class="btn btn-ghost" id="tfLimpar141">Limpar filtros</button></div>
-    <div class="filters-grid">
-      <div class="field"><label>Entrada inicial</label><input type="date" id="tfIni141" value="${q.ini}"></div>
-      <div class="field"><label>Entrada final</label><input type="date" id="tfFim141" value="${q.fim}"></div>
-      <div class="field"><label>Centro</label><select id="tfCentro141"><option value="">Todos</option>${centros.map(v=>`<option ${q.centro===v?'selected':''}>${v}</option>`).join('')}</select></div>
-      <div class="field"><label>Situação</label><select id="tfSit141"><option value="">Todas</option><option value="aqui" ${q.situacao==='aqui'?'selected':''}>Na oficina</option><option value="saiu" ${q.situacao==='saiu'?'selected':''}>Já saiu</option></select></div>
-      <div class="field"><label>Frota</label><input id="tfFrota141" value="${q.frota}" placeholder="Ex.: 9571"></div>
-    </div></div>
-    <div class="kpi-grid" style="margin-top:16px"><div class="kpi"><div class="kpi-label">FROTAS NO FILTRO</div><div class="kpi-value" id="tfQtd141">—</div></div><div class="kpi"><div class="kpi-label">TEMPO MÉDIO</div><div class="kpi-value" id="tfMed141">—</div></div><div class="kpi"><div class="kpi-label">NA OFICINA</div><div class="kpi-value" id="tfAqui141">—</div></div><div class="kpi"><div class="kpi-label">JÁ SAÍRAM</div><div class="kpi-value" id="tfSaiu141">—</div></div></div>
-    <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div><div class="card-sub">Entrada até hoje para frota ativa; entrada até encerramento para frota concluída.</div></div></div><div style="height:520px"><canvas id="tfChart141"></canvas></div></div>
-    <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div><div class="card-sub">Média mensal das frotas encerradas no mês. Indicador permanente e independente do filtro acima.</div></div></div><div style="height:340px"><canvas id="tf12Chart141"></canvas></div></div>`;
-  };
-  window.desenharTempoFrotasV141=function(){
-    if(typeof Chart==='undefined')return;const d=filtradasV141(),sum=d.reduce((a,x)=>a+x.dias,0);
-    const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
-    set('tfQtd141',d.length);set('tfMed141',d.length?(sum/d.length).toFixed(1).replace('.',',')+' dias':'—');set('tfAqui141',d.filter(x=>!x.encerrada).length);set('tfSaiu141',d.filter(x=>x.encerrada).length);
-    const c=document.getElementById('tfChart141');if(c){if(c._chart)c._chart.destroy();c._chart=new Chart(c,{type:'bar',data:{labels:d.map(x=>x.frota),datasets:[{label:'Dias',data:d.map(x=>x.dias),backgroundColor:d.map(x=>x.encerrada?'rgba(130,140,145,.8)':'rgba(151,255,0,.8)')}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:z=>{const x=d[z.dataIndex];return [`${x.situacao}`,`Entrada: ${x.inicio.toLocaleDateString('pt-BR')}`,`Saída: ${x.encerrada?x.fim.toLocaleDateString('pt-BR'):'Ainda na oficina'}`,`Centro: ${x.centro||'—'}`]}}}},scales:{x:{beginAtZero:true,title:{display:true,text:'Dias'}},y:{ticks:{autoSkip:false}}}}});}
-    const enc=baseFrotasV141().filter(x=>x.encerrada),hoje=new Date(),meses=[];for(let i=11;i>=0;i--){let m=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);meses.push(m)}
-    const vals=meses.map(m=>{let a=enc.filter(x=>x.fim.getFullYear()===m.getFullYear()&&x.fim.getMonth()===m.getMonth());return a.length?a.reduce((s,x)=>s+x.dias,0)/a.length:null});
-    const c2=document.getElementById('tf12Chart141');if(c2){if(c2._chart)c2._chart.destroy();c2._chart=new Chart(c2,{type:'line',data:{labels:meses.map(m=>m.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})),datasets:[{label:'Média de dias',data:vals,spanGaps:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,title:{display:true,text:'Média de dias'}}}}});}
-  };
-
-  // Add a dedicated sidebar item immediately after Dashboard Custos.
-  function addMenuV141(){
-    const links=[...document.querySelectorAll('[data-section]')], ref=links.find(x=>x.dataset.section==='dashboardCustos');
-    if(ref&&!document.querySelector('[data-section="tempoFrotas"]')){
-      const n=ref.cloneNode(true);n.dataset.section='tempoFrotas';n.innerHTML=n.innerHTML.replace(/Dashboard Custos/g,'Tempo de Frotas');ref.parentNode.insertBefore(n,ref.nextSibling);
+    if(e.target?.id==='tfLimpar142'){window.filtrosTempoFrotasV142={dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};render();return;}
+    const pick={tfIniBtn142:'tfIniCal142',tfFimBtn142:'tfFimCal142'};
+    if(pick[e.target?.id]){
+      const c=document.getElementById(pick[e.target.id]);
+      try{c.showPicker()}catch(_){c.click();}
     }
-  }
-  document.addEventListener('click',e=>{
-    const a=e.target.closest?.('[data-section="tempoFrotas"]');if(a){e.preventDefault();state.section='tempoFrotas';render();setTimeout(window.desenharTempoFrotasV141,60);return}
-    if(e.target?.id==='tfLimpar141'){window.filtroTempoFrotasV141={ini:'',fim:'',centro:'',situacao:'',frota:''};render();setTimeout(window.desenharTempoFrotasV141,60)}
   });
-  document.addEventListener('change',e=>{const m={tfIni141:'ini',tfFim141:'fim',tfCentro141:'centro',tfSit141:'situacao'};if(m[e.target?.id]){window.filtroTempoFrotasV141[m[e.target.id]]=e.target.value||'';render();setTimeout(window.desenharTempoFrotasV141,60)}});
-  document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target?.id==='tfFrota141'){window.filtroTempoFrotasV141.frota=e.target.value||'';render();setTimeout(window.desenharTempoFrotasV141,60)}});
-
-  const renderAnt141=window.render;
-  window.render=function(){
-    addMenuV141();
-    if(state.section==='tempoFrotas'){
-      const main=document.querySelector('main')||document.getElementById('mainContent')||document.querySelector('.main-content');
-      if(main){main.innerHTML=window.renderTempoFrotasV141();setTimeout(window.desenharTempoFrotasV141,60);addMenuV141();return}
-    }
-    const r=renderAnt141.apply(this,arguments);setTimeout(addMenuV141,0);return r;
-  };
-  setTimeout(addMenuV141,100);
 })();
 </script>
 
