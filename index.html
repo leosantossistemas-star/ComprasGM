@@ -6680,7 +6680,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
        RENDER PRINCIPAL (com nova seção)
     ============================================================ */
 
-    // =========== V14.3 — ABA TEMPO DE FROTAS (usa a MESMA métrica da tabela Frotas) ===========
+    // =========== V14.4 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
     window.filtrosTempoFrotasV143 = window.filtrosTempoFrotasV143 || {dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};
 
     function isoFrota143(d){
@@ -6689,24 +6689,133 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     }
     function brFrota143(iso){ return typeof isoParaBRData==='function' ? isoParaBRData(iso||'') : ''; }
 
-    function baseTempoFrotasV143(){
+    function dataGenericaV144(v){
+      if(!v) return null;
+      if(v.toDate && typeof v.toDate==='function'){ const d=v.toDate(); return isNaN(d)?null:d; }
+      if(v.seconds){ const d=new Date(v.seconds*1000); return isNaN(d)?null:d; }
+      if(v instanceof Date) return isNaN(v.getTime())?null:v;
+      if(typeof v==='number'){ const d=new Date(v); return isNaN(d)?null:d; }
+      if(typeof v==='string'){
+        const t=v.trim();
+        let m=t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+        m=t.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        if(m) return new Date(+m[3],+m[2]-1,+m[1]);
+        const d=new Date(t); return isNaN(d)?null:d;
+      }
+      return null;
+    }
+
+    function destinoRCV144(rc){
+      return normalize(
+        rc.destino || rc.frota || rc.frotaNome || rc.localAplicacao ||
+        rc.projeto || rc.centroDestino || ''
+      );
+    }
+    function dataRCV144(rc){
+      const campos=[
+        rc.dataAprovacao, rc.aprovadoEm, rc.data, rc.criadoEm,
+        rc.createdAt, rc.updatedAt, rc.dataSolicitacao, rc.dataRC
+      ];
+      for(const v of campos){ const d=dataGenericaV144(v); if(d) return inicioDoDia(d); }
+      return null;
+    }
+    function rcEhHistoricaValidaV144(rc){
+      const st=normalize(rc.status||rc.situacao||rc.statusAprovacao||'');
+      // Mantém histórico de RCs efetivamente aprovadas/compradas/recebidas.
+      return st.includes('aprov') || st.includes('compr') || st.includes('receb') ||
+             rc.aprovada===true || rc.aprovado===true || rc.dataAprovacao || rc.aprovadoEm;
+    }
+    function rcsDaFrotaV144(f){
+      const nome=normalize(f.nome||'');
+      if(!nome) return [];
+      return (Array.isArray(requisicoes)?requisicoes:[])
+        .filter(rc=>rcEhHistoricaValidaV144(rc) && destinoRCV144(rc)===nome)
+        .map(rc=>({rc,data:dataRCV144(rc)}))
+        .filter(x=>x.data)
+        .sort((a,b)=>a.data-b.data);
+    }
+
+    function metricaHibridaFrotaV144(f){
       const hoje=inicioDoDia(new Date());
+
+      // 1) NOVO FLUXO: datas explícitas sempre vencem.
+      const entradaNova =
+        dataGenericaV144(f.dataEntrada) ||
+        dataGenericaV144(f.dataInicioManutencao) ||
+        dataGenericaV144(f.inicioManutencao);
+
+      const saidaNova =
+        dataGenericaV144(f.dataConclusaoReal) ||
+        dataGenericaV144(f.dataSaidaReal) ||
+        dataGenericaV144(f.dataEncerramento);
+
+      const cicloAtual = (typeof getMetricasCicloFrota==='function') ? getMetricasCicloFrota(f) : null;
+      const concluidaExplicita =
+        !!saidaNova || f.statusOperacional==='CONCLUIDO' || f.concluido===true ||
+        !!(cicloAtual && cicloAtual.concluida);
+
+      if(entradaNova){
+        const inicio=inicioDoDia(entradaNova);
+        const fim=inicioDoDia(saidaNova || (concluidaExplicita && cicloAtual?.conclusao) || hoje);
+        return {
+          inicio, fim,
+          dias:Math.max(0,diasEntreDatas(inicio,fim)||0),
+          encerrada:concluidaExplicita && !!(saidaNova || cicloAtual?.conclusao),
+          fonte:'DATAS REAIS'
+        };
+      }
+
+      // 2) LEGADO: reconstrói pelas RCs da própria frota.
+      const hist=rcsDaFrotaV144(f);
+      if(hist.length){
+        const inicio=hist[0].data;
+        const ultimaRC=hist[hist.length-1].data;
+
+        // Se a própria frota possui conclusão legada reconhecida pelo sistema,
+        // usa essa conclusão; caso contrário a última RC aprovada fecha o
+        // período histórico, conforme a métrica antiga solicitada.
+        const conclusaoLegada =
+          dataGenericaV144(f.dataConclusao) ||
+          dataGenericaV144(f.dataSaida) ||
+          (cicloAtual && cicloAtual.concluida ? dataGenericaV144(cicloAtual.conclusao) : null);
+
+        const fim=inicioDoDia(conclusaoLegada || ultimaRC);
+        return {
+          inicio:inicioDoDia(inicio), fim,
+          dias:Math.max(0,diasEntreDatas(inicio,fim)||0),
+          encerrada:true,
+          fonte:conclusaoLegada?'HISTÓRICO + ENCERRAMENTO':'HISTÓRICO RC',
+          qtdRC:hist.length
+        };
+      }
+
+      // 3) Último fallback: preserva o cálculo já usado pela tabela Frotas.
+      if(cicloAtual && cicloAtual.criada){
+        const fim=(cicloAtual.concluida && cicloAtual.conclusao) ? cicloAtual.conclusao : hoje;
+        return {
+          inicio:inicioDoDia(cicloAtual.criada), fim:inicioDoDia(fim),
+          dias:Math.max(0,Number(cicloAtual.diasEmAberto)||0),
+          encerrada:cicloAtual.concluida===true,
+          fonte:'CADASTRO LEGADO'
+        };
+      }
+      return null;
+    }
+
+    function baseTempoFrotasV143(){
       return (Array.isArray(frotas)?frotas:[])
         .filter(f=>!isDestinoPadrao(f) && f.tipoCadastro!=='PROJETO')
         .map(f=>{
-          // IMPORTANTE: usa exatamente a função que já alimenta a tabela Frotas.
-          const ciclo=getMetricasCicloFrota(f);
-          if(!ciclo || !ciclo.criada) return null;
-          const fim=(ciclo.concluida && ciclo.conclusao) ? ciclo.conclusao : hoje;
+          const m=metricaHibridaFrotaV144(f);
+          if(!m) return null;
           return {
-            id:f.id,
-            frota:f.nome||'Sem identificação',
+            id:f.id, frota:f.nome||'Sem identificação',
             centro:getCentroCustoRegistro(f),
-            inicio:inicioDoDia(ciclo.criada),
-            fim:inicioDoDia(fim),
-            dias:Math.max(0, Number(ciclo.diasEmAberto)||0),
-            encerrada:ciclo.concluida===true,
-            situacao:ciclo.concluida===true?'JÁ SAIU / ENCERRADA':'NA OFICINA'
+            inicio:m.inicio, fim:m.fim, dias:m.dias,
+            encerrada:m.encerrada,
+            situacao:m.encerrada?'JÁ SAIU / ENCERRADA':'NA OFICINA',
+            fonte:m.fonte, qtdRC:m.qtdRC||0
           };
         }).filter(Boolean);
     }
@@ -6726,16 +6835,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     }
 
     function graficoBarrasFrotasV143(dados){
-      if(!dados.length) return `<div style="padding:34px;text-align:center;color:var(--text-muted)">
-        Nenhuma frota encontrada para os filtros selecionados.<br>
-        <small>Cadastros sem “Criada em” não entram no cálculo de permanência.</small></div>`;
+      if(!dados.length) return `<div style="padding:34px;text-align:center;color:var(--text-muted)">Nenhuma frota encontrada para os filtros selecionados.</div>`;
       const max=Math.max(1,...dados.map(x=>x.dias));
       return `<div style="display:grid;gap:9px;padding:6px 2px 10px">
         ${dados.map(x=>{
           const w=Math.max(2,(x.dias/max)*100);
           const cor=x.encerrada?'#7f8a84':'var(--accent)';
-          return `<div style="display:grid;grid-template-columns:minmax(150px,220px) 1fr 115px;gap:12px;align-items:center">
-            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${x.frota}">${x.frota}</div>
+          const detalhe=x.fonte==='HISTÓRICO RC' ? `${x.fonte} · ${x.qtdRC} RC(s)` : x.fonte;
+          return `<div style="display:grid;grid-template-columns:minmax(150px,220px) 1fr 128px;gap:12px;align-items:center" title="Entrada: ${x.inicio.toLocaleDateString('pt-BR')} | Fim: ${x.encerrada?x.fim.toLocaleDateString('pt-BR'):'hoje'} | Fonte: ${detalhe}">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x.frota}</div>
             <div style="height:24px;background:#0b0e0b;border:1px solid var(--border);border-radius:7px;overflow:hidden;position:relative">
               <div style="width:${w}%;height:100%;background:${cor};opacity:.88"></div>
               <span style="position:absolute;left:8px;top:3px;font-weight:800;color:${x.encerrada?'#fff':'#071000'}">${x.dias} dia(s)</span>
@@ -6747,25 +6855,20 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     }
 
     function dadosMedia12V143(){
-      const base=baseTempoFrotasV143().filter(x=>x.encerrada);
+      const base=baseTempoFrotasV143().filter(x=>x.encerrada && x.fim);
       const hoje=new Date(), meses=[];
       for(let i=11;i>=0;i--){
         const m=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);
         const arr=base.filter(x=>x.fim.getFullYear()===m.getFullYear() && x.fim.getMonth()===m.getMonth());
-        meses.push({
-          label:m.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}),
-          media:arr.length?arr.reduce((s,x)=>s+x.dias,0)/arr.length:null,
-          qtd:arr.length
-        });
+        meses.push({label:m.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}),
+          media:arr.length?arr.reduce((s,x)=>s+x.dias,0)/arr.length:null,qtd:arr.length});
       }
       return meses;
     }
 
     function graficoMedia12V143(){
-      const meses=dadosMedia12V143();
-      const validos=meses.filter(x=>x.media!==null);
-      if(!validos.length) return `<div style="padding:34px;text-align:center;color:var(--text-muted)">
-        Ainda não existem frotas encerradas com data de conclusão suficiente para calcular a média mensal.</div>`;
+      const meses=dadosMedia12V143(), validos=meses.filter(x=>x.media!==null);
+      if(!validos.length) return `<div style="padding:34px;text-align:center;color:var(--text-muted)">Não foram encontrados encerramentos históricos no intervalo dos últimos 12 meses.</div>`;
       const max=Math.max(1,...validos.map(x=>x.media));
       return `<div style="display:grid;grid-template-columns:repeat(12,minmax(55px,1fr));gap:8px;height:260px;align-items:end;padding:15px 5px 0">
         ${meses.map(x=>{
@@ -6780,58 +6883,45 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     }
 
     function renderTempoFrotasV143(){
-      const q=window.filtrosTempoFrotasV143||{};
-      const base=baseTempoFrotasV143();
-      const dados=filtradasTempoFrotasV143();
+      const q=window.filtrosTempoFrotasV143||{}, base=baseTempoFrotasV143(), dados=filtradasTempoFrotasV143();
       const centros=[...new Set(base.map(x=>x.centro).filter(Boolean))].sort();
       const media=dados.length?dados.reduce((s,x)=>s+x.dias,0)/dados.length:0;
+      const hist=base.filter(x=>String(x.fonte).includes('HISTÓRICO')).length;
+      const reais=base.filter(x=>x.fonte==='DATAS REAIS').length;
 
       return `
         <div class="card">
-          <div class="card-header">
-            <div><div class="card-title">Filtros — Tempo de Frotas</div>
-            <div class="card-sub">Mesmo padrão de calendário do Dashboard Aprovações. O período filtra pela data “Criada em” usada na própria tabela de Frotas.</div></div>
-            <button class="btn btn-ghost" id="tfLimpar143">Limpar filtros</button>
-          </div>
+          <div class="card-header"><div><div class="card-title">Filtros — Tempo de Frotas</div>
+          <div class="card-sub">Novas frotas usam datas reais. Frotas antigas são reconstruídas pelo histórico das RCs.</div></div>
+          <button class="btn btn-ghost" id="tfLimpar143">Limpar filtros</button></div>
           <div class="filters-grid">
-            <div class="field"><label>Data inicial</label>
-              <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
-                <input type="text" id="tfIniTexto143" value="${brFrota143(q.dataIni)}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
-                <button type="button" class="btn btn-ghost" id="tfIniBtn143" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px">📅</button>
-                <input type="date" id="tfIniCal143" value="${q.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
-              </div>
-            </div>
-            <div class="field"><label>Data final</label>
-              <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
-                <input type="text" id="tfFimTexto143" value="${brFrota143(q.dataFim)}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
-                <button type="button" class="btn btn-ghost" id="tfFimBtn143" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px">📅</button>
-                <input type="date" id="tfFimCal143" value="${q.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
-              </div>
-            </div>
+            <div class="field"><label>Data inicial</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
+              <input type="text" id="tfIniTexto143" value="${brFrota143(q.dataIni)}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
+              <button type="button" class="btn btn-ghost" id="tfIniBtn143" style="padding:0;height:42px;font-size:18px">📅</button>
+              <input type="date" id="tfIniCal143" value="${q.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
+            </div></div>
+            <div class="field"><label>Data final</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
+              <input type="text" id="tfFimTexto143" value="${brFrota143(q.dataFim)}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
+              <button type="button" class="btn btn-ghost" id="tfFimBtn143" style="padding:0;height:42px;font-size:18px">📅</button>
+              <input type="date" id="tfFimCal143" value="${q.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
+            </div></div>
             <div class="field"><label>Centro</label><select id="tfCentro143"><option value="">Todos</option>${centros.map(v=>`<option value="${v}" ${q.centro===v?'selected':''}>${v}</option>`).join('')}</select></div>
             <div class="field"><label>Situação</label><select id="tfSituacao143"><option value="">Todas</option><option value="aqui" ${q.situacao==='aqui'?'selected':''}>NA OFICINA</option><option value="saiu" ${q.situacao==='saiu'?'selected':''}>JÁ SAIU / ENCERRADA</option></select></div>
             <div class="field"><label>Frota</label><input id="tfFrota143" value="${q.frota||''}" placeholder="Ex.: 9571"></div>
           </div>
         </div>
-
         <div class="kpi-grid" style="margin-top:16px">
-          <div class="kpi-card"><div class="kpi-label">Frotas no filtro</div><div class="kpi-value accent">${dados.length}</div><div class="kpi-sub">${base.length} com data de entrada reconhecida</div></div>
+          <div class="kpi-card"><div class="kpi-label">Frotas no filtro</div><div class="kpi-value accent">${dados.length}</div><div class="kpi-sub">${hist} históricas por RC · ${reais} com datas reais</div></div>
           <div class="kpi-card"><div class="kpi-label">Tempo médio</div><div class="kpi-value">${dados.length?media.toFixed(1).replace('.',',')+' dias':'—'}</div><div class="kpi-sub">Média das frotas exibidas</div></div>
           <div class="kpi-card"><div class="kpi-label">Na oficina</div><div class="kpi-value accent">${dados.filter(x=>!x.encerrada).length}</div></div>
           <div class="kpi-card"><div class="kpi-label">Já saíram</div><div class="kpi-value">${dados.filter(x=>x.encerrada).length}</div></div>
         </div>
-
-        <div class="card" style="margin-top:16px">
-          <div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div>
-          <div class="card-sub">A barra permanece contando até hoje enquanto a frota estiver aberta; depois do encerramento fica congelada.</div></div></div>
-          <div style="max-height:620px;overflow:auto">${graficoBarrasFrotasV143(dados)}</div>
-        </div>
-
-        <div class="card" style="margin-top:16px">
-          <div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div>
-          <div class="card-sub">Média das frotas encerradas em cada mês. Este gráfico é permanente e não muda com os filtros acima.</div></div></div>
-          <div style="overflow-x:auto">${graficoMedia12V143()}</div>
-        </div>`;
+        <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div>
+        <div class="card-sub">Dados novos: entrada/encerramento real. Histórico: período reconstruído pelas RCs da frota.</div></div></div>
+        <div style="max-height:620px;overflow:auto">${graficoBarrasFrotasV143(dados)}</div></div>
+        <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div>
+        <div class="card-sub">Inclui histórico reconstruído e novos encerramentos. O indicador é independente dos filtros acima.</div></div></div>
+        <div style="overflow-x:auto">${graficoMedia12V143()}</div></div>`;
     }
 
     function render() {
@@ -9274,7 +9364,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.3";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.4";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9303,7 +9393,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.3";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.4";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13850,7 +13940,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 
 <script>
-/* V14.3 — filtros Tempo de Frotas */
+/* V14.4 — filtros Tempo de Frotas */
 (function(){
   function mascaraData143(v){
     v=String(v||'').replace(/\D/g,'').slice(0,8);
