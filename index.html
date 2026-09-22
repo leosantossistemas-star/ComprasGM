@@ -2549,11 +2549,16 @@ auth.onAuthStateChanged(async (user) => {
       const rc = rcs.find(r=>r.numero===numero);
       if(!rc){showToast('RC não encontrada.',true);return;}
       if(!['gerente','admin'].includes(perfilAtual)){showToast('Somente Gerente e Administrador podem devolver RC para Compras.',true);return;}
-      const eraAprovada = rc.status === 'aprovado';
+      const eraAprovada = statusRCV119(rc.status) === 'aprovado';
       const msg = eraAprovada
-        ? `A RC ${numero} está APROVADA. Ao voltar para Compras, a aprovação será cancelada e a RC retornará para rascunho. Continuar?`
-        : `Devolver a RC ${numero} para Compras como rascunho?`;
+        ? `A RC ${numero} está APROVADA. Ao voltar para Compras, a aprovação e o PO serão cancelados e a RC retornará para Em Compras. Continuar?`
+        : `Devolver a RC ${numero} diretamente para Em Compras?`;
       if(!confirm(msg)) return;
+      const motivo=prompt('Informe o motivo da devolução para Compras (obrigatório):','');
+      if(!String(motivo||'').trim()){
+        showToast('Informe o motivo para devolver a RC para Compras.',true);
+        return;
+      }
       try{
         await updateRC(numero,{
           status:'rascunho',
@@ -2567,6 +2572,7 @@ auth.onAuthStateChanged(async (user) => {
           devolvidoParaComprasPorUid:getUsuarioUid(),
           devolvidoParaComprasPorEmail:getUsuarioEmail(),
           devolvidoParaComprasPorNome:getUsuarioNome(),
+          devolvidoParaComprasMotivo:String(motivo).trim(),
           devolvidoParaComprasEm:firebase.firestore.FieldValue.serverTimestamp(),
           aprovadoPorUid:'',
           aprovadoPorEmail:'',
@@ -4738,7 +4744,8 @@ auth.onAuthStateChanged(async (user) => {
           }
           // V11.8: Gerente/Admin podem abrir qualquer RC e devolvê-la ao Compras.
           if (statusNormal !== 'rascunho' && statusNormal !== 'arquivado') {
-            acoes.unshift(`<button class="btn btn-warning btn-sm" data-voltar-compras-rc="${rc.numero}">Voltar p/ Compras</button>`);
+            const rotuloVoltar = perfil==='admin' ? 'Status → Compras' : 'Voltar p/ Compras';
+            acoes.unshift(`<button class="btn btn-warning btn-sm" data-voltar-compras-rc="${rc.numero}" title="Cancela a aprovação vigente e devolve a RC ao Compras, preservando o histórico">${rotuloVoltar}</button>`);
             acoes.unshift(`<button class="btn btn-ghost btn-sm" data-editar-rc="${rc.numero}">Editar</button>`);
           }
         }
@@ -6064,7 +6071,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       if (!lista.length) return `<p style="color:var(--text-muted);padding:20px;">Nenhuma solicitação encontrada com os filtros selecionados.</p>`;
       const rows = lista.map(sol => {
         const vinc=v131VinculoSolicitacao(sol);
-        let status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Pendente');
+        let status = sol.arquivada ? 'Arquivada' : (sol.convertida ? 'Convertida' : 'Aguardando geração da RC');
         let statusCls = sol.arquivada ? 'badge-danger' : (sol.convertida ? 'badge-ok' : 'badge-pending');
 
         if((sol.convertida||sol.rcGerada||sol.rcGeradaId) && !vinc.ok){
@@ -6141,6 +6148,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           ${isCopy ? `<div style="padding:10px 12px;margin-bottom:14px;border:1px solid var(--warning);border-radius:8px;background:rgba(255,184,0,.08);font-size:12px;">
             <strong>Cópia de solicitação antiga.</strong> Os itens foram reaproveitados, mas você deve informar novamente o destino e a data de necessidade. Destino original: <strong>${data.copiaOrigemDestino || '—'}</strong>.
           </div>` : ''}
+          <div style="padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.025);font-size:11px;color:var(--text-muted)">
+            <strong style="color:var(--text)">Antes de solicitar a RC:</strong> informe filial, frota/projeto, necessidade, início real, dias previstos e selecione pelo catálogo cada material com quantidade e unidade. O sistema bloqueará o envio se faltar qualquer dado obrigatório.
+          </div>
           <form id="formSolicitacao">
             <input type="hidden" id="solEditId" value="${data.id || ''}">
             <input type="hidden" id="solOrigemCopiaId" value="${data.copiaOrigemId || ''}"><input type="hidden" id="solOrigemOrcamentoId" value="${data.origemOrcamentoId || ''}">
@@ -6226,8 +6236,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           <div class="sol-sugestoes" style="display:none;position:absolute;top:66px;left:0;right:0;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:340px;overflow:auto;box-shadow:0 16px 38px rgba(0,0,0,.55)"></div>
           <div class="sol-item-info" style="font-size:11px;color:var(--text-muted);margin-top:5px;min-height:15px;"></div>
         </div>
-        <div class="field" style="flex:1"><label>Qtd</label><input type="number" class="sol-item-qtd" min="0.01" step="any" value="${itemData ? itemData.qtd : 1}" /></div>
-        <div class="field" style="flex:1"><label>Unidade</label><input type="text" class="sol-item-unidade" placeholder="Ex: un, kg" value="${itemData ? itemData.unidade || '' : ''}" /></div>
+        <div class="field" style="flex:1"><label>Qtd *</label><input type="number" class="sol-item-qtd" min="0.01" step="any" required value="${itemData ? itemData.qtd : 1}" /></div>
+        <div class="field" style="flex:1"><label>Unidade *</label><input type="text" class="sol-item-unidade" required placeholder="Ex: un, kg" value="${itemData ? itemData.unidade || '' : ''}" /></div>
         <button type="button" class="btn btn-danger" style="align-self:flex-end;margin-bottom:2px;" onclick="removerItemSol(this)">×</button>
       `;
       container.appendChild(row);
@@ -6373,8 +6383,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           showToast(`Esta solicitação já foi convertida${sol.rcGerada?' em '+sol.rcGerada:''}.`, true);
           return;
         }
-        if (!Array.isArray(sol.itens) || !sol.itens.length) {
-          showToast('Solicitação sem itens.', true);
+        const validacaoConversaoV147=validarSolicitacaoAntesDaRCV147(sol);
+        if(!validacaoConversaoV147.ok){
+          avisarErrosSolicitacaoV147(validacaoConversaoV147.erros,'Conversão em RC bloqueada');
           return;
         }
 
@@ -6509,6 +6520,47 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
     }
 
+    function validarSolicitacaoAntesDaRCV147(sol, opcoes={}) {
+      const erros=[];
+      const cc=centroCustoNormalizado(sol.centroCusto||'');
+      const destino=String(sol.destino||'').trim();
+      const dataNec=String(sol.dataNecessidade||'').trim();
+      const dataIni=String(sol.dataInicioManutencao||'').trim();
+      const dias=Number(sol.diasManutencaoPrevistos||0);
+      const dataFim=String(sol.dataSaida||sol.dataFimManutencaoPrevista||sol.dataPrevisaoSaida||'').trim();
+      const itens=Array.isArray(sol.itens)?sol.itens:[];
+
+      if(!cc) erros.push('Filial / Centro de custo');
+      if(!destino) erros.push('Frota / Projeto / Destino');
+      if(!dataNec) erros.push('Data de necessidade');
+      if(!dataIni) erros.push('Início real da manutenção');
+      if(!Number.isFinite(dias)||dias<1) erros.push('Dias previstos em manutenção');
+      if(!dataFim) erros.push('Fim previsto da manutenção');
+      if(!itens.length) erros.push('Pelo menos um material');
+
+      itens.forEach((item,i)=>{
+        const n=i+1;
+        if(!String(item.codigo||'').trim() || !String(item.materialId||'').trim())
+          erros.push(`Item ${n}: selecione o material pelo catálogo`);
+        if(!String(item.descricao||'').trim())
+          erros.push(`Item ${n}: descrição do material`);
+        if(!(Number(item.qtd)>0))
+          erros.push(`Item ${n}: quantidade maior que zero`);
+        if(!String(item.unidade||'').trim())
+          erros.push(`Item ${n}: unidade`);
+      });
+
+      // Coerência das datas: não bloqueia necessidade passada, mas impede fim anterior ao início.
+      if(dataIni && dataFim && dataFim<dataIni) erros.push('Fim previsto não pode ser anterior ao início da manutenção');
+
+      return {ok:erros.length===0,erros};
+    }
+
+    function avisarErrosSolicitacaoV147(erros, prefixo='Não foi possível solicitar a RC') {
+      const unicos=[...new Set(erros)];
+      showToast(`${prefixo}. Corrija: ${unicos.join(' • ')}`, true);
+    }
+
     async function salvarSolicitacaoHandler() {
       const getVal = (id) => document.getElementById(id)?.value || '';
       const centroCusto = centroCustoNormalizado(getVal('solCentroCusto'));
@@ -6518,10 +6570,6 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const diasManutencaoPrevistos = Math.max(1,Number(getVal('solDiasManutencaoPrevistos')||1));
       const dataSaida = calcularDataFimInclusivaV121(dataInicioManutencao,diasManutencaoPrevistos);
       const valorServico = parseMoney(getVal('solValorServico'));
-      if (!centroCusto || !destino || !dataNecessidade || !dataInicioManutencao || !dataSaida) {
-        showToast('Preencha filial, frota/projeto, data de necessidade, início da manutenção e dias previstos.', true);
-        return;
-      }
       if (!Number.isFinite(valorServico) || valorServico < 0) {
         showToast('O valor do serviço não pode ser negativo.', true);
         return;
@@ -6548,9 +6596,16 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           }
         }
       });
-      if (!itens.length) { showToast('Adicione pelo menos um item.', true); return; }
+      const validacaoV147=validarSolicitacaoAntesDaRCV147({
+        centroCusto,destino,dataNecessidade,dataInicioManutencao,
+        diasManutencaoPrevistos,dataSaida,itens
+      });
+      if(!validacaoV147.ok){
+        avisarErrosSolicitacaoV147(validacaoV147.erros);
+        return;
+      }
       if(itens.some(i=>i.__invalido)){
-        showToast('Selecione cada material pela lista de materiais. Não é permitido salvar material apenas digitado no campo.', true);
+        avisarErrosSolicitacaoV147(['Selecione cada material pela lista oficial de materiais']);
         return;
       }
 
@@ -6680,7 +6735,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
        RENDER PRINCIPAL (com nova seção)
     ============================================================ */
 
-    // =========== V14.6 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
+    // =========== V14.7 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
     window.filtrosTempoFrotasV143 = window.filtrosTempoFrotasV143 || {dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};
 
     function isoFrota143(d){
@@ -6805,7 +6860,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     function baseTempoFrotasV143(){
       /*
-       * V14.6 — FONTE ÚNICA DE VERDADE
+       * V14.7 — FONTE ÚNICA DE VERDADE
        * O painel Tempo de Frotas usa exatamente periodos102(), a mesma função
        * usada pelo cálculo "Estadia por Frota" do Dashboard Custos Explodidos.
        * Assim, se existe estadia calculada, existe necessariamente o mesmo
@@ -9402,7 +9457,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.6";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9431,7 +9486,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.6";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13979,7 +14034,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 
 <script>
-/* V14.6 — filtros Tempo de Frotas */
+/* V14.7 — filtros Tempo de Frotas */
 (function(){
   function mascaraData143(v){
     v=String(v||'').replace(/\D/g,'').slice(0,8);
