@@ -6680,7 +6680,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
        RENDER PRINCIPAL (com nova seção)
     ============================================================ */
 
-    // =========== V14.4 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
+    // =========== V14.5 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
     window.filtrosTempoFrotasV143 = window.filtrosTempoFrotasV143 || {dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};
 
     function isoFrota143(d){
@@ -6729,7 +6729,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     function rcsDaFrotaV144(f){
       const nome=normalize(f.nome||'');
       if(!nome) return [];
-      return (Array.isArray(requisicoes)?requisicoes:[])
+      return (Array.isArray(rcs)?rcs:[])
         .filter(rc=>rcEhHistoricaValidaV144(rc) && destinoRCV144(rc)===nome)
         .map(rc=>({rc,data:dataRCV144(rc)}))
         .filter(x=>x.data)
@@ -9289,7 +9289,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         // Dependências de edição/cadastro continuam sendo carregadas sob demanda pelos próprios fluxos.
         dashboard:[],
         dashboardCustos:['requisicoes','recebimentos_nf','frotas'],
-        tempoFrotas:['frotas'],
+        tempoFrotas:['frotas','requisicoes'],
         dashboardCustosExplodidos:['requisicoes','recebimentos_nf','frotas'],
         materiais:['materiais'],
         categorias:['materiais'],
@@ -9364,7 +9364,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.4";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.5";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9393,7 +9393,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.4";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.5";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13940,7 +13940,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 
 <script>
-/* V14.4 — filtros Tempo de Frotas */
+/* V14.5 — filtros Tempo de Frotas */
 (function(){
   function mascaraData143(v){
     v=String(v||'').replace(/\D/g,'').slice(0,8);
