@@ -3706,19 +3706,36 @@ auth.onAuthStateChanged(async (user) => {
       </div>`;
     }
 
-    function renderDashboardCustos() {
+
+    function renderFiltrosCustosV138(titulo='Filtros de custos'){
       const f=state.custosFilters||{};
-      let movimentos=getMovimentosCustos(recebimentosNF);
+      const fornecedoresList=[...new Set(recebimentosNF.map(x=>x.fornecedor).filter(Boolean))].sort();
+      const destinosList=[...new Set(recebimentosNF.map(x=>x.destino||x.aplicacao).filter(Boolean))].sort();
+      return `<div class="card" style="margin-bottom:20px;">
+        <div class="card-header"><div><div class="card-title">${titulo}</div><div class="card-sub">Filtre por período, centro de custo, fornecedor, destino/frota ou conta contábil. Todos os indicadores e gráficos abaixo acompanham o filtro.</div></div>
+        <button class="btn btn-ghost" id="custoLimparFiltrosV138">Limpar filtros</button></div>
+        <div class="filters-grid">
+          <div class="field"><label>Data inicial</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;"><input type="text" id="custoDataIniTextoV138" value="${isoParaBRData(f.dataIni||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off"><button type="button" class="btn btn-ghost" id="custoDataIniBtnV138" style="padding:0;height:42px;font-size:18px;">📅</button><input type="date" id="custoDataIniCalV138" value="${f.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;"></div></div>
+          <div class="field"><label>Data final</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;"><input type="text" id="custoDataFimTextoV138" value="${isoParaBRData(f.dataFim||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off"><button type="button" class="btn btn-ghost" id="custoDataFimBtnV138" style="padding:0;height:42px;font-size:18px;">📅</button><input type="date" id="custoDataFimCalV138" value="${f.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;"></div></div>
+          <div class="field"><label>Centro de custo</label><select id="custoCentroV138"><option value="">Todos</option>${CENTROS_CUSTO.map(c=>`<option value="${c}" ${f.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
+          <div class="field"><label>Fornecedor</label><select id="custoFornecedorV138"><option value="">Todos</option>${fornecedoresList.map(v=>`<option value="${v}" ${f.fornecedor===v?'selected':''}>${v}</option>`).join('')}</select></div>
+          <div class="field"><label>Destino / Frota</label><select id="custoDestinoV138"><option value="">Todos</option>${destinosList.map(v=>`<option value="${v}" ${f.destino===v?'selected':''}>${v}</option>`).join('')}</select></div>
+          <div class="field"><label>Conta contábil</label><select id="custoContaV138"><option value="">Todas</option>${PLANO_CONTAS.map(c=>`<option value="${c.codigo}" ${f.codigoContabil===c.codigo?'selected':''}>${c.codigo} — ${c.descricao}</option>`).join('')}</select></div>
+        </div></div>`;
+    }
+    function aplicarFiltroMovimentosV138(base){
+      const f=state.custosFilters||{}; let mov=[...(base||[])];
+      if(f.dataIni)mov=mov.filter(x=>(x.dataCusto||'')>=f.dataIni);
+      if(f.dataFim)mov=mov.filter(x=>(x.dataCusto||'')<=f.dataFim);
+      if(f.centroCusto)mov=mov.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
+      if(f.fornecedor)mov=mov.filter(x=>x.fornecedor===f.fornecedor);
+      if(f.destino)mov=mov.filter(x=>(x.destino||x.aplicacao)===f.destino);
+      if(f.codigoContabil)mov=mov.filter(x=>x.codigoContabil===f.codigoContabil);
+      return mov;
+    }
 
-      // A competência gerencial de custo é SEMPRE a data de pagamento/vencimento.
-      if(f.dataIni) movimentos=movimentos.filter(x=>(x.dataCusto||'')>=f.dataIni);
-      if(f.dataFim) movimentos=movimentos.filter(x=>(x.dataCusto||'')<=f.dataFim);
-      if(f.centroCusto) movimentos=movimentos.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
-      if(f.fornecedor) movimentos=movimentos.filter(x=>x.fornecedor===f.fornecedor);
-      if(f.destino) movimentos=movimentos.filter(x=>x.destino===f.destino);
-      if(f.codigoContabil) movimentos=movimentos.filter(x=>x.codigoContabil===f.codigoContabil);
-
-      const total=movimentos.reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
+    function renderDashboardCustos() {
+      const f=state.custosFilters||{}; let movimentos=aplicarFiltroMovimentosV138(getMovimentosCustos(recebimentosNF)); const total=movimentos.reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
       const valorNFs=movimentos.filter(x=>x.tipoDocumento!=='BAIXA_ESTOQUE').reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
       const valorBaixas=movimentos.filter(x=>x.tipoDocumento==='BAIXA_ESTOQUE').reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
 
@@ -3752,24 +3769,7 @@ auth.onAuthStateChanged(async (user) => {
         .reduce((s,x)=>s+numeroSeguro(x.valorCusto),0);
 
       return `
-        <div class="card" style="margin-bottom:20px;">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Dashboard de Custos — Real Efetivo</div>
-              <div class="card-sub">Competência por pagamento: à vista entra na data do documento; parcelado entra no mês de vencimento de cada parcela.</div>
-            </div>
-          </div>
-          <div class="filters-grid">
-            <div class="field"><label>Vencimento inicial</label><input type="date" id="custoDataIni" value="${f.dataIni||''}"></div>
-            <div class="field"><label>Vencimento final</label><input type="date" id="custoDataFim" value="${f.dataFim||''}"></div>
-            <div class="field"><label>Centro de custo</label><select id="custoCentro"><option value="">Todas as unidades</option>${CENTROS_CUSTO.map(c=>`<option value="${c}" ${f.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
-            <div class="field"><label>Fornecedor</label><select id="custoFornecedor"><option value="">Todos</option>${fornecedoresList.map(v=>`<option value="${v}" ${f.fornecedor===v?'selected':''}>${v}</option>`).join('')}</select></div>
-            <div class="field"><label>Frota / Destino</label><select id="custoDestino"><option value="">Todos</option>${destinosList.map(v=>`<option value="${v}" ${f.destino===v?'selected':''}>${v}</option>`).join('')}</select></div>
-            <div class="field"><label>Conta contábil</label><select id="custoConta"><option value="">Todas</option>${PLANO_CONTAS.map(c=>`<option value="${c.codigo}" ${f.codigoContabil===c.codigo?'selected':''}>${c.codigo} — ${c.descricao}</option>`).join('')}</select></div>
-          </div>
-        </div>
-
-        <div class="kpi-grid">
+        ${renderFiltrosCustosV138("Filtros de custos — Real Efetivo")} <div class="kpi-grid">
           <div class="kpi-card"><div class="kpi-label">Custo real no filtro</div><div class="kpi-value accent">${fmt.money(total)}</div><div class="kpi-sub">${movimentos.length} movimento(s) financeiros</div></div>
           <div class="kpi-card"><div class="kpi-label">Custo do mês atual</div><div class="kpi-value">${fmt.money(custoMesAtual)}</div><div class="kpi-sub">por vencimentos em ${mesAtual}</div></div>
           <div class="kpi-card"><div class="kpi-label">Notas Fiscais</div><div class="kpi-value">${fmt.money(valorNFs)}</div><div class="kpi-sub">${total?((valorNFs/total)*100).toFixed(1):'0.0'}% do custo</div></div>
@@ -7214,20 +7214,17 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }
       });
 
-      // ===== DASHBOARD CUSTOS =====
-      const custoMap={
-        custoDataIni:'dataIni',
-        custoDataFim:'dataFim',
-        custoCentro:'centroCusto',
-        custoFornecedor:'fornecedor',
-        custoDestino:'destino',
-        custoConta:'codigoContabil'
-      };
-      Object.entries(custoMap).forEach(([id,key])=>{
-        const el=document.getElementById(id);
-        if(!el)return;
-        el.addEventListener('change',e=>{state.custosFilters[key]=e.target.value;render();});
+      // ===== DASHBOARD CUSTOS V13.8 =====
+      const custoMapV138={custoCentroV138:'centroCusto',custoFornecedorV138:'fornecedor',custoDestinoV138:'destino',custoContaV138:'codigoContabil'};
+      Object.entries(custoMapV138).forEach(([id,key])=>{const el=document.getElementById(id);if(!el)return;el.addEventListener('change',e=>{state.custosFilters=state.custosFilters||{};state.custosFilters[key]=e.target.value;render();});});
+      [{texto:'custoDataIniTextoV138',cal:'custoDataIniCalV138',btn:'custoDataIniBtnV138',key:'dataIni'},{texto:'custoDataFimTextoV138',cal:'custoDataFimCalV138',btn:'custoDataFimBtnV138',key:'dataFim'}].forEach(cfg=>{
+        const txt=document.getElementById(cfg.texto),cal=document.getElementById(cfg.cal),btn=document.getElementById(cfg.btn);
+        const aplicar=()=>{if(!txt)return;const iso=brParaISOData(txt.value);if(txt.value.trim()&&!iso){showToast('Data inválida. Use dd/mm/aaaa.',true);return;}state.custosFilters=state.custosFilters||{};state.custosFilters[cfg.key]=iso||'';render();};
+        txt?.addEventListener('change',aplicar);txt?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();aplicar();}});
+        btn?.addEventListener('click',()=>{try{cal.showPicker();}catch(_){cal.click();}});
+        cal?.addEventListener('change',()=>{state.custosFilters=state.custosFilters||{};state.custosFilters[cfg.key]=cal.value||'';render();});
       });
+      document.getElementById('custoLimparFiltrosV138')?.addEventListener('click',()=>{state.custosFilters={dataIni:'',dataFim:'',centroCusto:'',fornecedor:'',destino:'',codigoContabil:''};render();});
 
       // ===== RECEBIMENTO DE NFs =====
       const formNF = document.getElementById('formRecebimentoNF');
@@ -9095,7 +9092,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.7";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.8";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9117,14 +9114,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // Carrega somente as dependências da tela inicial e reutiliza cache por 30 minutos, inclusive após F5 na mesma aba.
       v125CarregarSecao(state.section,false).then(()=>{
         render();
-      }).catch(err=>console.error('Carga inicial V13.7:',err));
+      }).catch(err=>console.error('Carga inicial V13.8:',err));
 
       // Migrações históricas e seeds NÃO são mais executados em todo login.
       // Elas já foram executadas nas versões anteriores e geravam leituras desnecessárias.
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.7";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.8";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -12913,19 +12910,7 @@ window.RH_SECURITY_V94 = {
   }
 
   // Override final da aba Custos Explodidos.
-  window.renderDashboardCustosExplodidosV102=function(){
-    window.normalizarMemoria102();
-
-    const f=state.custosFilters||{};
-    let mov=getMovimentosCustos(recebimentosNF);
-
-    if(f.dataIni)mov=mov.filter(x=>(x.dataCusto||'')>=f.dataIni);
-    if(f.dataFim)mov=mov.filter(x=>(x.dataCusto||'')<=f.dataFim);
-    if(f.centroCusto)mov=mov.filter(x=>getCentroCustoRegistro(x)===f.centroCusto);
-
-    const linhas=window.composicaoFrotas102(mov,f);
-
-    return `${filtroCentroExplodido103()}
+  window.renderDashboardCustosExplodidosV102=function(){ window.normalizarMemoria102(); const f=state.custosFilters||{}; let mov=aplicarFiltroMovimentosV138(getMovimentosCustos(recebimentosNF)); const linhas=window.composicaoFrotas102(mov,f); return `${renderFiltrosCustosV138('Filtros — Custos Explodidos')}
       <div class="card" style="margin-bottom:20px">
         <div class="card-title">Dashboard Custos Explodidos</div>
         <div class="card-sub">O custo total das carretas foi separado nos quatro componentes que formam o custo real. Santos = R$ 700/dia; Camaçari = diária somente quando definida no orçamento; Mechatronics = projetos sem regra de estadia.</div>
@@ -12939,13 +12924,7 @@ window.RH_SECURITY_V94 = {
       </div>`;
   };
 
-  document.addEventListener('change',e=>{
-    if(e.target?.id==='explCentro103'){
-      state.custosFilters=state.custosFilters||{};
-      state.custosFilters.centroCusto=e.target.value||'';
-      render();
-    }
-  });
+  
 })();
 </script>
 
