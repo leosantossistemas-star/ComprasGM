@@ -3332,7 +3332,20 @@ auth.onAuthStateChanged(async (user) => {
         };
       });
 
-      const frotasManutencao = frotas.filter(f => !isDestinoPadrao(f) && f.tipoCadastro !== 'PROJETO');
+      let frotasManutencao = frotas.filter(f => !isDestinoPadrao(f) && f.tipoCadastro !== 'PROJETO');
+      const ff=window.filtrosFrotasV139||(window.filtrosFrotasV139={busca:'',centro:'',situacao:'',entradaIni:'',entradaFim:''});
+      frotasManutencao=frotasManutencao.filter(f=>{
+        const ciclo=getMetricasCicloFrota(f), nome=String(f.nome||'').toLowerCase();
+        const entrada=ciclo.criada ? `${ciclo.criada.getFullYear()}-${String(ciclo.criada.getMonth()+1).padStart(2,'0')}-${String(ciclo.criada.getDate()).padStart(2,'0')}` : '';
+        const encerrada=ciclo.concluida===true;
+        if(ff.busca && !nome.includes(String(ff.busca).toLowerCase())) return false;
+        if(ff.centro && getCentroCustoRegistro(f)!==ff.centro) return false;
+        if(ff.situacao==='aqui' && encerrada) return false;
+        if(ff.situacao==='saiu' && !encerrada) return false;
+        if(ff.entradaIni && (!entrada || entrada<ff.entradaIni)) return false;
+        if(ff.entradaFim && (!entrada || entrada>ff.entradaFim)) return false;
+        return true;
+      });
       const projetosMecha = frotas.filter(f => !isDestinoPadrao(f) && f.tipoCadastro === 'PROJETO');
       const podeAlterarStatus = ['encarregado','gerente','admin'].includes(perfil);
 
@@ -3436,6 +3449,17 @@ auth.onAuthStateChanged(async (user) => {
           </div>
         </div>
 
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><div><div class="card-title">Filtros — Permanência e ciclo das frotas</div><div class="card-sub">Pesquise a frota e filtre por entrada, centro e situação para analisar tempo na oficina, prazo, custos e demais indicadores.</div></div><button class="btn btn-ghost" id="frotaLimpar139">Limpar filtros</button></div>
+          <div class="filters-grid">
+            <div class="field"><label>Frota</label><input id="frotaBusca139" value="${ff.busca||''}" placeholder="Ex.: 9571"></div>
+            <div class="field"><label>Entrada inicial</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="frotaIniTxt139" value="${isoParaBRData(ff.entradaIni||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="frotaIniBtn139">📅</button><input type="date" id="frotaIniCal139" value="${ff.entradaIni||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
+            <div class="field"><label>Entrada final</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="frotaFimTxt139" value="${isoParaBRData(ff.entradaFim||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="frotaFimBtn139">📅</button><input type="date" id="frotaFimCal139" value="${ff.entradaFim||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
+            <div class="field"><label>Centro</label><select id="frotaCentro139"><option value="">Todos</option>${CENTROS_CUSTO.map(v=>`<option value="${v}" ${ff.centro===v?'selected':''}>${v}</option>`).join('')}</select></div>
+            <div class="field"><label>Situação</label><select id="frotaSituacao139"><option value="">Todas</option><option value="aqui" ${ff.situacao==='aqui'?'selected':''}>NA OFICINA</option><option value="saiu" ${ff.situacao==='saiu'?'selected':''}>JÁ SAIU / ENCERRADA</option></select></div>
+          </div>
+        </div>
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
             <div>
@@ -9092,7 +9116,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.8";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.9";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9121,7 +9145,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.8";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.9";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13617,6 +13641,53 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
         if(e.target && e.target.id==='poBuscaRC') v137AtualizarBuscaPO();
       });
 </script>
+
+<script>
+/* V13.9 — correção final dos filtros de Custos + Frotas */
+(function(){
+  const renderCustosFinalAnterior=window.renderDashboardCustos;
+  function filtroCustos139(){
+    const f=state.custosFilters||{};
+    const fornecedores=[...new Set(recebimentosNF.map(x=>x.fornecedor).filter(Boolean))].sort();
+    const destinos=[...new Set(recebimentosNF.map(x=>x.destino||x.aplicacao).filter(Boolean))].sort();
+    return `<div class="card" style="margin-bottom:20px"><div class="card-header"><div><div class="card-title">Filtros de custos</div><div class="card-sub">Mesmo padrão do Dashboard Aprovações. Todos os indicadores, tabelas e gráficos abaixo acompanham o filtro.</div></div><button class="btn btn-ghost" id="custoLimpar139">Limpar filtros</button></div><div class="filters-grid">
+      <div class="field"><label>Data inicial</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="custoIniTxt139" value="${isoParaBRData(f.dataIni||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="custoIniBtn139">📅</button><input type="date" id="custoIniCal139" value="${f.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
+      <div class="field"><label>Data final</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="custoFimTxt139" value="${isoParaBRData(f.dataFim||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="custoFimBtn139">📅</button><input type="date" id="custoFimCal139" value="${f.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
+      <div class="field"><label>Centro de custo</label><select id="custoCentro139"><option value="">Todos</option>${CENTROS_CUSTO.map(v=>`<option value="${v}" ${f.centroCusto===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Fornecedor</label><select id="custoFornecedor139"><option value="">Todos</option>${fornecedores.map(v=>`<option value="${v}" ${f.fornecedor===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Destino / Frota</label><select id="custoDestino139"><option value="">Todos</option>${destinos.map(v=>`<option value="${v}" ${f.destino===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Conta contábil</label><select id="custoConta139"><option value="">Todas</option>${PLANO_CONTAS.map(c=>`<option value="${c.codigo}" ${f.codigoContabil===c.codigo?'selected':''}>${c.codigo} — ${c.descricao}</option>`).join('')}</select></div>
+    </div></div>`;
+  }
+  window.renderDashboardCustos=function(){
+    let h=renderCustosFinalAnterior();
+    const rx=/<div class="card" style="margin-bottom:20px;">[\s\S]*?<div class="card-title">Dashboard de Custos — Real Efetivo<\/div>[\s\S]*?<\/div>\s*(?=<div class="kpi-grid">)/;
+    if(rx.test(h)) h=h.replace(rx,filtroCustos139());
+    return h;
+  };
+  function setData(txt,key){const e=document.getElementById(txt);if(!e)return;const iso=brParaISOData(e.value);if(e.value.trim()&&!iso){showToast('Data inválida. Use dd/mm/aaaa.',true);return;}state.custosFilters=state.custosFilters||{};state.custosFilters[key]=iso||'';render();}
+  document.addEventListener('change',e=>{
+    const cm={custoCentro139:'centroCusto',custoFornecedor139:'fornecedor',custoDestino139:'destino',custoConta139:'codigoContabil'};
+    if(cm[e.target?.id]){state.custosFilters=state.custosFilters||{};state.custosFilters[cm[e.target.id]]=e.target.value||'';render();return;}
+    if(e.target?.id==='custoIniTxt139')return setData('custoIniTxt139','dataIni'); if(e.target?.id==='custoFimTxt139')return setData('custoFimTxt139','dataFim');
+    if(e.target?.id==='custoIniCal139'){state.custosFilters.dataIni=e.target.value||'';render();return;} if(e.target?.id==='custoFimCal139'){state.custosFilters.dataFim=e.target.value||'';render();return;}
+    const fm={frotaBusca139:'busca',frotaCentro139:'centro',frotaSituacao139:'situacao'};
+    if(fm[e.target?.id]){window.filtrosFrotasV139=window.filtrosFrotasV139||{};window.filtrosFrotasV139[fm[e.target.id]]=e.target.value||'';render();return;}
+    if(e.target?.id==='frotaIniTxt139'){const v=brParaISOData(e.target.value);if(e.target.value.trim()&&!v)return showToast('Data inválida.',true);window.filtrosFrotasV139.entradaIni=v||'';render();}
+    if(e.target?.id==='frotaFimTxt139'){const v=brParaISOData(e.target.value);if(e.target.value.trim()&&!v)return showToast('Data inválida.',true);window.filtrosFrotasV139.entradaFim=v||'';render();}
+    if(e.target?.id==='frotaIniCal139'){window.filtrosFrotasV139.entradaIni=e.target.value||'';render();} if(e.target?.id==='frotaFimCal139'){window.filtrosFrotasV139.entradaFim=e.target.value||'';render();}
+  });
+  document.addEventListener('input',e=>{if(e.target?.id==='frotaBusca139'){window.filtrosFrotasV139=window.filtrosFrotasV139||{};window.filtrosFrotasV139.busca=e.target.value||'';}});
+  document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target?.id==='frotaBusca139')render();});
+  document.addEventListener('click',e=>{
+    if(e.target?.id==='custoLimpar139'){state.custosFilters={dataIni:'',dataFim:'',centroCusto:'',fornecedor:'',destino:'',codigoContabil:''};render();return;}
+    if(e.target?.id==='frotaLimpar139'){window.filtrosFrotasV139={busca:'',centro:'',situacao:'',entradaIni:'',entradaFim:''};render();return;}
+    const pick={custoIniBtn139:'custoIniCal139',custoFimBtn139:'custoFimCal139',frotaIniBtn139:'frotaIniCal139',frotaFimBtn139:'frotaFimCal139'};
+    if(pick[e.target?.id]){const c=document.getElementById(pick[e.target.id]);try{c.showPicker()}catch(_){c.click()}}
+  });
+})();
+</script>
+
 </body>
 </html>
 
