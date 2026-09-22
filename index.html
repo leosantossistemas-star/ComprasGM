@@ -6680,7 +6680,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
        RENDER PRINCIPAL (com nova seção)
     ============================================================ */
 
-    // =========== V14.5 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
+    // =========== V14.6 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
     window.filtrosTempoFrotasV143 = window.filtrosTempoFrotasV143 || {dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};
 
     function isoFrota143(d){
@@ -6804,6 +6804,45 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     }
 
     function baseTempoFrotasV143(){
+      /*
+       * V14.6 — FONTE ÚNICA DE VERDADE
+       * O painel Tempo de Frotas usa exatamente periodos102(), a mesma função
+       * usada pelo cálculo "Estadia por Frota" do Dashboard Custos Explodidos.
+       * Assim, se existe estadia calculada, existe necessariamente o mesmo
+       * período/dias no painel de tempo.
+       */
+      if(typeof window.periodos102 === 'function'){
+        const pers = window.periodos102() || {};
+        return Object.values(pers).map(p=>{
+          const ini = dataGenericaV144(p.inicio);
+          const fim = dataGenericaV144(p.fim);
+          if(!ini || !fim) return null;
+
+          const historica = p.fonte === 'RCS_HISTORICAS';
+          // No motor de estadia, registros só existentes nas RCs representam
+          // ciclos históricos fechados entre primeira e última RC.
+          const encerrada = historica ? true : p.aberta === false;
+
+          return {
+            id: p.registro?.id || `hist-${normalize(p.nome||'')}`,
+            frota: p.nome || p.registro?.nome || 'Sem identificação',
+            centro: p.centro || getCentroCustoRegistro(p.registro||{}),
+            inicio: inicioDoDia(ini),
+            fim: inicioDoDia(fim),
+            // Mesma convenção inclusiva usada por diasInc102() na estadia.
+            dias: (typeof diasEntreDatas==='function')
+              ? Math.max(1,(diasEntreDatas(inicioDoDia(ini),inicioDoDia(fim))||0)+1)
+              : Math.max(1,Math.floor((inicioDoDia(fim)-inicioDoDia(ini))/86400000)+1),
+            encerrada,
+            situacao: encerrada ? 'JÁ SAIU / ENCERRADA' : 'NA OFICINA',
+            fonte: historica ? 'MESMA BASE DA ESTADIA · HISTÓRICO RC' : 'MESMA BASE DA ESTADIA',
+            qtdRC: historica ? rcsDaFrotaV144({nome:p.nome}).length : 0
+          };
+        }).filter(Boolean);
+      }
+
+      // Fallback de segurança: mantém a lógica anterior apenas se o motor
+      // de estadia não estiver disponível.
       return (Array.isArray(frotas)?frotas:[])
         .filter(f=>!isDestinoPadrao(f) && f.tipoCadastro!=='PROJETO')
         .map(f=>{
@@ -6819,7 +6858,6 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           };
         }).filter(Boolean);
     }
-
     function filtradasTempoFrotasV143(){
       const q=window.filtrosTempoFrotasV143||{}, busca=normalize(q.frota||'');
       return baseTempoFrotasV143().filter(x=>{
@@ -6887,12 +6925,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const centros=[...new Set(base.map(x=>x.centro).filter(Boolean))].sort();
       const media=dados.length?dados.reduce((s,x)=>s+x.dias,0)/dados.length:0;
       const hist=base.filter(x=>String(x.fonte).includes('HISTÓRICO')).length;
-      const reais=base.filter(x=>x.fonte==='DATAS REAIS').length;
+      const reais=base.length-hist;
 
       return `
         <div class="card">
           <div class="card-header"><div><div class="card-title">Filtros — Tempo de Frotas</div>
-          <div class="card-sub">Novas frotas usam datas reais. Frotas antigas são reconstruídas pelo histórico das RCs.</div></div>
+          <div class="card-sub">Mesma base usada em Estadia por Frota: datas reais quando existentes e histórico das RCs para o legado.</div></div>
           <button class="btn btn-ghost" id="tfLimpar143">Limpar filtros</button></div>
           <div class="filters-grid">
             <div class="field"><label>Data inicial</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
@@ -6911,16 +6949,16 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           </div>
         </div>
         <div class="kpi-grid" style="margin-top:16px">
-          <div class="kpi-card"><div class="kpi-label">Frotas no filtro</div><div class="kpi-value accent">${dados.length}</div><div class="kpi-sub">${hist} históricas por RC · ${reais} com datas reais</div></div>
+          <div class="kpi-card"><div class="kpi-label">Frotas no filtro</div><div class="kpi-value accent">${dados.length}</div><div class="kpi-sub">${hist} históricas · ${reais} pelo cadastro/estadia</div></div>
           <div class="kpi-card"><div class="kpi-label">Tempo médio</div><div class="kpi-value">${dados.length?media.toFixed(1).replace('.',',')+' dias':'—'}</div><div class="kpi-sub">Média das frotas exibidas</div></div>
           <div class="kpi-card"><div class="kpi-label">Na oficina</div><div class="kpi-value accent">${dados.filter(x=>!x.encerrada).length}</div></div>
           <div class="kpi-card"><div class="kpi-label">Já saíram</div><div class="kpi-value">${dados.filter(x=>x.encerrada).length}</div></div>
         </div>
         <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div>
-        <div class="card-sub">Dados novos: entrada/encerramento real. Histórico: período reconstruído pelas RCs da frota.</div></div></div>
+        <div class="card-sub">Tempo calculado pela mesma origem de período usada em Estadia por Frota.</div></div></div>
         <div style="max-height:620px;overflow:auto">${graficoBarrasFrotasV143(dados)}</div></div>
         <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div>
-        <div class="card-sub">Inclui histórico reconstruído e novos encerramentos. O indicador é independente dos filtros acima.</div></div></div>
+        <div class="card-sub">Inclui ciclos históricos fechados e novos encerramentos, usando a mesma base da Estadia. O indicador é independente dos filtros acima.</div></div></div>
         <div style="overflow-x:auto">${graficoMedia12V143()}</div></div>`;
     }
 
@@ -9364,7 +9402,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.5";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.6";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9393,7 +9431,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.5";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.6";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13048,6 +13086,7 @@ window.RH_SECURITY_V94 = {
   // V11.2 — compatibilidade entre blocos:
   // V10.3 redefine o Dashboard Custos Explodidos em outro <script>.
   // Estes helpers eram locais ao IIFE V10.2 e, por isso, ficavam invisíveis.
+  window.periodos102 = periodos102;
   window.normalizarMemoria102 = normalizarMemoria102;
   window.canonDestino102 = canonDestino102;
   window.composicaoFrotas102 = composicaoFrotas102;
@@ -13940,7 +13979,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 
 <script>
-/* V14.5 — filtros Tempo de Frotas */
+/* V14.6 — filtros Tempo de Frotas */
 (function(){
   function mascaraData143(v){
     v=String(v||'').replace(/\D/g,'').slice(0,8);
