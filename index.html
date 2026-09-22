@@ -9116,7 +9116,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V13.9";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.0";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9145,7 +9145,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V13.9";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.0";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13683,6 +13683,209 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
     if(e.target?.id==='custoLimpar139'){state.custosFilters={dataIni:'',dataFim:'',centroCusto:'',fornecedor:'',destino:'',codigoContabil:''};render();return;}
     if(e.target?.id==='frotaLimpar139'){window.filtrosFrotasV139={busca:'',centro:'',situacao:'',entradaIni:'',entradaFim:''};render();return;}
     const pick={custoIniBtn139:'custoIniCal139',custoFimBtn139:'custoFimCal139',frotaIniBtn139:'frotaIniCal139',frotaFimBtn139:'frotaFimCal139'};
+    if(pick[e.target?.id]){const c=document.getElementById(pick[e.target.id]);try{c.showPicker()}catch(_){c.click()}}
+  });
+})();
+</script>
+
+
+<script>
+/* ============================================================
+   V14.0 — GRÁFICOS DE PERMANÊNCIA DAS FROTAS
+   Somente Dashboard Custos. Não executa novas leituras Firebase:
+   usa exclusivamente o array frotas já carregado pelo sistema.
+   ============================================================ */
+(function(){
+  window.filtroPermanenciaV140 = window.filtroPermanenciaV140 || {
+    dataIni:'', dataFim:'', centro:'', situacao:'', frota:''
+  };
+
+  function isoLocalV140(d){
+    if(!d || !(d instanceof Date) || isNaN(d)) return '';
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function dadosPermanenciaBaseV140(){
+    const hoje=inicioDoDia(new Date());
+    return (frotas||[])
+      .filter(f=>!isDestinoPadrao(f) && f.tipoCadastro!=='PROJETO' && normalize(f.nome||'')!=='teste')
+      .map(f=>{
+        const inicio=dataJSRegistro(f.dataEntrada) || dataJSRegistro(f.criadoEm);
+        const encerrada=f.statusOperacional==='CONCLUIDO' || f.concluido===true;
+        const conclusao=encerrada && f.dataConclusaoReal ? dataJSRegistro(f.dataConclusaoReal) : null;
+        const fim=conclusao || hoje;
+        const dias=inicio && fim ? Math.max(0,diasEntreDatas(inicioDoDia(inicio),inicioDoDia(fim))) : 0;
+        return {
+          id:f.id, frota:f.nome||'Sem identificação', centro:getCentroCustoRegistro(f),
+          inicio, conclusao, fim, dias, encerrada,
+          situacao:encerrada?'JÁ SAIU':'NA OFICINA'
+        };
+      })
+      .filter(x=>x.inicio);
+  }
+  function dadosPermanenciaFiltradosV140(){
+    const f=window.filtroPermanenciaV140||{}, q=normalize(f.frota||'');
+    return dadosPermanenciaBaseV140().filter(x=>{
+      const entrada=isoLocalV140(x.inicio);
+      if(f.dataIni && entrada<f.dataIni) return false;
+      if(f.dataFim && entrada>f.dataFim) return false;
+      if(f.centro && x.centro!==f.centro) return false;
+      if(f.situacao==='aqui' && x.encerrada) return false;
+      if(f.situacao==='saiu' && !x.encerrada) return false;
+      if(q && !normalize(x.frota).includes(q)) return false;
+      return true;
+    }).sort((a,b)=>b.dias-a.dias);
+  }
+  function cardGraficosPermanenciaV140(){
+    const f=window.filtroPermanenciaV140||{};
+    const centros=[...new Set(dadosPermanenciaBaseV140().map(x=>x.centro).filter(Boolean))].sort();
+    return `<div class="card" id="permanenciaFrotasV140" style="margin-top:18px;margin-bottom:20px">
+      <div class="card-header">
+        <div>
+          <div class="card-title">⏱ Permanência das Frotas na Oficina</div>
+          <div class="card-sub">A frota em manutenção conta da entrada até hoje. Ao ser encerrada, o tempo fica congelado na data real de conclusão.</div>
+        </div>
+        <button class="btn btn-ghost" id="permLimparV140">Limpar filtros</button>
+      </div>
+      <div class="filters-grid" style="margin-bottom:16px">
+        <div class="field"><label>Entrada inicial</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="permIniTxtV140" value="${isoParaBRData(f.dataIni||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="permIniBtnV140">📅</button><input type="date" id="permIniCalV140" value="${f.dataIni||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
+        <div class="field"><label>Entrada final</label><div style="display:grid;grid-template-columns:1fr 42px;gap:6px"><input id="permFimTxtV140" value="${isoParaBRData(f.dataFim||'')}" placeholder="dd/mm/aaaa" maxlength="10"><button class="btn btn-ghost" id="permFimBtnV140">📅</button><input type="date" id="permFimCalV140" value="${f.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none"></div></div>
+        <div class="field"><label>Centro</label><select id="permCentroV140"><option value="">Todos</option>${centros.map(v=>`<option value="${v}" ${f.centro===v?'selected':''}>${v}</option>`).join('')}</select></div>
+        <div class="field"><label>Situação</label><select id="permSituacaoV140"><option value="">Todas</option><option value="aqui" ${f.situacao==='aqui'?'selected':''}>Na oficina</option><option value="saiu" ${f.situacao==='saiu'?'selected':''}>Já saiu</option></select></div>
+        <div class="field"><label>Frota</label><input id="permFrotaV140" value="${f.frota||''}" placeholder="Ex.: 9571"></div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">FROTAS NO FILTRO</div><div class="kpi-value" id="permQtdV140">—</div></div>
+        <div class="kpi"><div class="kpi-label">TEMPO MÉDIO NO PERÍODO</div><div class="kpi-value" id="permMediaV140">—</div><div class="kpi-sub">Média das frotas exibidas</div></div>
+        <div class="kpi"><div class="kpi-label">NA OFICINA</div><div class="kpi-value" id="permAquiV140">—</div></div>
+        <div class="kpi"><div class="kpi-label">JÁ SAÍRAM</div><div class="kpi-value" id="permSairamV140">—</div></div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div><div class="card-sub">Dias corridos entre entrada e hoje/encerramento. Passe o mouse sobre a barra para ver entrada, saída e situação.</div></div></div>
+        <div style="height:420px;position:relative"><canvas id="chartPermanenciaV140"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div><div class="card-sub">Indicador permanente: média mensal somente das frotas efetivamente encerradas, agrupadas pelo mês da saída. Este gráfico não é alterado pelo filtro acima.</div></div></div>
+        <div style="height:320px;position:relative"><canvas id="chartMedia12V140"></canvas></div>
+      </div>
+    </div>`;
+  }
+
+  const renderCustosAnteriorV140=window.renderDashboardCustos;
+  window.renderDashboardCustos=function(){
+    let h=renderCustosAnteriorV140();
+    if(!h.includes('id="permanenciaFrotasV140"')){
+      h += cardGraficosPermanenciaV140();
+    }
+    return h;
+  };
+
+  function desenharGraficosV140(){
+    if(state.section!=='dashboardCustos' || typeof Chart==='undefined') return;
+    const dados=dadosPermanenciaFiltradosV140();
+    const qtd=document.getElementById('permQtdV140'), med=document.getElementById('permMediaV140'),
+          aq=document.getElementById('permAquiV140'), sa=document.getElementById('permSairamV140');
+    const media=dados.length ? dados.reduce((s,x)=>s+x.dias,0)/dados.length : 0;
+    if(qtd)qtd.textContent=dados.length;
+    if(med)med.textContent=dados.length?`${media.toFixed(1).replace('.',',')} dias`:'—';
+    if(aq)aq.textContent=dados.filter(x=>!x.encerrada).length;
+    if(sa)sa.textContent=dados.filter(x=>x.encerrada).length;
+
+    const c1=document.getElementById('chartPermanenciaV140');
+    if(c1){
+      if(c1._chart)c1._chart.destroy();
+      c1._chart=new Chart(c1,{
+        type:'bar',
+        data:{
+          labels:dados.map(x=>x.frota),
+          datasets:[{
+            label:'Dias de permanência',
+            data:dados.map(x=>x.dias),
+            backgroundColor:dados.map(x=>x.encerrada?'rgba(116,126,132,.78)':'rgba(151,255,0,.78)'),
+            borderColor:dados.map(x=>x.encerrada?'rgba(160,170,176,1)':'rgba(151,255,0,1)'),
+            borderWidth:1
+          }]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,indexAxis:'y',
+          plugins:{
+            legend:{display:false},
+            tooltip:{callbacks:{
+              afterLabel:(ctx)=>{
+                const x=dados[ctx.dataIndex];
+                const ent=x.inicio?x.inicio.toLocaleDateString('pt-BR'):'—';
+                const sai=x.encerrada&&x.conclusao?x.conclusao.toLocaleDateString('pt-BR'):'Ainda na oficina';
+                return [`Situação: ${x.situacao}`,`Entrada: ${ent}`,`Saída: ${sai}`,`Centro: ${x.centro||'—'}`];
+              }
+            }}
+          },
+          scales:{
+            x:{beginAtZero:true,title:{display:true,text:'Dias de permanência',color:'#9da7a1'},ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}},
+            y:{ticks:{color:'#d9dedb',autoSkip:false},grid:{display:false}}
+          }
+        }
+      });
+    }
+
+    const base=dadosPermanenciaBaseV140().filter(x=>x.encerrada&&x.conclusao);
+    const hoje=new Date(), meses=[];
+    for(let i=11;i>=0;i--){
+      const d=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);
+      meses.push({ano:d.getFullYear(),mes:d.getMonth(),key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})});
+    }
+    const medias=meses.map(m=>{
+      const a=base.filter(x=>x.conclusao.getFullYear()===m.ano&&x.conclusao.getMonth()===m.mes);
+      return {media:a.length?a.reduce((s,x)=>s+x.dias,0)/a.length:null,qtd:a.length};
+    });
+    const c2=document.getElementById('chartMedia12V140');
+    if(c2){
+      if(c2._chart)c2._chart.destroy();
+      c2._chart=new Chart(c2,{
+        type:'line',
+        data:{labels:meses.map(x=>x.label),datasets:[{label:'Tempo médio (dias)',data:medias.map(x=>x.media),tension:.25,spanGaps:true,fill:false}]},
+        options:{
+          responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{labels:{color:'#d9dedb'}},tooltip:{callbacks:{afterLabel:(ctx)=>`Frotas encerradas no mês: ${medias[ctx.dataIndex].qtd}`}}},
+          scales:{
+            x:{ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}},
+            y:{beginAtZero:true,title:{display:true,text:'Média de dias',color:'#9da7a1'},ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}}
+          }
+        }
+      });
+    }
+  }
+
+  let agendado=false;
+  const observer=new MutationObserver(()=>{
+    if(state.section==='dashboardCustos' && document.getElementById('chartPermanenciaV140') && !agendado){
+      agendado=true;
+      setTimeout(()=>{agendado=false;desenharGraficosV140();},50);
+    }
+  });
+  observer.observe(document.body,{childList:true,subtree:true});
+
+  function aplicarDataPermV140(txt,key){
+    const el=document.getElementById(txt); if(!el)return;
+    const iso=brParaISOData(el.value);
+    if(el.value.trim()&&!iso){showToast('Data inválida. Use dd/mm/aaaa.',true);return;}
+    window.filtroPermanenciaV140[key]=iso||''; render();
+  }
+  document.addEventListener('change',e=>{
+    const map={permCentroV140:'centro',permSituacaoV140:'situacao'};
+    if(map[e.target?.id]){window.filtroPermanenciaV140[map[e.target.id]]=e.target.value||'';render();return;}
+    if(e.target?.id==='permIniTxtV140')return aplicarDataPermV140('permIniTxtV140','dataIni');
+    if(e.target?.id==='permFimTxtV140')return aplicarDataPermV140('permFimTxtV140','dataFim');
+    if(e.target?.id==='permIniCalV140'){window.filtroPermanenciaV140.dataIni=e.target.value||'';render();return;}
+    if(e.target?.id==='permFimCalV140'){window.filtroPermanenciaV140.dataFim=e.target.value||'';render();return;}
+  });
+  document.addEventListener('input',e=>{
+    if(e.target?.id==='permFrotaV140') window.filtroPermanenciaV140.frota=e.target.value||'';
+  });
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&e.target?.id==='permFrotaV140'){e.preventDefault();render();}
+  });
+  document.addEventListener('click',e=>{
+    if(e.target?.id==='permLimparV140'){window.filtroPermanenciaV140={dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};render();return;}
+    const pick={permIniBtnV140:'permIniCalV140',permFimBtnV140:'permFimCalV140'};
     if(pick[e.target?.id]){const c=document.getElementById(pick[e.target.id]);try{c.showPicker()}catch(_){c.click()}}
   });
 })();
