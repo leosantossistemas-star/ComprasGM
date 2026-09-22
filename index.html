@@ -9116,7 +9116,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.0";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.1";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9145,7 +9145,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.0";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.1";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -13691,7 +13691,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 <script>
 /* ============================================================
-   V14.0 — GRÁFICOS DE PERMANÊNCIA DAS FROTAS
+   V14.1 — GRÁFICOS DE PERMANÊNCIA DAS FROTAS
    Somente Dashboard Custos. Não executa novas leituras Firebase:
    usa exclusivamente o array frotas já carregado pelo sistema.
    ============================================================ */
@@ -13771,13 +13771,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
   }
 
   const renderCustosAnteriorV140=window.renderDashboardCustos;
-  window.renderDashboardCustos=function(){
-    let h=renderCustosAnteriorV140();
-    if(!h.includes('id="permanenciaFrotasV140"')){
-      h += cardGraficosPermanenciaV140();
-    }
-    return h;
-  };
+  window.renderDashboardCustos=function(){ return renderCustosAnteriorV140(); };
 
   function desenharGraficosV140(){
     if(state.section!=='dashboardCustos' || typeof Chart==='undefined') return;
@@ -13888,6 +13882,97 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
     const pick={permIniBtnV140:'permIniCalV140',permFimBtnV140:'permFimCalV140'};
     if(pick[e.target?.id]){const c=document.getElementById(pick[e.target.id]);try{c.showPicker()}catch(_){c.click()}}
   });
+})();
+</script>
+
+
+<script>
+/* V14.1 — ABA EXCLUSIVA TEMPO DE FROTAS */
+(function(){
+  function dataFrotaV141(v){
+    if(!v)return null;
+    try{
+      if(v.toDate)return v.toDate();
+      if(v.seconds)return new Date(v.seconds*1000);
+      if(v instanceof Date)return isNaN(v)?null:v;
+      if(typeof v==='string'){
+        const br=v.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        if(br)return new Date(+br[3],+br[2]-1,+br[1]);
+        const d=new Date(v); if(!isNaN(d))return d;
+      }
+    }catch(_){}
+    return null;
+  }
+  function baseFrotasV141(){
+    const hoje=new Date(); hoje.setHours(0,0,0,0);
+    return (frotas||[]).map(f=>{
+      const inicio=dataFrotaV141(f.dataEntrada)||dataFrotaV141(f.dataInicioManutencao)||dataFrotaV141(f.criadoEm)||dataFrotaV141(f.createdAt);
+      const encerrada=f.concluido===true || String(f.statusOperacional||'').toUpperCase()==='CONCLUIDO' || !!f.dataConclusaoReal;
+      const fim=encerrada?(dataFrotaV141(f.dataConclusaoReal)||dataFrotaV141(f.dataSaidaReal)||dataFrotaV141(f.dataSaida)||hoje):hoje;
+      if(!inicio)return null;
+      const a=new Date(inicio);a.setHours(0,0,0,0);const b=new Date(fim);b.setHours(0,0,0,0);
+      return {frota:f.nome||f.frota||f.numero||'Sem identificação',centro:(typeof getCentroCustoRegistro==='function'?getCentroCustoRegistro(f):(f.centroCusto||f.centro||'')),inicio:a,fim:b,dias:Math.max(0,Math.round((b-a)/86400000)),encerrada,situacao:encerrada?'JÁ SAIU':'NA OFICINA'};
+    }).filter(Boolean);
+  }
+  window.filtroTempoFrotasV141=window.filtroTempoFrotasV141||{ini:'',fim:'',centro:'',situacao:'',frota:''};
+  function filtradasV141(){
+    const q=window.filtroTempoFrotasV141,b=baseFrotasV141();
+    return b.filter(x=>{
+      const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if(q.ini&&iso(x.inicio)<q.ini)return false;if(q.fim&&iso(x.inicio)>q.fim)return false;
+      if(q.centro&&x.centro!==q.centro)return false;if(q.situacao==='aqui'&&x.encerrada)return false;if(q.situacao==='saiu'&&!x.encerrada)return false;
+      if(q.frota&&!String(x.frota).toLowerCase().includes(String(q.frota).toLowerCase()))return false;return true;
+    }).sort((a,b)=>b.dias-a.dias);
+  }
+  window.renderTempoFrotasV141=function(){
+    const q=window.filtroTempoFrotasV141, centros=[...new Set(baseFrotasV141().map(x=>x.centro).filter(Boolean))].sort();
+    return `<div class="page-header"><div><h1>Tempo de Frotas</h1><p>Permanência das carretas na oficina, situação atual e histórico mensal.</p></div></div>
+    <div class="card"><div class="card-header"><div><div class="card-title">Filtros de permanência</div><div class="card-sub">O período considera a data de entrada da frota.</div></div><button class="btn btn-ghost" id="tfLimpar141">Limpar filtros</button></div>
+    <div class="filters-grid">
+      <div class="field"><label>Entrada inicial</label><input type="date" id="tfIni141" value="${q.ini}"></div>
+      <div class="field"><label>Entrada final</label><input type="date" id="tfFim141" value="${q.fim}"></div>
+      <div class="field"><label>Centro</label><select id="tfCentro141"><option value="">Todos</option>${centros.map(v=>`<option ${q.centro===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Situação</label><select id="tfSit141"><option value="">Todas</option><option value="aqui" ${q.situacao==='aqui'?'selected':''}>Na oficina</option><option value="saiu" ${q.situacao==='saiu'?'selected':''}>Já saiu</option></select></div>
+      <div class="field"><label>Frota</label><input id="tfFrota141" value="${q.frota}" placeholder="Ex.: 9571"></div>
+    </div></div>
+    <div class="kpi-grid" style="margin-top:16px"><div class="kpi"><div class="kpi-label">FROTAS NO FILTRO</div><div class="kpi-value" id="tfQtd141">—</div></div><div class="kpi"><div class="kpi-label">TEMPO MÉDIO</div><div class="kpi-value" id="tfMed141">—</div></div><div class="kpi"><div class="kpi-label">NA OFICINA</div><div class="kpi-value" id="tfAqui141">—</div></div><div class="kpi"><div class="kpi-label">JÁ SAÍRAM</div><div class="kpi-value" id="tfSaiu141">—</div></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo de permanência por frota</div><div class="card-sub">Entrada até hoje para frota ativa; entrada até encerramento para frota concluída.</div></div></div><div style="height:520px"><canvas id="tfChart141"></canvas></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><div><div class="card-title">Tempo médio de permanência — últimos 12 meses</div><div class="card-sub">Média mensal das frotas encerradas no mês. Indicador permanente e independente do filtro acima.</div></div></div><div style="height:340px"><canvas id="tf12Chart141"></canvas></div></div>`;
+  };
+  window.desenharTempoFrotasV141=function(){
+    if(typeof Chart==='undefined')return;const d=filtradasV141(),sum=d.reduce((a,x)=>a+x.dias,0);
+    const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
+    set('tfQtd141',d.length);set('tfMed141',d.length?(sum/d.length).toFixed(1).replace('.',',')+' dias':'—');set('tfAqui141',d.filter(x=>!x.encerrada).length);set('tfSaiu141',d.filter(x=>x.encerrada).length);
+    const c=document.getElementById('tfChart141');if(c){if(c._chart)c._chart.destroy();c._chart=new Chart(c,{type:'bar',data:{labels:d.map(x=>x.frota),datasets:[{label:'Dias',data:d.map(x=>x.dias),backgroundColor:d.map(x=>x.encerrada?'rgba(130,140,145,.8)':'rgba(151,255,0,.8)')}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:z=>{const x=d[z.dataIndex];return [`${x.situacao}`,`Entrada: ${x.inicio.toLocaleDateString('pt-BR')}`,`Saída: ${x.encerrada?x.fim.toLocaleDateString('pt-BR'):'Ainda na oficina'}`,`Centro: ${x.centro||'—'}`]}}}},scales:{x:{beginAtZero:true,title:{display:true,text:'Dias'}},y:{ticks:{autoSkip:false}}}}});}
+    const enc=baseFrotasV141().filter(x=>x.encerrada),hoje=new Date(),meses=[];for(let i=11;i>=0;i--){let m=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);meses.push(m)}
+    const vals=meses.map(m=>{let a=enc.filter(x=>x.fim.getFullYear()===m.getFullYear()&&x.fim.getMonth()===m.getMonth());return a.length?a.reduce((s,x)=>s+x.dias,0)/a.length:null});
+    const c2=document.getElementById('tf12Chart141');if(c2){if(c2._chart)c2._chart.destroy();c2._chart=new Chart(c2,{type:'line',data:{labels:meses.map(m=>m.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})),datasets:[{label:'Média de dias',data:vals,spanGaps:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,title:{display:true,text:'Média de dias'}}}}});}
+  };
+
+  // Add a dedicated sidebar item immediately after Dashboard Custos.
+  function addMenuV141(){
+    const links=[...document.querySelectorAll('[data-section]')], ref=links.find(x=>x.dataset.section==='dashboardCustos');
+    if(ref&&!document.querySelector('[data-section="tempoFrotas"]')){
+      const n=ref.cloneNode(true);n.dataset.section='tempoFrotas';n.innerHTML=n.innerHTML.replace(/Dashboard Custos/g,'Tempo de Frotas');ref.parentNode.insertBefore(n,ref.nextSibling);
+    }
+  }
+  document.addEventListener('click',e=>{
+    const a=e.target.closest?.('[data-section="tempoFrotas"]');if(a){e.preventDefault();state.section='tempoFrotas';render();setTimeout(window.desenharTempoFrotasV141,60);return}
+    if(e.target?.id==='tfLimpar141'){window.filtroTempoFrotasV141={ini:'',fim:'',centro:'',situacao:'',frota:''};render();setTimeout(window.desenharTempoFrotasV141,60)}
+  });
+  document.addEventListener('change',e=>{const m={tfIni141:'ini',tfFim141:'fim',tfCentro141:'centro',tfSit141:'situacao'};if(m[e.target?.id]){window.filtroTempoFrotasV141[m[e.target.id]]=e.target.value||'';render();setTimeout(window.desenharTempoFrotasV141,60)}});
+  document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target?.id==='tfFrota141'){window.filtroTempoFrotasV141.frota=e.target.value||'';render();setTimeout(window.desenharTempoFrotasV141,60)}});
+
+  const renderAnt141=window.render;
+  window.render=function(){
+    addMenuV141();
+    if(state.section==='tempoFrotas'){
+      const main=document.querySelector('main')||document.getElementById('mainContent')||document.querySelector('.main-content');
+      if(main){main.innerHTML=window.renderTempoFrotasV141();setTimeout(window.desenharTempoFrotasV141,60);addMenuV141();return}
+    }
+    const r=renderAnt141.apply(this,arguments);setTimeout(addMenuV141,0);return r;
+  };
+  setTimeout(addMenuV141,100);
 })();
 </script>
 
