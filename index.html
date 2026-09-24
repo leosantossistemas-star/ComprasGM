@@ -6561,7 +6561,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       showToast(`${prefixo}. Corrija: ${unicos.join(' • ')}`, true);
     }
 
+    let solicitacaoSalvandoV1471 = false;
+
     async function salvarSolicitacaoHandler() {
+      if (solicitacaoSalvandoV1471) {
+        showToast('A solicitação já está sendo gravada. Aguarde a confirmação.', true);
+        return;
+      }
       const getVal = (id) => document.getElementById(id)?.value || '';
       const centroCusto = centroCustoNormalizado(getVal('solCentroCusto'));
       const destino = getVal('solDestino').trim();
@@ -6721,21 +6727,39 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         alteradoEm: editId ? firebase.firestore.FieldValue.serverTimestamp() : (existente?.alteradoEm || null)
       };
 
+      const formSolV1471=document.getElementById('formSolicitacao');
+      const btnSolV1471=formSolV1471?.querySelector('button[type="submit"]');
+      const textoBtnSolV1471=btnSolV1471?.textContent || 'Salvar Solicitação';
+      solicitacaoSalvandoV1471=true;
+      if(formSolV1471) formSolV1471.dataset.saving='1';
+      if(btnSolV1471){
+        btnSolV1471.disabled=true;
+        btnSolV1471.textContent='SALVANDO...';
+      }
+
       try{
         await salvarSolicitacao(novaSol);
         showToast(editId ? 'Solicitação atualizada!' : 'Solicitação salva!');
         document.getElementById('formSolicitacaoContainer').innerHTML = '';
         render();
       }catch(err){
+        solicitacaoSalvandoV1471=false;
+        if(formSolV1471) delete formSolV1471.dataset.saving;
+        if(btnSolV1471){
+          btnSolV1471.disabled=false;
+          btnSolV1471.textContent=textoBtnSolV1471;
+        }
         showToast('Erro ao salvar solicitação: '+(err?.message||err), true);
+        return;
       }
+      solicitacaoSalvandoV1471=false;
     }
 
     /* ============================================================
        RENDER PRINCIPAL (com nova seção)
     ============================================================ */
 
-    // =========== V14.7 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
+    // =========== V14.7.1 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
     window.filtrosTempoFrotasV143 = window.filtrosTempoFrotasV143 || {dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};
 
     function isoFrota143(d){
@@ -6860,7 +6884,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     function baseTempoFrotasV143(){
       /*
-       * V14.7 — FONTE ÚNICA DE VERDADE
+       * V14.7.1 — FONTE ÚNICA DE VERDADE
        * O painel Tempo de Frotas usa exatamente periodos102(), a mesma função
        * usada pelo cálculo "Estadia por Frota" do Dashboard Custos Explodidos.
        * Assim, se existe estadia calculada, existe necessariamente o mesmo
@@ -8798,7 +8822,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const c=document.getElementById('solItensContainer'); if(c) addItemRowSol(c);
         });
         document.getElementById('btnCancelarSolicitacao')?.addEventListener('click',()=>{container.innerHTML='';});
-        document.getElementById('formSolicitacao')?.addEventListener('submit',e=>{e.preventDefault();salvarSolicitacaoHandler();});
+        document.getElementById('formSolicitacao')?.addEventListener('submit',e=>{
+          e.preventDefault();
+          if(e.currentTarget.dataset.saving==='1') return;
+          salvarSolicitacaoHandler();
+        });
         window.scrollTo({top:0,behavior:'smooth'});
       };
 
@@ -9457,7 +9485,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7.1";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9486,7 +9514,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7.1";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -14034,7 +14062,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 
 <script>
-/* V14.7 — filtros Tempo de Frotas */
+/* V14.7.1 — filtros Tempo de Frotas */
 (function(){
   function mascaraData143(v){
     v=String(v||'').replace(/\D/g,'').slice(0,8);
