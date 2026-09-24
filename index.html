@@ -5937,7 +5937,7 @@ function gerarPDF(rcData) {
         </div>
         <div class="form-actions" style="margin-top:10px">
           <button class="btn btn-accent" type="button" id="btnAplicarFiltrosSolicitacoes">Aplicar filtros</button>
-          <button class="btn btn-ghost" type="button" id="btnLimparFiltrosSolicitacoes">Limpar filtros</button>
+          <button class="btn btn-ghost" type="button" id="btnLimparFiltrosSolicitacoes">Limpar filtros</button>${perfilAtual==='admin'?'<button class="btn btn-ghost" type="button" id="btnLimparDuplicatasV1472" title="Somente duplicatas idênticas de 24/09/2026">🧹 Limpar duplicatas de hoje</button>':''}
         </div>
       </div>`;
     }
@@ -6563,6 +6563,94 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     let solicitacaoSalvandoV1471 = false;
 
+    /* V14.7.2 — limpeza manual e cirúrgica das duplicatas de 24/09/2026.
+       Não altera o fluxo normal. Só ADMIN executa, com confirmação.
+       Preserva o primeiro registro e só remove cópias comprovadamente idênticas,
+       sem RC/vínculo, criadas em até 10 segundos. */
+    function v1472Norm(v){return String(v??'').trim().toUpperCase().replace(/\s+/g,' ');}
+    function v1472Ms(sol){
+      const iso=sol.dataCriacao||'';
+      const a=Date.parse(iso);
+      if(Number.isFinite(a)) return a;
+      const t=sol.criadoEm;
+      if(t?.toMillis) return t.toMillis();
+      if(t?.seconds!=null) return Number(t.seconds)*1000;
+      return NaN;
+    }
+    function v1472Assinatura(sol){
+      const itens=(Array.isArray(sol.itens)?sol.itens:[]).map(i=>({
+        materialId:v1472Norm(i.materialId),codigo:v1472Norm(i.codigo),
+        descricao:v1472Norm(i.descricao),qtd:Number(i.qtd||0),
+        unidade:v1472Norm(i.unidade)
+      })).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      return JSON.stringify({
+        uid:v1472Norm(sol.criadoPorUid),email:v1472Norm(sol.criadoPorEmail),
+        nome:v1472Norm(sol.criadoPorNome||sol.solicitante),
+        centro:v1472Norm(sol.centroCusto),destino:v1472Norm(sol.destino),
+        necessidade:String(sol.dataNecessidade||'').slice(0,10),
+        inicio:String(sol.dataInicioManutencao||'').slice(0,10),
+        dias:Number(sol.diasManutencaoPrevistos||0),
+        fim:String(sol.dataSaida||sol.dataFimManutencaoPrevista||'').slice(0,10),
+        valor:Number(sol.valorServico||0),itens
+      });
+    }
+    function v1472Elegivel(sol){
+      const ms=v1472Ms(sol);
+      if(!Number.isFinite(ms)) return false;
+      const dia=new Date(ms);
+      const dataLocal=`${dia.getFullYear()}-${String(dia.getMonth()+1).padStart(2,'0')}-${String(dia.getDate()).padStart(2,'0')}`;
+      if(dataLocal!=='2026-09-24') return false; // deliberadamente NÃO toca dias anteriores
+      if(sol.convertida===true || sol.rcGerada || sol.rcGeradaId || sol.origemSolicitacaoId) return false;
+      const st=v1472Norm(sol.status);
+      if(st.includes('CONVERT')||st.includes('INCONSIST')) return false;
+      return true;
+    }
+    async function limparDuplicatasRecentesV1472(){
+      if(perfilAtual!=='admin'){showToast('Ação exclusiva do Administrador.',true);return;}
+      if(!confirm('Analisar somente as solicitações de 24/09/2026 para localizar cópias idênticas criadas em até 10 segundos? Nenhuma solicitação anterior será alterada.')) return;
+      try{
+        // Força uma leitura atual antes da análise; não trabalha sobre cache antigo.
+        await v130CarregarSolicitacoesFrescas(true);
+        const grupos=new Map();
+        solicitacoes.filter(v1472Elegivel).forEach(sol=>{
+          const k=v1472Assinatura(sol);
+          if(!grupos.has(k)) grupos.set(k,[]);
+          grupos.get(k).push(sol);
+        });
+        const excluir=[];
+        for(const grupo of grupos.values()){
+          grupo.sort((a,b)=>v1472Ms(a)-v1472Ms(b));
+          if(grupo.length<2) continue;
+          let original=grupo[0], base=v1472Ms(original);
+          for(let i=1;i<grupo.length;i++){
+            const ms=v1472Ms(grupo[i]);
+            if(ms-base<=10000) excluir.push(grupo[i]);
+            else {original=grupo[i];base=ms;}
+          }
+        }
+        if(!excluir.length){showToast('Nenhuma duplicata comprovada foi encontrada em 24/09/2026.');return;}
+        const resumo=excluir.map(x=>`${x.destino||'-'} • ${x.itens?.[0]?.codigo||x.itens?.[0]?.descricao||'material'} • ${new Date(v1472Ms(x)).toLocaleTimeString('pt-BR')}`).join('\n');
+        if(!confirm(`Foram encontradas ${excluir.length} cópia(s) idêntica(s):\n\n${resumo}\n\nO primeiro registro de cada grupo será PRESERVADO. Confirmar remoção somente dessas cópias?`)) return;
+
+        // Cada exclusão é individual; se alguma falhar, as demais não são mascaradas.
+        let removidas=0, falhas=0;
+        for(const dup of excluir){
+          try{
+            await db.collection('solicitacoes').doc(dup.id).delete();
+            solicitacoes=solicitacoes.filter(x=>x.id!==dup.id);
+            removidas++;
+          }catch(e){falhas++;console.error('Falha ao remover duplicata',dup.id,e);}
+        }
+        try{if(typeof v126SalvarCache==='function')v126SalvarCache('solicitacoes',solicitacoes);}catch(_){}
+        render();
+        if(falhas) showToast(`${removidas} cópia(s) removida(s); ${falhas} não puderam ser removidas. Os registros originais foram preservados.`,true);
+        else showToast(`${removidas} cópia(s) duplicada(s) removida(s). Nenhum registro original foi apagado.`);
+      }catch(err){
+        console.error(err);
+        showToast('Limpeza cancelada/sem conclusão: '+(err?.message||err),true);
+      }
+    }
+
     async function salvarSolicitacaoHandler() {
       if (solicitacaoSalvandoV1471) {
         showToast('A solicitação já está sendo gravada. Aguarde a confirmação.', true);
@@ -6759,7 +6847,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
        RENDER PRINCIPAL (com nova seção)
     ============================================================ */
 
-    // =========== V14.7.1 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
+    // =========== V14.7.2 — TEMPO DE FROTAS: NOVAS + HISTÓRICAS POR RC ===========
     window.filtrosTempoFrotasV143 = window.filtrosTempoFrotasV143 || {dataIni:'',dataFim:'',centro:'',situacao:'',frota:''};
 
     function isoFrota143(d){
@@ -6884,7 +6972,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     function baseTempoFrotasV143(){
       /*
-       * V14.7.1 — FONTE ÚNICA DE VERDADE
+       * V14.7.2 — FONTE ÚNICA DE VERDADE
        * O painel Tempo de Frotas usa exatamente periodos102(), a mesma função
        * usada pelo cálculo "Estadia por Frota" do Dashboard Custos Explodidos.
        * Assim, se existe estadia calculada, existe necessariamente o mesmo
@@ -8834,6 +8922,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         montarFormularioSolicitacao(null);
       });
 
+      document.getElementById('btnLimparDuplicatasV1472')?.addEventListener('click',limparDuplicatasRecentesV1472);
       document.getElementById('btnAplicarFiltrosSolicitacoes')?.addEventListener('click',()=>{
         state.solicitacaoFilters={
           dataIni:document.getElementById('solFiltroDataIni')?.value||'',
@@ -9485,7 +9574,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7.1";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7.2";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9514,7 +9603,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7.1";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7.2";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -14062,7 +14151,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 
 <script>
-/* V14.7.1 — filtros Tempo de Frotas */
+/* V14.7.2 — filtros Tempo de Frotas */
 (function(){
   function mascaraData143(v){
     v=String(v||'').replace(/\D/g,'').slice(0,8);
