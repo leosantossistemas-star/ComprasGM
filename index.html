@@ -5955,9 +5955,8 @@ function gerarPDF(rcData) {
             <div><div class="card-title">📝 Solicitar Material</div><div class="card-sub">Crie uma solicitação por filial e destino para converter em RC depois</div></div>
             ${podeCriar ? `<button class="btn btn-accent" id="btnNovaSolicitacao">+ Nova Solicitação</button>` : ''}
           </div>
-          ${podeCriar ? `
           <div id="formSolicitacaoContainer" style="margin-top:12px;"></div>
-          ` : `<p style="color:var(--text-muted);">Seu perfil não permite criar solicitações. Apenas Encarregado, Gerente e Administrador podem.</p>`}
+          ${!podeCriar ? `<p style="color:var(--text-muted);">Compras pode editar solicitações pendentes e convertê-las em RC. A criação de novas solicitações continua restrita ao Encarregado, Gerente e Administrador.</p>` : ''}
         </div>
         <div class="card">
           <div class="card-header"><div><div class="card-title">📋 Solicitações Registradas</div><div class="card-sub">Encarregado solicita · Compras converte em RC · Gerente/Admin visualizam todas as solicitações e a RC gerada</div></div></div>
@@ -6091,14 +6090,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           acoes.push(`<button class="btn btn-warning btn-sm" data-corrigir-vinculo-sol="${sol.id}" title="Reabrir a solicitação para gerar uma nova RC correta">Corrigir vínculo</button>`);
         }
 
+        // V14.7.3: a ação principal de Compras fica sempre visível antes das ações auxiliares.
+        if (!sol.convertida && !sol.arquivada && podeConverter) {
+          acoes.push(`<button class="btn btn-accent btn-sm" data-converter-sol="${sol.id}">Converter em RC</button>`);
+        }
         if (perfilAtual === 'admin') {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-editar-sol="${sol.id}">Editar tudo</button>`);
         } else if (!sol.convertida && !sol.arquivada && podeOperarSolicitacoes) {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-editar-sol="${sol.id}">Editar / Materiais</button>`);
           acoes.push(`<button class="btn btn-warning btn-sm" data-arquivar-sol="${sol.id}">Arquivar</button>`);
-        }
-        if (!sol.convertida && !sol.arquivada && podeConverter) {
-          acoes.push(`<button class="btn btn-accent btn-sm" data-converter-sol="${sol.id}">Converter em RC</button>`);
         }
         if (sol.arquivada && podeOperarSolicitacoes) {
           acoes.push(`<button class="btn btn-ghost btn-sm" data-reabrir-sol="${sol.id}">Reabrir</button>`);
@@ -6122,7 +6122,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           <td>${fmt.date(sol.dataNecessidade)}</td>
           <td><span class="badge ${statusCls}">${status}</span></td>
           <td>${rcCell}</td>
-          <td>${acoes.join(' ')}</td>
+          <td style="min-width:360px"><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${acoes.join(' ')}</div></td>
         </tr>`;
       }).join('');
       return `<div class="table-wrap"><table>
@@ -9574,7 +9574,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7.2";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7.3";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9603,7 +9603,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7.2";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7.3";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
