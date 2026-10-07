@@ -4392,6 +4392,7 @@ auth.onAuthStateChanged(async (user) => {
             <input type="hidden" id="baixaEditId" value="${baixaEd.id||''}">
             <div class="callout" style="margin-bottom:16px;border:1px solid var(--accent);background:rgba(163,255,0,.06);padding:12px;border-radius:10px">
               <strong>Baixa de Almoxarifado:</strong> use para saída de material do estoque ou entrega de EPI. O valor lançado entra no Custo Real do destino escolhido.
+              <div style="font-size:11px;color:var(--text-muted);margin-top:6px"><strong>Baixa em lote:</strong> você pode adicionar vários itens e confirmar todos de uma vez. Enquanto o vínculo com o estoque físico estiver desativado, esta operação é somente documental/financeira e não altera saldo real.</div>
             </div>
             <div class="form-grid">
               <div class="field"><label>Tipo da baixa *</label>
@@ -4418,13 +4419,24 @@ auth.onAuthStateChanged(async (user) => {
                 <input type="hidden" id="baixaMaterialCodigo" value="${baixaEd.itensRecebidos?.[0]?.codigo||''}">
                 <input id="baixaMaterialBusca" autocomplete="off"
                        value="${baixaEd.itensRecebidos?.[0]?.codigo ? `${baixaEd.itensRecebidos[0].codigo} — ${baixaEd.itensRecebidos[0].descricao||''}` : ''}"
-                       placeholder="Digite código, número, descrição, marca ou fornecedor..." required>
+                       placeholder="Digite código, número, descrição, marca ou fornecedor...">
                 <div id="baixaMaterialResultados" style="display:none;position:absolute;z-index:160;left:0;right:0;top:68px;max-height:520px;overflow:auto;background:var(--surface);border:1px solid var(--accent);border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.5)"></div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Digite apenas uma parte e clique no resultado desejado.</div>
                 <div id="baixaCAInfo" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px"></div>
               </div>
-              <div class="field"><label>Quantidade *</label><input type="number" min="0.0001" step="0.0001" id="baixaQuantidade" required value="${baixaEd.quantidade||baixaEd.itensRecebidos?.[0]?.quantidade||1}"></div>
-              <div class="field"><label>Valor unitário *</label><input type="number" min="0" step="0.01" id="baixaValorUnitario" required value="${numeroSeguro(baixaEd.valorUnitario||baixaEd.itensRecebidos?.[0]?.valorUnitario)||''}"></div>
+              <div class="field"><label>Quantidade *</label><input type="number" min="0.0001" step="0.0001" id="baixaQuantidade" value="${baixaEd.quantidade||baixaEd.itensRecebidos?.[0]?.quantidade||1}"></div>
+              <div class="field"><label>Valor unitário *</label><input type="number" min="0" step="0.01" id="baixaValorUnitario" value="${numeroSeguro(baixaEd.valorUnitario||baixaEd.itensRecebidos?.[0]?.valorUnitario)||''}"></div>
+
+              ${!baixaEd.id ? `
+              <div class="field" style="grid-column:span 4">
+                <button type="button" class="btn btn-ghost" id="btnAdicionarItemBaixaV148">＋ Adicionar item à baixa</button>
+                <span style="font-size:11px;color:var(--text-muted);margin-left:8px">Adicione quantos materiais precisar antes de confirmar.</span>
+              </div>
+              <div class="field" style="grid-column:span 4">
+                <div id="baixaLoteResumoV148" style="border:1px solid var(--border);border-radius:10px;padding:10px">
+                  <div style="color:var(--text-muted);font-size:12px">Nenhum item adicionado ao lote.</div>
+                </div>
+              </div>` : ''}
 
               <div class="field"><label>Fornecedor original do material</label><input id="baixaFornecedor" value="${baixaEd.fornecedor||''}" placeholder="Fornecedor de origem"></div>
               <div class="field" style="grid-column:span 2"><label>Colaborador que retirou / recebeu *</label>
@@ -4445,7 +4457,7 @@ auth.onAuthStateChanged(async (user) => {
               </div>
             </div>
             <div class="form-actions">
-              <button type="submit" class="btn btn-accent">${baixaEd.id?'Salvar alteração da baixa':'Confirmar baixa de almoxarifado'}</button>
+              <button type="submit" class="btn btn-accent">${baixaEd.id?'Salvar alteração da baixa':'Confirmar baixa / lote'}</button>
               ${ed?`<button type="button" class="btn btn-ghost" id="btnCancelarEdicaoNF">Cancelar edição</button>`:''}
             </div>
           </form>`;
@@ -7576,6 +7588,153 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         destino.innerHTML = '<option value="">Selecione</option>' + nomes.map(n=>`<option value="${n}">${n}</option>`).join('');
       });
 
+
+      // ============================================================
+      // V14.8 — BAIXA DE MATERIAIS EM LOTE
+      // Mantém o vínculo físico sob o MESMO controle já existente.
+      // vinculoAtivo=false => somente registros documentais/financeiros.
+      // vinculoAtivo=true  => transação atômica futura com saldo físico.
+      // ============================================================
+      window.baixaLoteV148 = Array.isArray(window.baixaLoteV148) ? window.baixaLoteV148 : [];
+
+      const renderBaixaLoteV148 = ()=>{
+        const box=document.getElementById('baixaLoteResumoV148');
+        if(!box)return;
+        const itens=window.baixaLoteV148||[];
+        if(!itens.length){
+          box.innerHTML='<div style="color:var(--text-muted);font-size:12px">Nenhum item adicionado ao lote.</div>';
+          return;
+        }
+        const total=itens.reduce((s,x)=>s+numeroSeguro(x.quantidade)*numeroSeguro(x.valorUnitario),0);
+        box.innerHTML=`
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px">
+            <strong>${itens.length} item(ns) no lote</strong><strong>${fmt.money(total)}</strong>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Código</th><th>Material</th><th>Qtd.</th><th>Un.</th><th>Valor unit.</th><th>Total</th><th></th></tr></thead>
+            <tbody>${itens.map((x,i)=>`<tr>
+              <td>${x.codigo||'—'}</td><td>${x.descricao||'—'}</td>
+              <td>${x.quantidade}</td><td>${x.unidade||'UN'}</td>
+              <td>${fmt.money(x.valorUnitario)}</td><td>${fmt.money(numeroSeguro(x.quantidade)*numeroSeguro(x.valorUnitario))}</td>
+              <td><button type="button" class="btn btn-danger btn-sm" data-remover-baixa-v148="${i}">Remover</button></td>
+            </tr>`).join('')}</tbody>
+          </table></div>`;
+        box.querySelectorAll('[data-remover-baixa-v148]').forEach(b=>b.addEventListener('click',()=>{
+          window.baixaLoteV148.splice(Number(b.dataset.removerBaixaV148),1);
+          renderBaixaLoteV148();
+        }));
+      };
+
+      const itemAtualBaixaV148=()=>{
+        const codigo=document.getElementById('baixaMaterialCodigo')?.value||'';
+        const material=allItems.find(i=>String(i.codigo||'')===String(codigo));
+        const quantidade=numeroSeguro(document.getElementById('baixaQuantidade')?.value);
+        const valorUnitario=numeroSeguro(document.getElementById('baixaValorUnitario')?.value);
+        if(!material) throw new Error('Pesquise e selecione um material/EPI válido.');
+        if(quantidade<=0) throw new Error('Informe uma quantidade válida.');
+        if(valorUnitario<0) throw new Error('Informe um valor unitário válido.');
+        const tipo=document.getElementById('baixaTipo')?.value||'MATERIAL';
+        if(tipo==='EPI'){
+          if(material.ehEPI!==true) throw new Error('O item selecionado não está cadastrado como EPI.');
+          if(!material.caNumero||!material.caValidade) throw new Error('EPI sem número/validade de CA.');
+          const data=document.getElementById('baixaData')?.value||hojeISO();
+          if(material.caValidade<data) throw new Error(`ENTREGA BLOQUEADA: CA ${material.caNumero} vencido em ${fmt.date(material.caValidade)}.`);
+        }
+        return {
+          codigo:material.codigo||codigo,
+          materialId:material.id||'',
+          descricao:material.descricaoSimples||material.descricaoCurta||material.descricaoCompleta||codigo,
+          unidade:material.unid||material.unidade||'UN',
+          quantidade, valorUnitario,
+          fornecedor:(document.getElementById('baixaFornecedor')?.value||material.fornecedor||'').trim(),
+          ehEPI:material.ehEPI===true,
+          caNumero:material.caNumero||'', caValidade:material.caValidade||''
+        };
+      };
+
+      document.getElementById('btnAdicionarItemBaixaV148')?.addEventListener('click',()=>{
+        try{
+          const item=itemAtualBaixaV148();
+          const existente=(window.baixaLoteV148||[]).find(x=>String(x.codigo)===String(item.codigo));
+          if(existente){
+            existente.quantidade=numeroSeguro(existente.quantidade)+numeroSeguro(item.quantidade);
+            existente.valorUnitario=item.valorUnitario;
+            existente.fornecedor=item.fornecedor||existente.fornecedor;
+          }else{
+            window.baixaLoteV148.push(item);
+          }
+          const cod=document.getElementById('baixaMaterialCodigo'),busca=document.getElementById('baixaMaterialBusca');
+          if(cod)cod.value=''; if(busca)busca.value='';
+          const qtd=document.getElementById('baixaQuantidade'); if(qtd)qtd.value='1';
+          const unit=document.getElementById('baixaValorUnitario'); if(unit)unit.value='';
+          const forn=document.getElementById('baixaFornecedor'); if(forn)forn.value='';
+          atualizarBaixaTotal();
+          renderBaixaLoteV148();
+          busca?.focus();
+        }catch(err){showToast(err.message||String(err),true);}
+      });
+      renderBaixaLoteV148();
+
+      async function salvarBaixaLoteV148(itens, comum){
+        if(!Array.isArray(itens)||!itens.length)throw new Error('Adicione pelo menos um item à baixa.');
+        const loteId='BX-'+String(Date.now())+'-'+Math.random().toString(36).slice(2,7).toUpperCase();
+        const refs=itens.map(()=>db.collection('recebimentos_nf').doc());
+
+        // ESTOQUE REAL AINDA DESATIVADO: grava o lote documental em um único batch.
+        if(!almoxConfigV107.vinculoAtivo){
+          const batch=db.batch();
+          itens.forEach((it,idx)=>{
+            const codigoContabil=comum.tipoBaixa==='EPI'?'3.2.1.03':'3.2.1.05';
+            const conta=PLANO_CONTAS.find(c=>c.codigo===codigoContabil);
+            const total=numeroSeguro(it.quantidade)*numeroSeguro(it.valorUnitario);
+            batch.set(refs[idx],dadosFirestoreSemIdV115({
+              ...comum,
+              tipoDocumento:'BAIXA_ESTOQUE',tipoOperacao:'BAIXA_ESTOQUE',
+              numeroNF:'Não Aplicado',numeroNFOriginal:'Não Aplicado',rcNumero:'',
+              descricao:it.descricao,quantidade:it.quantidade,valorUnitario:it.valorUnitario,valorTotal:total,
+              fornecedor:it.fornecedor||comum.fornecedor||'',
+              itensRecebidos:[{codigo:it.codigo,descricao:it.descricao,quantidade:it.quantidade,unidade:it.unidade||'UN',valorUnitario:it.valorUnitario,total}],
+              codigoContabil,contaContabilDescricao:conta?.descricao||(comum.tipoBaixa==='EPI'?'Custos EPI':'Custos de Material em Estoque'),
+              contaContabilOrientacao:conta?.orientacao||'',statusPagamento:'',condicaoPagamento:'',
+              condicaoCompra:'BAIXA DE ALMOXARIFADO',origem:'baixa_almoxarifado_lote_v14_8',
+              caNumero:comum.tipoBaixa==='EPI'?(it.caNumero||''):'',
+              caValidade:comum.tipoBaixa==='EPI'?(it.caValidade||''):'',
+              baixaLoteId:loteId,baixaLoteQuantidadeItens:itens.length,
+              criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),criadoPorNome:getUsuarioNome(),
+              criadoEm:firebase.firestore.FieldValue.serverTimestamp()
+            }));
+          });
+          await batch.commit();
+          return {loteId,refs};
+        }
+
+        // Quando o vínculo físico for ativado, o lote inteiro é validado e baixado em UMA transação.
+        const estoqueFisico=estoqueFisicoPadraoV109(comum.centroCusto||comum.destino||'SANTOS');
+        const fisicos=itens.map(it=>{
+          const mat=allItems.find(m=>String(m.codigo||'')===String(it.codigo));
+          const a=acharA107PorEstoque(it.codigo,it.descricao,estoqueFisico);
+          if(!mat||!a)throw new Error(`ESTOQUE INSUFICIENTE: ${it.codigo} — ${it.descricao}.`);
+          return {it,mat,a,itemRef:db.collection('almoxarifado_itens').doc(a.id),movRef:db.collection('almoxarifado_movimentacoes').doc()};
+        });
+        await db.runTransaction(async tr=>{
+          const snaps=[];
+          for(const f of fisicos)snaps.push(await tr.get(f.itemRef));
+          for(let i=0;i<fisicos.length;i++){
+            const f=fisicos[i],snap=snaps[i],saldo=snap.exists?numeroSeguro(snap.data().quantidadeAtual):0;
+            if(!snap.exists||saldo+0.000001<numeroSeguro(f.it.quantidade))
+              throw new Error(`ESTOQUE INSUFICIENTE: ${f.it.codigo}. Saldo ${saldo}; solicitado ${f.it.quantidade}. Nenhum item do lote foi baixado.`);
+          }
+          fisicos.forEach((f,i)=>{
+            const saldo=numeroSeguro(snaps[i].data().quantidadeAtual),q=numeroSeguro(f.it.quantidade),vu=numeroSeguro(f.it.valorUnitario);
+            tr.update(f.itemRef,{quantidadeAtual:saldo-q,ultimaMovimentacao:new Date().toISOString()});
+            tr.set(f.movRef,dadosFirestoreSemIdV115({tipo:'SAIDA',data:comum.dataDocumento,itemId:f.a.id,codigo:f.it.codigo,itemNome:f.a.nome||f.it.descricao,quantidade:q,valorUnitario:vu,valorTotal:q*vu,centroCusto:comum.centroCusto,estoqueFisico,destino:comum.destino,colaborador:comum.colaboradorRetirada,origem:'BAIXA_ALMOXARIFADO_LOTE',baixaLoteId:loteId,observacoes:comum.observacoes||'',criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()}));
+            const codigoContabil=comum.tipoBaixa==='EPI'?'3.2.1.03':'3.2.1.05',conta=PLANO_CONTAS.find(c=>c.codigo===codigoContabil);
+            tr.set(refs[i],dadosFirestoreSemIdV115({...comum,tipoDocumento:'BAIXA_ESTOQUE',tipoOperacao:'BAIXA_ESTOQUE',numeroNF:'Não Aplicado',numeroNFOriginal:'Não Aplicado',rcNumero:'',descricao:f.it.descricao,quantidade:q,valorUnitario:vu,valorTotal:q*vu,fornecedor:f.it.fornecedor||'',itensRecebidos:[{codigo:f.it.codigo,descricao:f.it.descricao,quantidade:q,unidade:f.it.unidade||'UN',valorUnitario:vu,total:q*vu}],codigoContabil,contaContabilDescricao:conta?.descricao||'',contaContabilOrientacao:conta?.orientacao||'',statusPagamento:'',condicaoPagamento:'',condicaoCompra:'BAIXA DE ALMOXARIFADO',origem:'baixa_almoxarifado_lote_v14_8',caNumero:comum.tipoBaixa==='EPI'?f.it.caNumero:'',caValidade:comum.tipoBaixa==='EPI'?f.it.caValidade:'',baixaLoteId:loteId,baixaLoteQuantidadeItens:itens.length,criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),criadoPorNome:getUsuarioNome(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()}));
+          });
+        });
+        return {loteId,refs};
+      }
+
       const formBaixa = document.getElementById('formBaixaAlmox');
       if (formBaixa) formBaixa.addEventListener('submit', async e=>{
         e.preventDefault();
@@ -7591,6 +7750,51 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const centro = centroCustoNormalizado(document.getElementById('baixaCentro')?.value);
         const destino = document.getElementById('baixaDestino')?.value || '';
         const fornecedor = (document.getElementById('baixaFornecedor')?.value || '').trim();
+
+        // V14.8: lote tem prioridade sobre o lançamento unitário.
+        if (!editId && Array.isArray(window.baixaLoteV148) && window.baixaLoteV148.length) {
+          if (!centro) return showToast('Selecione o centro/empresa.', true);
+          if (!destino) return showToast('Selecione o local de uso/destino.', true);
+          if (!colaborador) return showToast('Informe o colaborador que retirou/recebeu os itens.', true);
+          const dataLote=document.getElementById('baixaData')?.value||hojeISO();
+          if(tipoBaixa==='EPI'){
+            for(const it of window.baixaLoteV148){
+              if(!it.ehEPI) return showToast(`O item ${it.codigo} não está cadastrado como EPI.`,true);
+              if(!it.caNumero||!it.caValidade) return showToast(`EPI ${it.codigo} sem CA/validade.`,true);
+              if(it.caValidade<dataLote) return showToast(`ENTREGA BLOQUEADA: CA ${it.caNumero} do item ${it.codigo} está vencido.`,true);
+            }
+          }
+          const btn=formBaixa.querySelector('button[type="submit"]');
+          try{
+            formBaixa.dataset.saving='1';
+            if(btn){btn.disabled=true;btn.textContent='Salvando lote...';}
+            const comum={
+              tipoBaixa,dataDocumento:dataLote,centroCusto:centro,destino,
+              colaboradorRetirada:colaborador,fornecedor,
+              observacoes:document.getElementById('baixaObservacao')?.value||''
+            };
+            const itensLote=[...window.baixaLoteV148];
+            const resultado=await salvarBaixaLoteV148(itensLote,comum);
+            if(tipoBaixa==='EPI'){
+              const b=db.batch();
+              itensLote.forEach(it=>{
+                const ref=db.collection('rh_entregas_epi').doc();
+                b.set(ref,{origem:'BAIXA_ALMOXARIFADO',tipoBaixa:'EPI',data:dataLote,dataDocumento:dataLote,colaboradorNome:colaborador,colaboradorRetirada:colaborador,codigo:it.codigo,descricao:it.descricao,quantidade:it.quantidade,valorUnitario:it.valorUnitario,valorTotal:numeroSeguro(it.quantidade)*numeroSeguro(it.valorUnitario),destino,centroCusto:centro,fornecedor:it.fornecedor||fornecedor,caNumero:it.caNumero||'',caValidade:it.caValidade||'',baixaLoteId:resultado.loteId,criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),criadoPorNome:getUsuarioNome(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+              });
+              await b.commit();
+            }
+            window.baixaLoteV148=[];
+            state.nfEditId=null;state.recebimentoOperacao='BAIXA_ESTOQUE';
+            showToast(`Baixa em lote concluída: ${itensLote.length} item(ns).`);
+            render();
+          }catch(err){
+            showToast('Erro ao salvar baixa em lote: '+(err.message||err),true);
+          }finally{
+            formBaixa.dataset.saving='0';
+            if(btn){btn.disabled=false;btn.textContent='Confirmar baixa / lote';}
+          }
+          return;
+        }
 
         if (!material) return showToast('Pesquise e selecione um material/EPI válido na lista de resultados.', true);
         if (qtd <= 0) return showToast('Informe uma quantidade válida.', true);
@@ -9574,7 +9778,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       // Perfil RH não deve sequer abrir listeners de Compras, pois as Rules bloqueiam essas coleções.
       if (perfilAtual === 'rh') {
-        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.7.3";
+        document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.8";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
         v125CarregarSecao('rh',false).then(()=>render());
@@ -9603,7 +9807,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.7.3";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.8";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
