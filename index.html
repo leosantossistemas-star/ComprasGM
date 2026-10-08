@@ -3062,25 +3062,23 @@ auth.onAuthStateChanged(async (user) => {
       const a=document.createElement('a');a.href=url;a.download='Auditoria_Saneamento_Cryotronics_V1493.csv';a.click();
       setTimeout(()=>URL.revokeObjectURL(url),3000);
     }
+    // Recuperação segura: nenhuma importação, exclusão ou renumeração automática.
     function renderSyncV149(){
       if(perfilAtual!=='admin')return '';
       const a=saneamentoV1493;
+      const novos=a?allItems.filter(m=>!IDS_ORIGINAIS_V1493.has(m.id)):[];
+      const importados=novos.filter(m=>m.origemSincronizacao==='REV07');
+      const demais=novos.filter(m=>m.origemSincronizacao!=='REV07');
       return `<div class="card" style="margin-bottom:18px;padding:16px">
-        <h3>Saneamento de Materiais — Administrador</h3>
-        <p style="font-size:12px">V14.9.3 · Não importa novos materiais, não exclui registros e preserva todos os IDs do Firebase.</p>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">
-          <button type="button" class="btn btn-accent" id="sanAuditarV1493">Auditar cadastro atual</button>
-          <button type="button" class="btn btn-ghost" id="sanExportarV1493" ${!a?'disabled':''}>Exportar relatório</button>
-          <button type="button" class="btn btn-warning" id="sanCorrigirV1493" ${!a||!aceiteV1493||!a.correcoes.length||processandoV1493?'disabled':''}>Corrigir somente códigos repetidos</button>
-        </div>
-        ${a?`<strong>${a.total} registros · ${a.originaisPresentes}/593 originais preservados · ${a.novos} adicionados · ${a.conflitos.length} grupos de códigos repetidos · ${a.correcoes.length} renumerações seguras · ${a.bloqueados.length} conflitos bloqueados · ${a.candidatosDuplicados.length} grupos de possíveis duplicados</strong>
-          <p style="font-size:12px">As possíveis duplicidades de material não serão apagadas: precisam de verificação dos vínculos históricos. O total de materiais não será reduzido por esta correção.</p>
-          <div style="max-height:320px;overflow:auto;margin:10px 0"><table><thead><tr><th>Código atual</th><th>Material</th><th>Novo código</th><th>ID preservado</th></tr></thead><tbody>
-          ${a.correcoes.map(x=>`<tr><td>${escV1493(x.antigo)}</td><td>${escV1493(x.descricao)}</td><td>${escV1493(x.novo)}</td><td>${escV1493(x.id)}</td></tr>`).join('')}
-          </tbody></table></div>
-          ${a.bloqueados.length?`<p style="color:#f59e0b">Há conflitos que exigem revisão e não serão alterados automaticamente.</p>`:''}
-          <label><input type="checkbox" id="sanAceiteV1493" ${aceiteV1493?'checked':''}> Tenho backup atualizado e autorizo somente as renumerações listadas acima.</label>`
-          :'Clique em Auditar cadastro atual. A antiga rotina de importação foi desativada.'}
+        <h3>Recuperação do Cadastro de Materiais</h3>
+        <p style="font-size:13px">Preservação dos materiais anteriores às cargas e identificação dos registros acrescentados. Nenhuma importação ou renumeração será realizada nesta tela.</p>
+        <button type="button" class="btn btn-accent" id="sanAuditarV1493">Conferir cadastro no Firebase</button>
+        <button type="button" class="btn btn-ghost" id="sanExportarV1493" ${!a?'disabled':''}>Baixar relação para recuperação (CSV)</button>
+        ${a?`<p style="margin-top:12px"><strong>${a.total} registros no Firebase · ${a.originaisPresentes}/593 anteriores às cargas preservados · ${importados.length} novos marcados como importação Rev07 · ${demais.length} novos sem essa marcação</strong></p>
+        <p style="font-size:12px;color:#f59e0b">Registros que já existiam e foram modificados pela importação continuam protegidos por seu ID. Registros marcados como Rev07 não serão apagados sem verificação dos vínculos.</p>
+        <div style="max-height:290px;overflow:auto"><table><thead><tr><th>Código</th><th>Descrição</th><th>Classificação</th><th>ID do Firebase</th></tr></thead><tbody>
+        ${novos.map(m=>`<tr><td>${escV1493(m.codigo)}</td><td>${escV1493(m.descricaoCurta||m.descricaoSimples||m.descricaoCompleta)}</td><td>${m.origemSincronizacao==='REV07'?'Criado após backup / marcado Rev07':'Criado após backup / outra origem'}</td><td>${escV1493(m.id)}</td></tr>`).join('')}
+        </tbody></table></div>`:'Clique em Conferir cadastro no Firebase para identificar os registros criados após o backup.'}
       </div>`;
     }
     function bindSyncV149(){
@@ -3089,37 +3087,17 @@ auth.onAuthStateChanged(async (user) => {
         try{
           const snap=await db.collection('materiais').get();
           allItems=snap.docs.map(d=>({id:d.id,...d.data()}));
-          saneamentoV1493=analisarV1493(allItems);aceiteV1493=false;render();
-        }catch(e){showToast('Falha na auditoria: '+e.message,true);}
+          saneamentoV1493=analisarV1493(allItems);render();
+        }catch(e){showToast('Falha na conferência: '+e.message,true);}
       });
-      document.getElementById('sanExportarV1493')?.addEventListener('click',exportarAuditoriaV1493);
-      document.getElementById('sanAceiteV1493')?.addEventListener('change',e=>{aceiteV1493=e.target.checked;render();});
-      document.getElementById('sanCorrigirV1493')?.addEventListener('click',async()=>{
-        if(perfilAtual!=='admin'||!saneamentoV1493||!aceiteV1493||processandoV1493)return;
-        if(!confirm('Aplicar somente as renumerações listadas? Nenhum registro será criado ou excluído.'))return;
-        processandoV1493=true;render();
-        try{
-          const snap=await db.collection('materiais').get();
-          const atuais=snap.docs.map(d=>({id:d.id,...d.data()}));
-          const assinatura=x=>JSON.stringify(x.map(m=>[m.id,codV1493(m.codigo)]).sort((a,b)=>a[0].localeCompare(b[0])));
-          if(assinatura(atuais)!==JSON.stringify(saneamentoV1493.snapshot))throw Error('Cadastro alterado desde a auditoria. Audite novamente.');
-          const correcoes=saneamentoV1493.correcoes;
-          for(let i=0;i<correcoes.length;i+=100){
-            const batch=db.batch();
-            correcoes.slice(i,i+100).forEach(x=>{
-              batch.update(db.collection('materiais').doc(x.id),{
-                codigo:x.novo,ajusteCodigoV1493:true,
-                codigoAnteriorV1493:x.antigo,
-                dataAjusteCodigoV1493:firebase.firestore.FieldValue.serverTimestamp()
-              });
-            });
-            await batch.commit();
-          }
-          showToast('Renumerações concluídas. Execute nova auditoria para validar.');
-          saneamentoV1493=null;aceiteV1493=false;
-          render();
-        }catch(e){showToast('Correção interrompida: '+e.message,true);}
-        finally{processandoV1493=false;}
+      document.getElementById('sanExportarV1493')?.addEventListener('click',()=>{
+        if(!saneamentoV1493)return;
+        const rows=[['Codigo','Descricao','ID Firestore','Origem','Classificacao']];
+        allItems.forEach(m=>rows.push([m.codigo||'',m.descricaoCurta||m.descricaoSimples||m.descricaoCompleta||'',m.id,m.origemSincronizacao||'',IDS_ORIGINAIS_V1493.has(m.id)?'PRESERVAR - ANTERIOR AS CARGAS':m.origemSincronizacao==='REV07'?'NOVO APOS BACKUP - MARCADO REV07':'NOVO APOS BACKUP - OUTRA ORIGEM']));
+        const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');
+        const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+        const el=document.createElement('a');el.href=url;el.download='Cryotronics_Recuperacao_Cadastro_Firebase.csv';el.click();
+        setTimeout(()=>URL.revokeObjectURL(url),3000);
       });
     }
 
