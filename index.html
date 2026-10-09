@@ -1614,20 +1614,54 @@ auth.onAuthStateChanged(async (user) => {
     /* ============================================================
        FUNÇÕES FIRESTORE – MATERIAIS (mantidas)
     ============================================================ */
+    // Cadastro oficial: preserva IDs, bloqueia colisões e impede exclusão física.
+    function normalizarDescricaoMaterial(v) {
+      return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+    }
     async function salvarMaterial(material) {
+      const col = db.collection('materiais');
+      const codigo = String(material.codigo || '').trim().toUpperCase();
+      const descricao = normalizarDescricaoMaterial(material.descricaoCurta || material.descricaoSimples || material.descricaoCompleta);
+      if (!descricao) throw new Error('Informe a descrição do material.');
+      // O número é atribuído exclusivamente no Firebase, nunca por planilha ou cache local.
       if (material.id) {
-        await db.collection('materiais').doc(material.id).set(material);
-      } else {
-        const docRef = await db.collection('materiais').add(material);
-        material.id = docRef.id;
+        const ref = col.doc(material.id);
+        const anterior = await ref.get();
+        if (!anterior.exists) throw new Error('Cadastro original não localizado. Atualize a página.');
+        const codigoOriginal = String(anterior.data().codigo || '').trim().toUpperCase();
+        if (codigo && codigo !== codigoOriginal) throw new Error('Código do material é permanente. Não pode ser alterado.');
+        await ref.update({...material, id: material.id, codigo: codigoOriginal});
+        return {...material, codigo: codigoOriginal};
       }
+      const existentes = await col.get();
+      for (const d of existentes.docs) {
+        const m = d.data();
+        const atual = normalizarDescricaoMaterial(m.descricaoCurta || m.descricaoSimples || m.descricaoCompleta);
+        if (atual && atual === descricao && m.ativo !== false)
+          throw new Error('Material já cadastrado: '+(m.codigo || d.id)+'. Utilize o cadastro existente.');
+      }
+      const maximo = existentes.docs.reduce((n,d)=>{
+        const m = String(d.data().codigo || '').match(/^CRY-(\d+)$/i);
+        return m ? Math.max(n,Number(m[1])) : n;
+      },0);
+      // Operação transacional de reserva do próximo código, com verificação de colisão.
+      const contador = db.collection('controleCadastro').doc('sequenciaMateriaisCRY');
+      const novo = col.doc();
+      const criado = await db.runTransaction(async tx=>{
+        const snap = await tx.get(contador);
+        const proximo = Math.max(maximo,Number(snap.exists ? snap.data().ultimoCodigo : 0)||0)+1;
+        const novoCodigo='CRY-'+String(proximo).padStart(4,'0');
+        tx.set(contador,{ultimoCodigo:proximo,atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        tx.set(novo,{...material,id:novo.id,codigo:novoCodigo,origemCadastro:'SISTEMA',ativo:true,dataCriacao:firebase.firestore.FieldValue.serverTimestamp()});
+        return novoCodigo;
+      });
+      material.id=novo.id; material.codigo=criado;
       return material;
     }
-
     async function excluirMaterial(id) {
-      await db.collection('materiais').doc(id).delete();
+      throw new Error('Exclusão física desativada para preservar o histórico. Solicite inativação administrativa.');
     }
-
     async function encontrarMaterialPorCodigo(codigo) {
       const snapshot = await db.collection('materiais').where('codigo', '==', codigo).get();
       if (snapshot.empty) return null;
@@ -3107,7 +3141,7 @@ auth.onAuthStateChanged(async (user) => {
         ${renderSyncV149()}
         ${renderFilters()}
         <div class="card">
-          <div class="card-header"><div><div class="card-title">Lista de Materiais</div><div class="card-sub">Com ações de edição e exclusão</div></div></div>
+          <div class="card-header"><div><div class="card-title">Lista de Materiais</div><div class="card-sub">Cadastro protegido: códigos permanentes e sem exclusão física</div></div></div>
           ${renderTable(filtered, { showActions: true })}
         </div>
       `;
@@ -3425,10 +3459,12 @@ auth.onAuthStateChanged(async (user) => {
       const podeEditar = ['gerente','admin'].includes(perfil);
 
       const destinosPadrao = DESTINOS_PADRAO.map(cfg => {
-        const existente = frotas.find(f =>
+        const correspondentes = frotas.filter(f =>
           nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(cfg.nome) &&
           getCentroCustoRegistro(f) === cfg.centroCusto
         );
+        // O ID oficial da conta padrão tem precedência sobre registros legados duplicados.
+        const existente = correspondentes.find(f => f.id === cfg.id) || correspondentes[0];
         return existente || {
           id: cfg.id,
           nome: cfg.nome,
@@ -8881,46 +8917,40 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const p=frotas.find(x=>x.id===btn.dataset.statusProjeto); if(p) abrirModalProjeto(p,true);
       }));
 
+      // V15.2 — fonte única por destino e validação após recarga real do Firestore.
       document.querySelectorAll('[data-editar-limite-padrao]').forEach(btn=>btn.addEventListener('click', async ()=>{
-        if(!['gerente','admin'].includes(perfilAtual)){
-          showToast('Somente Gerente e Administrador podem alterar os limites.',true);
-          return;
-        }
-        const nome = btn.dataset.nomePadrao;
-        const centroCusto = centroCustoNormalizado(btn.dataset.centroCusto) || 'SANTOS';
-        const cfg = configuracaoDestinoPadrao(nome, centroCusto);
-        let destino = frotas.find(f => nomeNormalizadoDestino(f.nome) === nomeNormalizadoDestino(nome) && getCentroCustoRegistro(f) === centroCusto);
-        if (!destino) destino = { id: cfg.id, nome: cfg.nome, centroCusto:cfg.centroCusto, tipoDestino:'padrao', limiteFixo:cfg.limiteFixo, percentualLimite:100 };
-
-        const baseAtual = numeroSeguro(destino.limiteFixo) || cfg.limiteFixo || 50000;
-        const baseTxt = prompt(`Base disponível para "${nome}" (R$):`, String(baseAtual));
-        if (baseTxt === null) return;
-        const novaBase = parseMoney(baseTxt);
-        if (novaBase <= 0) { showToast('Informe uma base maior que zero.', true); return; }
-
-        const pctTxt = prompt(`Percentual liberado para "${nome}" (%):`, String(getPercentualFrota(destino)));
-        if (pctTxt === null) return;
-        const pct = Number(String(pctTxt).replace(',','.'));
-        if(!Number.isFinite(pct)||pct<0){showToast('Percentual inválido.',true);return;}
-
-        try {
-          await db.collection('frotas').doc(destino.id || cfg.id).set({
-            nome: cfg?.nome || nome,
-            centroCusto: cfg?.centroCusto || centroCusto,
-            tipoDestino: 'padrao',
-            limiteFixo: novaBase,
-            valorOrcamento: novaBase,
-            percentualLimite: pct,
-            dataPrevisaoSaida: '',
-            alteradoPorUid: getUsuarioUid(),
-            alteradoPorEmail: getUsuarioEmail(),
-            alteradoPorNome: getUsuarioNome(),
-            alteradoEm: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true });
-          showToast(`"${nome}": ${pct}% de ${fmt.money(novaBase)} = ${fmt.money(novaBase*(pct/100))} liberados.`);
-        } catch (err) {
-          showToast('Erro ao atualizar limite: ' + err.message, true);
-        }
+        if(!['gerente','admin'].includes(perfilAtual)) return showToast('Somente Gerente e Administrador podem alterar limites.',true);
+        if(btn.disabled) return;
+        const cfg=configuracaoDestinoPadrao(btn.dataset.nomePadrao,centroCustoNormalizado(btn.dataset.centroCusto));
+        if(!cfg) return showToast('Destino padrão não encontrado.',true);
+        const relacionados=frotas.filter(f=>nomeNormalizadoDestino(f.nome)===nomeNormalizadoDestino(cfg.nome)&&getCentroCustoRegistro(f)===cfg.centroCusto);
+        const atual=relacionados.find(f=>f.id===cfg.id)||relacionados[0]||cfg;
+        const txt=prompt(`Limite da ${cfg.nome} — ${cfg.centroCusto} (R$):`,String(numeroSeguro(atual.limiteFixo)||cfg.limiteFixo));
+        if(txt===null)return;
+        const novo=parseMoney(txt);
+        if(!Number.isFinite(novo)||novo<=0)return showToast('Informe um limite maior que zero.',true);
+        const txtPct=prompt(`Percentual liberado da ${cfg.nome} — ${cfg.centroCusto} (%):`,String(getPercentualFrota(atual)));
+        if(txtPct===null)return;
+        const pct=Number(String(txtPct).replace(',','.'));
+        if(!Number.isFinite(pct)||pct<0||pct>100)return showToast('Percentual inválido (0 a 100).',true);
+        btn.disabled=true;
+        try{
+          // Salva no ID canônico utilizado pelo sistema para a conta padrão.
+          const ref=db.collection('frotas').doc(cfg.id);
+          await ref.set({nome:cfg.nome,centroCusto:cfg.centroCusto,tipoDestino:'padrao',
+            limiteFixo:novo,valorOrcamento:novo,percentualLimite:pct,
+            alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),
+            alteradoPorNome:getUsuarioNome(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()}, {merge:true});
+          // Recarrega TODOS os destinos do servidor, ignorando cache local e de outras abas.
+          await v125CarregarColecao('frotas',true);
+          const salvo=frotas.find(f=>f.id===cfg.id);
+          if(!salvo||Math.abs(numeroSeguro(salvo.limiteFixo)-novo)>0.001||Math.abs(getPercentualFrota(salvo)-pct)>0.001)
+            throw new Error('O valor não foi confirmado após a recarga do Firebase.');
+          render();
+          showToast(`Limite confirmado no Firebase: ${cfg.nome} — ${cfg.centroCusto}: ${fmt.money(novo)} (${pct}%).`);
+        }catch(err){
+          showToast('Falha ao atualizar o limite: '+(err.message||err),true);
+        }finally{btn.disabled=false;}
       }));
 
       document.querySelectorAll('[data-editar-frota]').forEach(btn=>btn.addEventListener('click',()=>{
