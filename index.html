@@ -867,9 +867,9 @@
       perPage: 25,
       rcFilters: { status: "", dataIni: "", dataFim: "", aprovIni: "", aprovFim: "", fornecedor: "", destino: "", centroCusto: "", aprovador: "" },
       configDiariasCentroV122: { SANTOS:700, 'CAMAÇARI':350, MECHATRONICS:0 },
-      dashboardFilters: { dataIni: "", dataFim: "", aprovIni: "", aprovFim: "", fornecedor: "", destino: "", centroCusto: "" },
-      nfFilters: { busca: "", dataIni: "", dataFim: "", aprovIni: "", aprovFim: "", fornecedor: "", destino: "", centroCusto: "", codigoContabil: "", tipoDocumento: "" },
-      custosFilters: { dataIni: "", dataFim: "", aprovIni: "", aprovFim: "", fornecedor: "", destino: "", centroCusto: "", codigoContabil: "" },
+      dashboardFilters: { dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "" },
+      nfFilters: { busca: "", dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "", codigoContabil: "", tipoDocumento: "" },
+      custosFilters: { dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "", codigoContabil: "" },
       nfEditId: null,
       rcPage: 1,
       rcPerPage: 20,
@@ -1983,16 +1983,19 @@ auth.onAuthStateChanged(async (user) => {
         if (f.dataFim && rc.data > f.dataFim) return false;
         if (f.aprovIni || f.aprovFim) {
           if (statusRCV119(rc.status) !== 'aprovado') return false;
-          const raw = rc.dataAprovacao || rc.aprovadoEm || rc.dataAprovacaoLocal || '';
-          let aprov = '';
+          const raw = rc.dataAprovacao || rc.aprovadoEm || rc.dataAprovacaoLocal;
+          let dataAprov = '';
           if (typeof raw === 'string') {
-            aprov = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0,10) : (/^\d{2}\/\d{2}\/\d{4}$/.test(raw) ? raw.slice(6)+'-'+raw.slice(3,5)+'-'+raw.slice(0,2) : '');
+            if (/^\d{4}-\d{2}-\d{2}/.test(raw)) dataAprov = raw.slice(0,10);
+            else if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) dataAprov = raw.slice(6,10)+'-'+raw.slice(3,5)+'-'+raw.slice(0,2);
           } else if (raw && typeof raw.toDate === 'function') {
-            const d = raw.toDate(); aprov = [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+            const d=raw.toDate();
+            dataAprov=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
           } else if (raw && typeof raw.seconds === 'number') {
-            const d = new Date(raw.seconds*1000); aprov = [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+            const d=new Date(raw.seconds*1000);
+            dataAprov=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
           }
-          if (!aprov || (f.aprovIni && aprov < f.aprovIni) || (f.aprovFim && aprov > f.aprovFim)) return false;
+          if (!dataAprov || (f.aprovIni && dataAprov < f.aprovIni) || (f.aprovFim && dataAprov > f.aprovFim)) return false;
         }
         if (f.fornecedor && rc.fornecedor !== f.fornecedor) return false;
         if (f.destino && rc.aplicacao !== f.destino) return false;
@@ -4814,8 +4817,8 @@ auth.onAuthStateChanged(async (user) => {
                 <input type="date" id="rcFiltroDataFim" value="${state.rcFilters.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
               </div>
             </div>
-            <div class="field"><label>Aprovação — Início</label><input type="date" id="rcFiltroAprovIni" value="${state.rcFilters.aprovIni||''}"></div>
-            <div class="field"><label>Aprovação — Fim</label><input type="date" id="rcFiltroAprovFim" value="${state.rcFilters.aprovFim||''}"></div>
+            <div class="field"><label>Aprovação — início</label><input type="date" id="rcFiltroAprovIni" value="${state.rcFilters.aprovIni||''}"></div>
+            <div class="field"><label>Aprovação — fim</label><input type="date" id="rcFiltroAprovFim" value="${state.rcFilters.aprovFim||''}"></div>
             <div class="field"><label>Centro de custo</label><select id="rcFiltroCentroCusto"><option value="">Todos</option>${CENTROS_CUSTO.map(c => `<option value="${c}" ${state.rcFilters.centroCusto===c?'selected':''}>${c}</option>`).join('')}</select></div>
             <div class="field"><label>Fornecedor</label><select id="rcFiltroFornecedor"><option value="">Todos</option>${fornecedoresList.map(f => `<option value="${f}" ${state.rcFilters.fornecedor===f?'selected':''}>${f}</option>`).join('')}</select></div>
             <div class="field"><label>Destino</label><select id="rcFiltroDestino"><option value="">Todos</option>${destinosList.map(d => `<option value="${d}" ${state.rcFilters.destino===d?'selected':''}>${d}</option>`).join('')}</select></div>
@@ -5535,8 +5538,8 @@ function gerarPDF(rcData) {
     function resetFilters() {
       state.filters = { busca:'', categoria:'', subcategoria:'', fornecedor:'', cadastroCompleto:'', unidade:'', usuario:'' };
       state.rcFilters = { status:'', dataIni:'', dataFim:'', aprovIni:'', aprovFim:'', fornecedor:'', destino:'', centroCusto:'', aprovador:'' };
-      state.dashboardFilters = { dataIni:'', dataFim:'', aprovIni:'', aprovFim:'', fornecedor:'', destino:'', centroCusto:'' };
-      state.nfFilters = { busca:'', dataIni:'', dataFim:'', aprovIni:'', aprovFim:'', fornecedor:'', destino:'', centroCusto:'', codigoContabil:'', tipoDocumento:'' };
+      state.dashboardFilters = { dataIni:'', dataFim:'', fornecedor:'', destino:'', centroCusto:'' };
+      state.nfFilters = { busca:'', dataIni:'', dataFim:'', fornecedor:'', destino:'', centroCusto:'', codigoContabil:'', tipoDocumento:'' };
       state.page = 1;
       state.rcPage = 1;
       render();
@@ -8997,6 +9000,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         },0);
       });
 
+      // Preserva o período digitado ao utilizar outros filtros antes de clicar em Aplicar.
+      ['aprovIni','aprovFim'].forEach(chave => {
+        const id=chave==='aprovIni'?'rcFiltroAprovIni':'rcFiltroAprovFim';
+        document.getElementById(id)?.addEventListener('change', e => {
+          state.rcFilters[chave]=e.target.value||'';
+        });
+      });
       document.getElementById('rcFiltroStatus')?.addEventListener('change', (e) => { state.rcFilters.status = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroCentroCusto')?.addEventListener('change', (e) => { state.rcFilters.centroCusto = e.target.value; state.rcPage=1; render(); });
       document.getElementById('rcFiltroFornecedor')?.addEventListener('change', (e) => { state.rcFilters.fornecedor = e.target.value; state.rcPage=1; render(); });
@@ -9020,12 +9030,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         cal?.addEventListener('change',e=>{state.rcFilters[cfg.chave]=e.target.value||'';state.rcPage=1;render();});
       });
 
-      ['aprovIni','aprovFim'].forEach(chave=>{
-        document.getElementById(chave==='aprovIni'?'rcFiltroAprovIni':'rcFiltroAprovFim')?.addEventListener('change', e=>{
-          state.rcFilters[chave]=e.target.value||'';state.rcPage=1;render();
-        });
+      document.getElementById('btnApplyRCFiltros')?.addEventListener('click', () => {
+        const ini=document.getElementById('rcFiltroAprovIni')?.value||'';
+        const fim=document.getElementById('rcFiltroAprovFim')?.value||'';
+        if (ini && fim && ini>fim) { showToast('Período de aprovação inválido.',true); return; }
+        state.rcFilters.aprovIni=ini;
+        state.rcFilters.aprovFim=fim;
+        state.rcPage=1;
+        render();
       });
-      document.getElementById('btnApplyRCFiltros')?.addEventListener('click', () => { state.rcPage=1; render(); });
 
       bindStaticOnce(document.querySelector('#appContent'), 'click', async (e) => {
         const target = e.target.closest('button');
