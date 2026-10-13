@@ -1983,21 +1983,36 @@ auth.onAuthStateChanged(async (user) => {
         if (f.dataFim && rc.data > f.dataFim) return false;
         if (f.aprovModo === 'dia' ? !!f.aprovDia : !!(f.aprovIni || f.aprovFim)) {
           if (statusRCV119(rc.status) !== 'aprovado') return false;
-          // Campo gravado no momento da aprovação; o PO guarda a mesma data.
-          const bruto = rc.aprovadoEm || rc.po?.dataAprovacaoLocal || rc.dataAprovacao;
-          let dia = '';
-          if (bruto && typeof bruto.toDate === 'function') {
-            const d=bruto.toDate();
-            dia=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
-          } else if (bruto && typeof bruto.seconds === 'number') {
-            const d=new Date(bruto.seconds*1000);
-            dia=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
-          } else if (typeof bruto === 'string') {
-            if (/^\d{4}-\d{2}-\d{2}/.test(bruto)) {
-              const d = bruto.length>10 ? new Date(bruto) : null;
-              dia = d && !isNaN(d) ? [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-') : bruto.slice(0,10);
-            } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(bruto)) dia=bruto.slice(6)+'-'+bruto.slice(3,5)+'-'+bruto.slice(0,2);
+          // A data do PO é gravada como ISO no instante da aprovação.
+          // O campo aprovadoEm pode conter um marcador serverTimestamp ainda não resolvido
+          // na cópia local/cache; não pode impedir a leitura de datas válidas.
+          function dataLocalAprovacao(valor) {
+            if (!valor) return '';
+            let d = null;
+            if (typeof valor.toDate === 'function') d = valor.toDate();
+            else if (valor instanceof Date) d = valor;
+            else if (typeof valor.seconds === 'number') d = new Date(valor.seconds * 1000);
+            else if (typeof valor._seconds === 'number') d = new Date(valor._seconds * 1000);
+            else if (typeof valor === 'number') d = new Date(valor);
+            else if (typeof valor === 'string') {
+              const v = valor.trim();
+              if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) {
+                return v.slice(6) + '-' + v.slice(3,5) + '-' + v.slice(0,2);
+              }
+              if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+              if (/^\d{4}-\d{2}-\d{2}T/.test(v)) d = new Date(v);
+            }
+            if (!d || !Number.isFinite(d.getTime())) return '';
+            const partes = new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+            }).formatToParts(d);
+            const p = Object.fromEntries(partes.map(x => [x.type, x.value]));
+            return p.year + '-' + p.month + '-' + p.day;
           }
+          // Prioriza o PO, que já contém a data definitiva e é salvo na mesma operação.
+          const dia = [rc.po?.dataAprovacaoLocal, rc.aprovadoEm,
+                       rc.dataAprovacao, rc.poGeradoEm]
+            .map(dataLocalAprovacao).find(Boolean) || '';
           if (!dia) return false;
           if (f.aprovModo === 'dia') { if(dia !== f.aprovDia) return false; }
           else if ((f.aprovIni && dia<f.aprovIni) || (f.aprovFim && dia>f.aprovFim)) return false;
@@ -2107,6 +2122,11 @@ auth.onAuthStateChanged(async (user) => {
       // V12.9: como o modo ultra econômico não usa snapshot permanente,
       // atualizamos imediatamente a cópia local após a confirmação do Firestore.
       Object.assign(rc, newData);
+      // Mantém a data ISO do PO legível após aprovação, mesmo antes do timestamp do servidor.
+      if (newData.status === 'aprovado' && newData.po?.dataAprovacaoLocal &&
+          newData.aprovadoEm && typeof newData.aprovadoEm.toDate !== 'function') {
+        rc.aprovadoEm = newData.po.dataAprovacaoLocal;
+      }
       try {
         if (typeof v126SalvarCache === 'function') v126SalvarCache('requisicoes', rcs);
       } catch (_) {}
