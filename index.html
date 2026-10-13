@@ -865,7 +865,7 @@
       sort: { col: "codigo", dir: "asc" },
       page: 1,
       perPage: 25,
-      rcFilters: { status: "", dataIni: "", dataFim: "", aprovIni: "", aprovFim: "", fornecedor: "", destino: "", centroCusto: "", aprovador: "" },
+      rcFilters: { status: "", dataIni: "", dataFim: "", aprovIni: "", aprovFim: "", aprovModo: "dia", aprovDia: "", fornecedor: "", destino: "", centroCusto: "", aprovador: "" },
       configDiariasCentroV122: { SANTOS:700, 'CAMAÇARI':350, MECHATRONICS:0 },
       dashboardFilters: { dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "" },
       nfFilters: { busca: "", dataIni: "", dataFim: "", fornecedor: "", destino: "", centroCusto: "", codigoContabil: "", tipoDocumento: "" },
@@ -1981,21 +1981,26 @@ auth.onAuthStateChanged(async (user) => {
         if (f.status && statusRCV119(rc.status) !== f.status) return false;
         if (f.dataIni && rc.data < f.dataIni) return false;
         if (f.dataFim && rc.data > f.dataFim) return false;
-        if (f.aprovIni || f.aprovFim) {
+        if (f.aprovModo === 'dia' ? !!f.aprovDia : !!(f.aprovIni || f.aprovFim)) {
           if (statusRCV119(rc.status) !== 'aprovado') return false;
-          const bruto = rc.aprovadoEm || rc.po?.dataAprovacaoLocal || rc.dataAprovacao || rc.poGeradoEm;
+          // Campo gravado no momento da aprovação; o PO guarda a mesma data.
+          const bruto = rc.aprovadoEm || rc.po?.dataAprovacaoLocal || rc.dataAprovacao;
           let dia = '';
           if (bruto && typeof bruto.toDate === 'function') {
-            const d = bruto.toDate();
-            dia = [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+            const d=bruto.toDate();
+            dia=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
           } else if (bruto && typeof bruto.seconds === 'number') {
-            const d = new Date(bruto.seconds*1000);
-            dia = [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+            const d=new Date(bruto.seconds*1000);
+            dia=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
           } else if (typeof bruto === 'string') {
-            if (/^\d{4}-\d{2}-\d{2}/.test(bruto)) dia = bruto.slice(0,10);
-            else if (/^\d{2}\/\d{2}\/\d{4}$/.test(bruto)) dia = bruto.slice(6)+'-'+bruto.slice(3,5)+'-'+bruto.slice(0,2);
+            if (/^\d{4}-\d{2}-\d{2}/.test(bruto)) {
+              const d = bruto.length>10 ? new Date(bruto) : null;
+              dia = d && !isNaN(d) ? [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-') : bruto.slice(0,10);
+            } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(bruto)) dia=bruto.slice(6)+'-'+bruto.slice(3,5)+'-'+bruto.slice(0,2);
           }
-          if (!dia || (f.aprovIni && dia < f.aprovIni) || (f.aprovFim && dia > f.aprovFim)) return false;
+          if (!dia) return false;
+          if (f.aprovModo === 'dia') { if(dia !== f.aprovDia) return false; }
+          else if ((f.aprovIni && dia<f.aprovIni) || (f.aprovFim && dia>f.aprovFim)) return false;
         }
         if (f.fornecedor && rc.fornecedor !== f.fornecedor) return false;
         if (f.destino && rc.aplicacao !== f.destino) return false;
@@ -4817,14 +4822,22 @@ auth.onAuthStateChanged(async (user) => {
                 <input type="date" id="rcFiltroDataFim" value="${state.rcFilters.dataFim||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
               </div>
             </div>
-            <div class="field"><label>Aprovação — Início</label>
+            <div class="field"><label>Consulta aprovação</label><select id="rcFiltroAprovModo"><option value="dia" ${state.rcFilters.aprovModo!=='periodo'?'selected':''}>Data exata</option><option value="periodo" ${state.rcFilters.aprovModo==='periodo'?'selected':''}>Período</option></select></div>
+            <div class="field" data-aprov-dia style="${state.rcFilters.aprovModo==='periodo'?'display:none':''}"><label>Data da aprovação</label>
+              <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
+                <input type="text" id="rcFiltroAprovDiaTexto" value="${isoParaBRData(state.rcFilters.aprovDia||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
+                <button type="button" class="btn btn-ghost" id="rcFiltroAprovDiaBtn" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px">📅</button>
+                <input type="date" id="rcFiltroAprovDia" value="${state.rcFilters.aprovDia||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
+              </div>
+            </div>
+            <div class="field" data-aprov-periodo style="${state.rcFilters.aprovModo==='periodo'?'':'display:none'}"><label>Aprovação — Início</label>
               <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
                 <input type="text" id="rcFiltroAprovIniTexto" value="${isoParaBRData(state.rcFilters.aprovIni||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
                 <button type="button" class="btn btn-ghost" id="rcFiltroAprovIniBtn" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px">📅</button>
                 <input type="date" id="rcFiltroAprovIni" value="${state.rcFilters.aprovIni||''}" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px">
               </div>
             </div>
-            <div class="field"><label>Aprovação — Fim</label>
+            <div class="field" data-aprov-periodo style="${state.rcFilters.aprovModo==='periodo'?'':'display:none'}"><label>Aprovação — Fim</label>
               <div style="display:grid;grid-template-columns:1fr 42px;gap:6px;align-items:center;position:relative">
                 <input type="text" id="rcFiltroAprovFimTexto" value="${isoParaBRData(state.rcFilters.aprovFim||'')}" placeholder="dd/mm/aaaa" inputmode="numeric" maxlength="10" autocomplete="off">
                 <button type="button" class="btn btn-ghost" id="rcFiltroAprovFimBtn" title="Selecionar no calendário" style="padding:0;height:42px;font-size:18px">📅</button>
@@ -5549,7 +5562,7 @@ function gerarPDF(rcData) {
 
     function resetFilters() {
       state.filters = { busca:'', categoria:'', subcategoria:'', fornecedor:'', cadastroCompleto:'', unidade:'', usuario:'' };
-      state.rcFilters = { status:'', dataIni:'', dataFim:'', aprovIni:'', aprovFim:'', fornecedor:'', destino:'', centroCusto:'', aprovador:'' };
+      state.rcFilters = { status:'', dataIni:'', dataFim:'', aprovIni:'', aprovFim:'', aprovModo:'dia', aprovDia:'', fornecedor:'', destino:'', centroCusto:'', aprovador:'' };
       state.dashboardFilters = { dataIni:'', dataFim:'', fornecedor:'', destino:'', centroCusto:'' };
       state.nfFilters = { busca:'', dataIni:'', dataFim:'', fornecedor:'', destino:'', centroCusto:'', codigoContabil:'', tipoDocumento:'' };
       state.page = 1;
@@ -9021,6 +9034,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       [
         {txt:'rcFiltroDataIniTexto',cal:'rcFiltroDataIni',btn:'rcFiltroDataIniBtn',chave:'dataIni'},
         {txt:'rcFiltroDataFimTexto',cal:'rcFiltroDataFim',btn:'rcFiltroDataFimBtn',chave:'dataFim'},
+        {txt:'rcFiltroAprovDiaTexto',cal:'rcFiltroAprovDia',btn:'rcFiltroAprovDiaBtn',chave:'aprovDia'},
         {txt:'rcFiltroAprovIniTexto',cal:'rcFiltroAprovIni',btn:'rcFiltroAprovIniBtn',chave:'aprovIni'},
         {txt:'rcFiltroAprovFimTexto',cal:'rcFiltroAprovFim',btn:'rcFiltroAprovFimBtn',chave:'aprovFim'}
       ].forEach(cfg=>{
@@ -9037,6 +9051,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         cal?.addEventListener('change',e=>{state.rcFilters[cfg.chave]=e.target.value||'';state.rcPage=1;render();});
       });
 
+      document.getElementById('rcFiltroAprovModo')?.addEventListener('change',e=>{
+        state.rcFilters.aprovModo=e.target.value;
+        state.rcPage=1;render();
+      });
       document.getElementById('btnApplyRCFiltros')?.addEventListener('click', () => { state.rcPage=1; render(); });
 
       bindStaticOnce(document.querySelector('#appContent'), 'click', async (e) => {
