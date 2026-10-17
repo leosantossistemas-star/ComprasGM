@@ -4406,9 +4406,26 @@ auth.onAuthStateChanged(async (user) => {
           await db.collection('recebimentos_nf').doc(nf.id).update(dadosPagamento);
         }
 
-        showToast(novo === 'PAGO' ? 'NF marcada como paga.' : 'NF retornada para pendente.');
+        // Confirma no servidor o status persistido e atualiza a tela sem depender
+        // do cache de ate 4 horas ou de uma nova sessao de login.
+        const idPersistido = (nf.historicoLocal || nf.historicoId || String(nf.id || '').startsWith('hist_mcpro030_'))
+          ? (nf.historicoId || nf.id) : nf.id;
+        const verificado = await db.collection('recebimentos_nf').doc(idPersistido).get({source:'server'});
+        if (!verificado.exists || verificado.data().statusPagamento !== novo) {
+          throw new Error('A confirmacao do pagamento no servidor nao corresponde ao status solicitado.');
+        }
+        // Atualiza imediatamente o registro exibido, inclusive NFs historicas.
+        Object.assign(nf, verificado.data(), {id:nf.id, statusPagamento:novo});
+        // Invalida o cache e busca a colecao completa novamente do servidor.
+        v125UltimaCarga['recebimentos_nf']=0;
+        try {
+          sessionStorage.removeItem(v126CacheKey('recebimentos_nf'));
+        } catch (_) {}
+        await v125CarregarColecao('recebimentos_nf', true);
+        render();
+        showToast(novo === 'PAGO' ? 'Pagamento confirmado no Firebase.' : 'Pendencia confirmada no Firebase.');
       } catch (err) {
-        showToast('Erro ao atualizar pagamento: ' + (err.message || err), true);
+        showToast('Erro ao atualizar ou confirmar pagamento: ' + (err.message || err), true);
       }
     }
 
@@ -9543,7 +9560,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     /* ============================================================
        FORM NOVO MATERIAL (mantido)
     ============================================================ */
-    function handleFormNovo() {
+    async function handleFormNovo() {
       const getVal = (id) => document.getElementById(id)?.value || '';
       const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
 
@@ -9642,11 +9659,35 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         custoEstoqueMaxNum: estoqueMax * parseMoney(custoUnitario),
       };
 
-      addNewItem(newItem);
-      showToast(`Material ${codigo} cadastrado com sucesso!`);
-      document.getElementById('formNovo')?.reset();
-      document.getElementById('novoCodigo').value = getNextCode();
-      document.getElementById('novoData').value = new Date().toLocaleDateString('pt-BR');
+      // Só confirmar e limpar o formulário depois que o Firebase concluir a gravação.
+      const formCadastro = document.getElementById('formNovo');
+      const botaoSalvar = formCadastro?.querySelector('button[type="submit"]');
+      if (botaoSalvar?.disabled) return;
+      if (botaoSalvar) { botaoSalvar.disabled = true; botaoSalvar.textContent = 'Salvando…'; }
+      try {
+        const salvo = await salvarMaterial(newItem);
+        // Atualização imediata da coleção local após a confirmação do servidor.
+        const docConfirmado = await db.collection('materiais').doc(salvo.id).get({source:'server'});
+        if (!docConfirmado.exists) throw new Error('O cadastro não foi localizado após a gravação. Verifique a conexão.');
+        const confirmado = {id:docConfirmado.id, ...docConfirmado.data()};
+        const idx = allItems.findIndex(i => i.id === confirmado.id);
+        if (idx >= 0) allItems[idx] = confirmado; else allItems.push(confirmado);
+        showToast(`Material ${confirmado.codigo} cadastrado com sucesso!`);
+        formCadastro?.reset();
+        const campoCodigo = document.getElementById('novoCodigo');
+        if (campoCodigo) campoCodigo.value = getNextCode(getVal('novoEmpresaCodigo') || 'CRYO');
+        const campoData = document.getElementById('novoData');
+        if (campoData) campoData.value = new Date().toLocaleDateString('pt-BR');
+      } catch (err) {
+        console.error('Falha ao cadastrar material no Firestore:', err);
+        const detalhe = err?.code === 'permission-denied'
+          ? 'Permissão negada pelo Firebase. Verifique o acesso às coleções materiais e controleCadastro.'
+          : (err?.message || 'Falha desconhecida');
+        showToast('Cadastro não confirmado: ' + detalhe, true);
+        // Não apaga o que o usuário digitou se houver falha.
+      } finally {
+        if (botaoSalvar) { botaoSalvar.disabled = false; botaoSalvar.textContent = 'Salvar'; }
+      }
     }
 
     /* ============================================================
