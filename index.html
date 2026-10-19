@@ -5034,10 +5034,9 @@ auth.onAuthStateChanged(async (user) => {
       const nextNum = isEdit ? editData.numero : getNextRCNumber();
       const today = new Date().toISOString().slice(0,10);
       const fornecedoresList = getUniqueValues('fornecedor');
-      const frotasList = frotas.filter(f => {
-        if (getPerfil() === 'admin' || getPerfil() === 'gerente') return true;
-        return frotaLiberadaParaRC(f);
-      });
+      // V15.3 — Todos os perfis operacionais visualizam os destinos cadastrados.
+      // Restrições de prazo, conclusão e limite continuam sendo validadas no envio.
+      const frotasList = frotas.slice();
 
       const data = isEdit ? editData : {};
       const selectedFrota = data.aplicacao || '';
