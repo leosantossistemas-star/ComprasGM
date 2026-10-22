@@ -13951,7 +13951,8 @@ function renderControleAcessoV104(){
       </div>
     </div>
 
-    <div class="card" style="margin-top:18px;border:1px solid ${almoxConfigV107.vinculoAtivo?'#9cff00':'#ffb020'}">
+    <div class="card" style="margin-top:18px"><div class="card-title">Marco de abertura: 22/10/2026</div><div class="card-sub">${cryoHistoricoLegado2026().length} baixas históricas documentais identificadas antes do inventário. Essas baixas aparecem no histórico, sem reduzir o saldo físico implantado nem gerar custo novamente. Somente as movimentações físicas posteriores alteram o estoque.</div></div>
+ <div class="card" style="margin-top:18px;border:1px solid ${almoxConfigV107.vinculoAtivo?'#9cff00':'#ffb020'}">
     <div class="card-title">Vínculo das Baixas/NFs com Estoque Físico</div><div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:10px;font-size:11px;color:var(--text-muted)">
       <strong>Regra física:</strong> SANTOS + MECHATRONICS usam o estoque físico SANTOS. CAMAÇARI usa somente estoque físico CAMAÇARI. Uma baixa de Camaçari nunca consome saldo de Santos.</div>
     <div class="card-sub">Use BLOQUEADO enquanto o inventário físico estiver sendo ajustado. Quando LIBERADO, NF destinada a ESTOQUE soma saldo e baixa desconta saldo.</div>
@@ -14086,7 +14087,9 @@ document.addEventListener('click',async e=>{
   if(e.target.closest('#btnLiberarExternoV107')){ await salvarConfigAcessoV105({acessoExternoLiberado:true}); return; }
   if(e.target.closest('#btnBloquearExternoV107')){ await salvarConfigAcessoV105({acessoExternoLiberado:false,liberadoAteISO:''}); return; }
   if(e.target.closest('#btnLiberarVinculoAlmoxV107')){
-    await db.collection('configuracoes').doc('almoxarifado_controle').set({vinculoAtivo:true,alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoEmISO:new Date().toISOString()},{merge:true});
+    const confirmados=await db.collection('almoxarifado_itens').where('origemSaldo','==','INVENTARIO_20261022').get();
+  if(confirmados.size<writes.length)throw Error('Verificação pós-gravação incompleta: '+confirmados.size+'/'+writes.length+'. Vínculo permanece bloqueado.');
+  await db.collection('configuracoes').doc('almoxarifado_controle').set({vinculoAtivo:true,alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoEmISO:new Date().toISOString()},{merge:true});
     showToast('Vínculo do estoque físico LIBERADO.'); return;
   }
   if(e.target.closest('#btnBloquearVinculoAlmoxV107')){
@@ -14288,29 +14291,54 @@ async function migrarEstoqueFisicoV109(){
   await ref.set({concluido:true,total,dataISO:new Date().toISOString(),executadoPor:getUsuarioEmail()});
 }
 
+/* Rev. operacional 22/10/2026: histórico documental somente leitura.
+   Baixas anteriores à abertura não alteram saldo nem geram custo novo. */
+const CRYO_MARCO_ESTOQUE_2026='2026-10-22';
+function cryoHistoricoLegado2026(){
+ const vistos=new Set();
+ return (Array.isArray(recebimentosNF)?recebimentosNF:[]).filter(r=>{
+   const dt=String(r.dataDocumento||r.data||'').slice(0,10);
+   if(String(r.tipoDocumento||r.tipoOperacao||'').toUpperCase()!=='BAIXA_ESTOQUE'||!/^\d{4}-\d{2}-\d{2}$/.test(dt)||dt>=CRYO_MARCO_ESTOQUE_2026)return false;
+   const id=String(r.id||r.historicoId||'');
+   const key=id||[dt,r.descricao,r.quantidade,r.destino,r.valorTotal,r.fornecedor].join('|');
+   if(vistos.has(key))return false;vistos.add(key);return true;
+ }).map(r=>({id:r.id||r.historicoId||'',tipo:'SAIDA',data:String(r.dataDocumento||r.data).slice(0,10),codigo:r.codigo||r.codigoMaterial||'',itemNome:r.descricao||r.itemNome||'',quantidade:numeroSeguro(r.quantidade),valorTotal:numeroSeguro(r.valorTotal),centroCusto:r.centroCusto||'',destino:r.destino||r.formularioAprovacao||'',origem:'HISTÓRICO ANTERIOR AO INVENTÁRIO',observacoes:'Registro documental anterior a 22/10/2026 — sem impacto no saldo físico ou novo custo.',legadoSemImpacto:true}));
+}
+function cryoCategoriaEstoque2026(i){
+ const c=nA107(String(i.categoria||'')+' '+String(i.subcategoria||''));
+ if(/EPI|PROTECAO INDIVIDUAL/.test(c))return 'EPI';
+ if(/MAQUINA|EQUIPAMENTO/.test(c))return 'MAQUINA';
+ if(/FERRAMENTA|ABRASIVO|SERRA|MANDRIO/.test(c))return 'FERRAMENTA';
+ return 'INSUMO';
+}
+function cryoMovimentosVisiveis2026(){
+ const fisicos=(Array.isArray(almoxMovV107)?almoxMovV107:[]).map(m=>({...m,legadoSemImpacto:false}));
+ return [...fisicos,...cryoHistoricoLegado2026()];
+}
 function renderAlmoxarifadoV107(){
  const f=state.almoxFilters||{}, pode=podeMovAlmox107(), busca=nA107(f.busca||'');
- let itens=almoxItensV107.filter(i=>(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||i.categoria===f.categoria)&&(!busca||nA107(`${i.codigoMaterial} ${i.codigoImportacao} ${i.nome} ${i.localArmazenamento}`).includes(busca)));
+ let itens=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||i.categoria===f.categoria)&&(!busca||nA107(`${i.codigoMaterial} ${i.codigoImportacao} ${i.nome} ${i.localArmazenamento}`).includes(busca)));
  const cats=['MAQUINA','FERRAMENTA','INSUMO','EPI'];
- const baixos=almoxItensV107.filter(i=>numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<=numeroSeguro(i.estoqueMinimo));
- const movs=almoxMovV107.filter(m=>(!f.centro||nomeEstoqueFisicoV109(m.estoqueFisico||m.centroCusto)===f.centro)&&(!f.dataIni||m.data>=f.dataIni)&&(!f.dataFim||m.data<=f.dataFim)).sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+ const categoriaInventario=cryoCategoriaEstoque2026;
+ const baixos=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<numeroSeguro(i.estoqueMinimo));
+ const movs=cryoMovimentosVisiveis2026().filter(m=>(!f.centro||nomeEstoqueFisicoV109(m.estoqueFisico||m.centroCusto)===f.centro)&&(!f.dataIni||m.data>=f.dataIni)&&(!f.dataFim||m.data<=f.dataFim)).sort((a,b)=>String(b.data).localeCompare(String(a.data)));
  return `<div class="kpi-grid">
- ${cats.map(c=>`<div class="kpi-card"><div class="kpi-label">${c==='MAQUINA'?'Máquinas':c==='FERRAMENTA'?'Ferramentas':c==='INSUMO'?'Insumos':'EPIs'}</div><div class="kpi-value">${almoxItensV107.filter(i=>i.categoria===c).length}</div></div>`).join('')}
- <div class="kpi-card"><div class="kpi-label">Valor total</div><div class="kpi-value accent">${fmt.money(almoxItensV107.reduce((s,i)=>s+valA107(i),0))}</div></div>
+ ${cats.map(c=>`<div class="kpi-card"><div class="kpi-label">${c==='MAQUINA'?'Máquinas':c==='FERRAMENTA'?'Ferramentas':c==='INSUMO'?'Insumos':'EPIs'}</div><div class="kpi-value">${almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&categoriaInventario(i)===c).length}</div></div>`).join('')}
+ <div class="kpi-card"><div class="kpi-label">Valor total</div><div class="kpi-value accent">${fmt.money(almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')).reduce((s,i)=>s+valA107(i),0))}</div></div>
  <div class="kpi-card"><div class="kpi-label">Abaixo do mínimo</div><div class="kpi-value">${baixos.length}</div></div></div>
  <div class="card" style="margin-top:18px;border:1px solid ${almoxConfigV107.vinculoAtivo?'#9cff00':'#ffb020'}"><div class="card-title">Integração com estoque físico: ${almoxConfigV107.vinculoAtivo?'LIBERADA':'BLOQUEADA'}</div><div class="card-sub">${almoxConfigV107.vinculoAtivo?'NF para ESTOQUE gera entrada e baixa desconta saldo. Estoque insuficiente bloqueia a baixa.':'Modo de inventário/testes: NFs e baixas não alteram o saldo físico.'}</div></div>
- <div class="card" style="margin-top:18px"><div class="card-header"><div><div class="card-title">Estoque Geral</div><div class="card-sub">Lista única · Estoque físico SANTOS atende Santos + Mechatronics · Estoque físico CAMAÇARI é independente · Todo o cadastro atual pertence inicialmente a Santos e entra com quantidade ZERO até o inventário físico.</div></div>${pode?'<button class="btn btn-accent" id="novoA107">+ Adicionar item</button>':''}</div>
+ <div class="card" style="margin-top:18px"><div class="card-header"><div><div class="card-title">Estoque Geral</div><div class="card-sub">Lista única · Estoque físico SANTOS atende Santos + Mechatronics · Estoque físico CAMAÇARI é independente · Saldos físicos provenientes do inventário implantado. Registros legados inativos são ocultados sem exclusão.</div></div>${pode?'<button class="btn btn-accent" id="novoA107">+ Adicionar item</button>':''}</div>
  <div class="filters-grid"><div class="field"><label>Estoque físico</label><select id="centroA107"><option value="">Todos</option>${['SANTOS','CAMAÇARI'].map(x=>`<option ${f.centro===x?'selected':''}>${x}</option>`).join('')}</select></div>
  <div class="field"><label>Categoria</label><select id="catA107"><option value="">Todas</option>${cats.map(x=>`<option ${f.categoria===x?'selected':''}>${x}</option>`).join('')}</select></div>
  <div class="field"><label>Buscar</label><input id="buscaA107" value="${f.busca||''}" placeholder="Código, item, local"></div>
  <div class="field"><label>Movimentos de</label><input type="date" id="iniA107" value="${f.dataIni||''}"></div><div class="field"><label>Até</label><input type="date" id="fimA107" value="${f.dataFim||''}"></div></div>
  <div class="table-wrap"><table><thead><tr><th>Código</th><th>Categoria</th><th>Item</th><th>Estoque físico</th><th>Proprietário</th><th>Qtd.</th><th>Mín.</th><th>Unit.</th><th>Total</th><th>Patrimônio</th><th>Local</th><th>Status</th>${pode?'<th>Ações</th>':''}</tr></thead><tbody>
- ${itens.map(i=>{let low=numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<=numeroSeguro(i.estoqueMinimo);return `<tr><td><span class="code">${i.codigoMaterial||i.codigoImportacao||'—'}</span></td><td>${i.categoria}</td><td><strong>${i.nome}</strong>${i.inventariado===false?'<div style="font-size:9px;color:#ffb020">A CONFERIR</div>':''}</td><td><strong>${nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)}</strong></td><td>${i.proprietarioEstoque||'SANTOS'}</td><td style="${low?'color:#ffb020;font-weight:900':''}">${saldoA107(i)}</td><td>${numeroSeguro(i.estoqueMinimo)}</td><td>${fmt.money(numeroSeguro(i.valorUnitario))}</td><td>${fmt.money(valA107(i))}</td><td>${i.patrimonio||'—'}</td><td>${i.localArmazenamento||'—'}</td><td>${i.status||'ATIVO'}</td>${pode?`<td><button class="btn btn-ghost btn-sm" data-ed-a107="${i.id}">Editar</button><button class="btn btn-danger btn-sm" data-del-a107="${i.id}">Excluir</button></td>`:''}</tr>`}).join('')||'<tr><td colspan="12">Nenhum item.</td></tr>'}
+ ${itens.map(i=>{let low=numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<numeroSeguro(i.estoqueMinimo);return `<tr><td><span class="code">${i.codigoMaterial||i.codigoImportacao||'—'}</span></td><td>${i.categoria}</td><td><strong>${i.nome}</strong></td><td><strong>${nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)}</strong></td><td>${i.proprietarioEstoque||'SANTOS'}</td><td style="${low?'color:#ffb020;font-weight:900':''}">${saldoA107(i)}</td><td>${numeroSeguro(i.estoqueMinimo)}</td><td>${fmt.money(numeroSeguro(i.valorUnitario))}</td><td>${fmt.money(valA107(i))}</td><td>${i.patrimonio||'—'}</td><td>${i.localArmazenamento||'—'}</td><td>${i.status||'ATIVO'}</td>${pode?`<td><button class="btn btn-ghost btn-sm" data-ed-a107="${i.id}">Editar</button><button class="btn btn-danger btn-sm" data-del-a107="${i.id}">Excluir</button></td>`:''}</tr>`}).join('')||'<tr><td colspan="12">Nenhum item.</td></tr>'}
  </tbody></table></div></div>
  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(470px,1fr));gap:18px;margin-top:18px">
  <div class="card"><div class="card-title">Sugestão de Compras</div><div class="table-wrap"><table><thead><tr><th>Item</th><th>Centro</th><th>Saldo</th><th>Mín.</th><th>Sugerido</th></tr></thead><tbody>${baixos.map(i=>`<tr><td>${i.nome}</td><td>${i.centroCusto}</td><td>${saldoA107(i)}</td><td>${i.estoqueMinimo}</td><td>${Math.max(0,numeroSeguro(i.estoqueMinimo)-saldoA107(i))}</td></tr>`).join('')||'<tr><td colspan="5">Sem itens abaixo do mínimo.</td></tr>'}</tbody></table></div></div>
- <div class="card"><div class="card-title">Valor dos Ativos</div><div class="table-wrap"><table><thead><tr><th>Ativo</th><th>Patrimônio</th><th>Centro</th><th>Valor</th><th>Status</th></tr></thead><tbody>${almoxItensV107.filter(i=>['MAQUINA','FERRAMENTA'].includes(i.categoria)).map(i=>`<tr><td>${i.nome}</td><td>${i.patrimonio||'—'}</td><td>${i.centroCusto}</td><td>${fmt.money(valA107(i))}</td><td>${i.status}</td></tr>`).join('')||'<tr><td colspan="5">Nenhum ativo.</td></tr>'}</tbody></table></div></div></div>
- <div class="card" style="margin-top:18px"><div class="card-title">Histórico / Saldo Mensal</div><div class="card-sub">Entradas, saídas e ajustes. Use as datas acima para fechar o período mensal.</div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Item</th><th>Qtd.</th><th>Valor</th><th>Centro</th><th>Destino/Pessoa</th><th>Origem</th><th>Observação</th></tr></thead><tbody>${movs.slice(0,500).map(m=>`<tr><td>${fmt.date(m.data)}</td><td>${m.tipo}</td><td>${m.codigo||''} — ${m.itemNome||''}</td><td>${m.quantidade}</td><td>${fmt.money(numeroSeguro(m.valorTotal))}</td><td>${m.centroCusto||'—'}</td><td>${m.destino||m.colaborador||'—'}</td><td>${m.origem||'MANUAL'}</td><td>${m.observacoes||''}</td></tr>`).join('')||'<tr><td colspan="9">Nenhuma movimentação.</td></tr>'}</tbody></table></div></div>`;
+ <div class="card"><div class="card-title">Valor dos Ativos</div><div class="table-wrap"><table><thead><tr><th>Ativo</th><th>Patrimônio</th><th>Centro</th><th>Valor</th><th>Status</th></tr></thead><tbody>${almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&['MAQUINA','FERRAMENTA'].includes(i.categoria)).map(i=>`<tr><td>${i.nome}</td><td>${i.patrimonio||'—'}</td><td>${i.centroCusto}</td><td>${fmt.money(valA107(i))}</td><td>${i.status}</td></tr>`).join('')||'<tr><td colspan="5">Nenhum ativo.</td></tr>'}</tbody></table></div></div></div>
+ <div class="card" style="margin-top:18px"><div class="card-title">Histórico de Movimentações</div><div class="card-sub">Antes de 22/10/2026: baixas documentais sem impacto no estoque físico ou novo custo. A partir da implantação: entradas e saídas físicas reais. Use os filtros de data.</div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Item</th><th>Qtd.</th><th>Valor</th><th>Centro</th><th>Destino/Pessoa</th><th>Origem</th><th>Observação</th></tr></thead><tbody>${movs.slice(0,500).map(m=>`<tr><td>${fmt.date(m.data)}</td><td>${m.tipo}</td><td>${m.codigo||''} — ${m.itemNome||''}</td><td>${m.quantidade}</td><td>${fmt.money(numeroSeguro(m.valorTotal))}</td><td>${m.centroCusto||'—'}</td><td>${m.destino||m.colaborador||'—'}</td><td>${m.legadoSemImpacto?'HISTÓRICO — SEM BAIXA FÍSICA':(m.origem||'MANUAL')}</td><td>${m.observacoes||''}</td></tr>`).join('')||'<tr><td colspan="9">Nenhuma movimentação.</td></tr>'}</tbody></table></div></div>`;
 }
 function modalA107(i={}){
  return `<div class="modal active" id="modalA107"><div class="modal-content" style="max-width:900px"><div class="modal-header"><h3>${i.id?'Editar':'Adicionar'} item</h3><button class="modal-close" data-close-a107>×</button></div><form id="formA107"><input type="hidden" id="idA107" value="${i.id||''}"><div class="form-grid">
@@ -14428,7 +14456,7 @@ async function saidaA107(mat,q,r){
 function mesA109(d){const s=String(d||'');return /^\d{4}-\d{2}/.test(s)?s.slice(0,7):'';}
 function ultimaMovA109(i){
   const cod=i.codigoMaterial||i.codigoImportacao||'', nome=nA107(i.nome);
-  const ds=almoxMovV107.filter(m=>(cod&&String(m.codigo||'')===String(cod))||nA107(m.itemNome)===nome)
+  const ds=cryoMovimentosVisiveis2026().filter(m=>(cod&&String(m.codigo||'')===String(cod))||nA107(m.itemNome)===nome)
     .map(m=>String(m.data||'')).filter(Boolean).sort();
   return ds.length?ds[ds.length-1]:'';
 }
@@ -14438,7 +14466,7 @@ function diasParadoA109(i){
 }
 function mov90A109(i){
   const lim=Date.now()-90*86400000,cod=i.codigoMaterial||i.codigoImportacao||'',nome=nA107(i.nome);
-  return almoxMovV107.filter(m=>new Date(String(m.data||'')+'T00:00:00').getTime()>=lim&&((cod&&String(m.codigo||'')===String(cod))||nA107(m.itemNome)===nome))
+  return cryoMovimentosVisiveis2026().filter(m=>new Date(String(m.data||'')+'T00:00:00').getTime()>=lim&&((cod&&String(m.codigo||'')===String(cod))||nA107(m.itemNome)===nome))
     .reduce((s,m)=>s+Math.abs(numeroSeguro(m.quantidade)),0);
 }
 function mensalA109(){
@@ -14460,14 +14488,14 @@ function mensalUnidadeV110(unidade){
 function renderDashboardAlmoxV109(){
   const unidade=state.dashAlmoxUnidadeV110||'TODAS';
   const itensDash=unidade==='CAMAÇARI'
-    ? almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI')
+    ? almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI')
     : (unidade==='SANTOS'||unidade==='MECHATRONICS')
-      ? almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS')
-      : almoxItensV107;
+      ? almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS')
+      : almoxItensV107.filter(i=>i.status!=='INATIVO');
   const valor=itensDash.reduce((s,i)=>s+valA107(i),0);
-  const vs=almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS').reduce((s,i)=>s+valA107(i),0);
-  const vc=almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI').reduce((s,i)=>s+valA107(i),0);
-  const baixos=almoxItensV107.filter(i=>numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<=numeroSeguro(i.estoqueMinimo));
+  const vs=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS').reduce((s,i)=>s+valA107(i),0);
+  const vc=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI').reduce((s,i)=>s+valA107(i),0);
+  const baixos=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<numeroSeguro(i.estoqueMinimo));
   const caros=itensDash.filter(i=>saldoA107(i)>0).map(i=>({...i,_v:valA107(i),_m:mov90A109(i)})).sort((a,b)=>(b._v/(1+b._m))-(a._v/(1+a._m))).slice(0,5);
   return `<div class="card" style="margin-bottom:18px"><div class="card-header">
     <div><div class="card-title">Visão por unidade</div><div class="card-sub">Todas inclui Santos, Camaçari e Mechatronics. Camaçari mantém estoque físico independente.</div></div>
@@ -14485,45 +14513,92 @@ function renderDashboardAlmoxV109(){
   CAMAÇARI possui estoque físico independente e uma baixa de Camaçari nunca utiliza saldo de Santos.</div></div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:18px;margin-top:18px">
     <div class="card"><div class="card-title">Divisão do Investimento por Categoria</div><div style="height:310px"><canvas id="catA109"></canvas></div></div>
-    <div class="card"><div class="card-title">Compra para Estoque × Baixa × Saldo Mensal</div><div style="height:310px"><canvas id="mensalA109"></canvas></div></div>
-    <div class="card"><div class="card-title">20 itens há mais tempo sem movimentação</div><div style="height:430px"><canvas id="paradosA109"></canvas></div></div>
+    <div class="card"><div class="card-title">Entradas e baixas físicas × histórico documental</div><div style="height:310px"><canvas id="mensalA109"></canvas></div></div>
+    <div class="card"><div class="card-title">20 itens sem movimentação física desde a abertura</div><div style="height:430px"><canvas id="paradosA109"></canvas></div></div>
     <div class="card"><div class="card-title">5 itens mais caros com baixa movimentação</div><div style="height:310px"><canvas id="carosA109"></canvas></div></div>
     <div class="card"><div class="card-title">Valor por Estoque Físico</div><div style="height:300px"><canvas id="fisicoA109"></canvas></div></div>
-    <div class="card"><div class="card-title">Top 10 consumo — 90 dias</div><div style="height:330px"><canvas id="consumoA109"></canvas></div></div>
+    <div class="card"><div class="card-title">Top 10 saídas — 90 dias (físicas e históricas)</div><div style="height:330px"><canvas id="consumoA109"></canvas></div></div>
     <div class="card"><div class="card-title">Risco de Ruptura</div><div style="height:330px"><canvas id="rupturaA109"></canvas></div></div>
     <div class="card"><div class="card-title">Curva ABC por valor</div><div style="height:300px"><canvas id="abcA109"></canvas></div></div>
   </div>
+  <div class="card" style="margin-top:18px"><div class="card-title">Baixas anteriores ao inventário — histórico sem efeito físico</div>
+  <div class="card-sub">${cryoHistoricoLegado2026().length} registros documentais anteriores a 22/10/2026. Os custos originais permanecem onde foram registrados; nenhuma baixa é reaplicada ao saldo de abertura.</div>
+  <div class="table-wrap" style="max-height:360px;overflow:auto"><table><thead><tr><th>Data</th><th>Material</th><th>Qtd.</th><th>Destino / aplicação</th><th>Valor histórico</th><th>Tratamento</th></tr></thead><tbody>
+  ${cryoHistoricoLegado2026().filter(m=>unidade==='TODAS'||nA107(m.centroCusto)===nA107(unidade)).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,300).map(m=>`<tr><td>${fmt.date(m.data)}</td><td>${m.itemNome}</td><td>${m.quantidade}</td><td>${m.destino||'—'}</td><td>${fmt.money(m.valorTotal)}</td><td>Sem impacto no estoque</td></tr>`).join('')||'<tr><td colspan="6">Nenhuma baixa histórica para este filtro.</td></tr>'}
+  </tbody></table></div></div>
   <div class="card" style="margin-top:18px"><div class="card-title">5 ativos/itens de maior valor com baixa movimentação</div>
   <div class="table-wrap"><table><thead><tr><th>Item</th><th>Estoque físico</th><th>Valor</th><th>Última movimentação</th><th>Dias parado</th><th>Mov. 90d</th></tr></thead><tbody>
   ${caros.map(i=>`<tr><td>${i.nome}</td><td>${nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)}</td><td>${fmt.money(i._v)}</td><td>${ultimaMovA109(i)||'Sem histórico'}</td><td>${diasParadoA109(i)>=99999?'Sem histórico':diasParadoA109(i)}</td><td>${i._m}</td></tr>`).join('')||'<tr><td colspan="6">Sem dados.</td></tr>'}
   </tbody></table></div></div>`;
 }
+/* Gráficos nativos offline: sem dependência Chart.js e sem alteração de dados. */
+function desenharGraficoNativoCryo(el,cfg){
+  const ctx=el.getContext('2d');if(!ctx)return;
+  const W=Math.max(300,el.parentElement.clientWidth-12),H=Math.max(190,el.parentElement.clientHeight-12);
+  const ratio=Math.min(window.devicePixelRatio||1,2);el.width=W*ratio;el.height=H*ratio;el.style.width=W+'px';el.style.height=H+'px';ctx.setTransform(ratio,0,0,ratio,0,0);
+  ctx.clearRect(0,0,W,H);ctx.font='12px Arial';ctx.textBaseline='middle';
+  const labels=cfg.data.labels||[],sets=cfg.data.datasets||[];
+  const colors=['#a6ff00','#39b7ff','#ffb22e','#bd82ff','#ff668a','#54dbac'];
+  const money=v=>Number(v||0).toLocaleString('pt-BR',{maximumFractionDigits:1});
+  const short=(s,n)=>String(s||'').length>n?String(s).slice(0,n-1)+'…':String(s||'');
+  const empty=(t)=>{ctx.fillStyle='#9ba8a2';ctx.textAlign='center';ctx.fillText(t,W/2,H/2);ctx.textAlign='left';};
+  if(!labels.length){empty('Sem movimentações registradas para este período');return;}
+  if(cfg.type==='doughnut'){
+    const values=sets[0]?.data||[];const total=values.reduce((a,b)=>a+Math.max(0,Number(b)||0),0);
+    if(!total){empty('Sem valores para este gráfico');return;}
+    const cx=W*.36,cy=H*.49,r=Math.min(H*.34,W*.23),inner=r*.59;let start=-Math.PI/2;
+    values.forEach((v,i)=>{v=Math.max(0,Number(v)||0);if(!v)return;const end=start+v/total*Math.PI*2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,start,end);ctx.closePath();ctx.fillStyle=colors[i%colors.length];ctx.fill();start=end;});
+    ctx.beginPath();ctx.arc(cx,cy,inner,0,Math.PI*2);ctx.fillStyle='#131916';ctx.fill();ctx.fillStyle='#f0f5f1';ctx.font='bold 14px Arial';ctx.textAlign='center';ctx.fillText('R$ '+money(total),cx,cy);ctx.textAlign='left';ctx.font='12px Arial';
+    labels.forEach((l,i)=>{const y=Math.max(20,H*.32)+i*26;ctx.fillStyle=colors[i%colors.length];ctx.fillRect(W*.68,y-6,11,11);ctx.fillStyle='#dbe5dd';ctx.fillText(short(l,17),W*.68+17,y);});return;
+  }
+  const horizontal=cfg.options?.indexAxis==='y';const activeSets=sets.filter(s=>s.type!=='line');const lineSets=sets.filter(s=>s.type==='line');
+  const values=sets.flatMap(s=>s.data||[]).map(v=>Math.max(0,Number(v)||0));const max=Math.max(1,...values)*1.14;
+  const left=horizontal?Math.min(195,Math.max(110,W*.35)):54,right=18,top=32,bottom=horizontal?24:labels.length>7?78:52;
+  const plotW=Math.max(40,W-left-right),plotH=Math.max(40,H-top-bottom);
+  ctx.strokeStyle='rgba(255,255,255,.13)';ctx.fillStyle='#9faea4';ctx.font='11px Arial';
+  for(let t=0;t<=4;t++){const v=max*t/4;if(horizontal){const x=left+plotW*t/4;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,top+plotH);ctx.stroke();ctx.textAlign='center';ctx.fillText(money(v),x,top+plotH+15);}else{const y=top+plotH-plotH*t/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(left+plotW,y);ctx.stroke();ctx.textAlign='right';ctx.fillText(money(v),left-7,y);} }
+  ctx.textAlign='left';const count=labels.length,group=horizontal?plotH/count:plotW/count;
+  labels.forEach((l,i)=>{if(horizontal){const y=top+(i+.5)*group;ctx.fillStyle='#d9e5dd';ctx.textAlign='right';ctx.fillText(short(l,Math.max(12,Math.floor(left/7))),left-8,y);ctx.textAlign='left';}else{const x=left+(i+.5)*group;ctx.save();ctx.translate(x,top+plotH+10);if(count>7)ctx.rotate(-Math.PI/4);ctx.fillStyle='#d9e5dd';ctx.textAlign=count>7?'right':'center';ctx.fillText(short(l,count>7?16:13),0,0);ctx.restore();}
+    activeSets.forEach((set,j)=>{const v=Math.max(0,Number(set.data[i])||0);const span=Math.max(2,group*.7/Math.max(1,activeSets.length));ctx.fillStyle=colors[j%colors.length];if(horizontal){const y=top+i*group+(group-span*activeSets.length)/2+j*span;ctx.fillRect(left,y,plotW*v/max,Math.max(2,span-2));}else{const x=left+i*group+(group-span*activeSets.length)/2+j*span;const h=plotH*v/max;ctx.fillRect(x,top+plotH-h,Math.max(2,span-2),h);}});
+  });
+  if(!horizontal)lineSets.forEach((set,j)=>{ctx.beginPath();ctx.strokeStyle=colors[(activeSets.length+j)%colors.length];ctx.lineWidth=2;set.data.forEach((v,i)=>{const x=left+(i+.5)*group,y=top+plotH-plotH*Math.max(0,Number(v)||0)/max;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.stroke();});
+  if(sets.length>1){let x=left;sets.forEach((set,j)=>{ctx.fillStyle=colors[j%colors.length];ctx.fillRect(x,10,9,9);ctx.fillStyle='#d9e5dd';ctx.textAlign='left';const label=short(set.label||'',23);ctx.fillText(label,x+13,15);x+=Math.min(180,label.length*7+26);});}
+}
+
 function drawDashboardAlmoxV109(){
-  if(state.section!=='dashboardAlmoxV109'||typeof Chart==='undefined')return;
+  if(state.section!=='dashboardAlmoxV109')return;
   const unidade=state.dashAlmoxUnidadeV110||'TODAS';
   const estoque=unidade==='CAMAÇARI'
-    ? almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI')
+    ? almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI')
     : (unidade==='SANTOS'||unidade==='MECHATRONICS')
-      ? almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS')
-      : almoxItensV107;
+      ? almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS')
+      : almoxItensV107.filter(i=>i.status!=='INATIVO');
   const movs=almoxMovV107.filter(m=>unidade==='TODAS'||nA107(m.centroCusto||m.destino)===nA107(unidade));
   const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#d9dedb'}}},scales:{x:{ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}},y:{ticks:{color:'#9da7a1'},grid:{color:'rgba(255,255,255,.06)'}}}};
-  const mk=(id,cfg)=>{const el=document.getElementById(id);if(!el)return;if(el._chart)el._chart.destroy();el._chart=new Chart(el,cfg);};
+  const mk=(id,cfg)=>{const el=document.getElementById(id);if(!el)return;desenharGraficoNativoCryo(el,cfg);};
   const cats=['MAQUINA','FERRAMENTA','INSUMO','EPI'];
-  mk('catA109',{type:'doughnut',data:{labels:['Máquinas','Ferramentas','Insumos','EPIs'],datasets:[{data:cats.map(c=>estoque.filter(i=>i.categoria===c).reduce((s,i)=>s+valA107(i),0))}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#d9dedb'}}}}});
+  mk('catA109',{type:'doughnut',data:{labels:['Máquinas','Ferramentas','Insumos','EPIs'],datasets:[{data:cats.map(c=>estoque.filter(i=>cryoCategoriaEstoque2026(i)===c).reduce((s,i)=>s+valA107(i),0))}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#d9dedb'}}}}});
+  // Séries históricas são exclusivamente informativas: nunca modificam saldos.
+  const hist=cryoHistoricoLegado2026().filter(m=>unidade==='TODAS'||nA107(m.centroCusto)===nA107(unidade));
   const ms=mensalUnidadeV110(unidade);
-  mk('mensalA109',{type:'bar',data:{labels:ms.map(x=>x.k),datasets:[{label:'Compra para estoque',data:ms.map(x=>x.e)},{label:'Baixa de estoque',data:ms.map(x=>x.s)},{label:'Saldo acumulado',data:ms.map(x=>x.saldo),type:'line',tension:.25}]},options:base});
+  const mapMensal=new Map(ms.map(x=>[x.k,{...x,h:0}]));
+  hist.forEach(m=>{const k=mesA109(m.data);if(!k)return;if(!mapMensal.has(k))mapMensal.set(k,{k,e:0,s:0,saldo:0,h:0});mapMensal.get(k).h+=numeroSeguro(m.valorTotal);});
+  const meses=[...mapMensal.values()].sort((a,b)=>a.k.localeCompare(b.k)).slice(-12);
+  mk('mensalA109',{type:'bar',data:{labels:meses.map(x=>x.k),datasets:[{label:'Entradas físicas',data:meses.map(x=>x.e)},{label:'Baixas físicas',data:meses.map(x=>x.s)},{label:'Baixas históricas (sem impacto)',data:meses.map(x=>x.h)}]},options:base});
   const par=estoque.filter(i=>saldoA107(i)>0).sort((a,b)=>diasParadoA109(b)-diasParadoA109(a)).slice(0,20);
   mk('paradosA109',{type:'bar',data:{labels:par.map(i=>(i.nome||'').slice(0,32)),datasets:[{label:'Dias sem movimentação',data:par.map(i=>diasParadoA109(i)>=99999?3650:diasParadoA109(i))}]},options:{...base,indexAxis:'y'}});
   const caros=estoque.filter(i=>saldoA107(i)>0).map(i=>({...i,_v:valA107(i),_m:mov90A109(i)})).sort((a,b)=>(b._v/(1+b._m))-(a._v/(1+a._m))).slice(0,5);
   mk('carosA109',{type:'bar',data:{labels:caros.map(i=>(i.nome||'').slice(0,32)),datasets:[{label:'Valor em estoque',data:caros.map(i=>i._v)}]},options:{...base,indexAxis:'y'}});
   mk('fisicoA109',{type:'bar',data:{labels:['Santos','Camaçari'],datasets:[{label:'Valor do estoque físico',data:[
-    almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS').reduce((s,i)=>s+valA107(i),0),
-    almoxItensV107.filter(i=>nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI').reduce((s,i)=>s+valA107(i),0)
+    almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='SANTOS').reduce((s,i)=>s+valA107(i),0),
+    almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)==='CAMAÇARI').reduce((s,i)=>s+valA107(i),0)
   ]}]},options:base});
-  const lim=Date.now()-90*86400000,cons={};movs.filter(m=>m.tipo==='SAIDA'&&new Date(String(m.data||'')+'T00:00:00').getTime()>=lim).forEach(m=>{const k=m.itemNome||m.codigo||'Item';cons[k]=(cons[k]||0)+numeroSeguro(m.quantidade);});
-  const top=Object.entries(cons).sort((a,b)=>b[1]-a[1]).slice(0,10);
-  mk('consumoA109',{type:'bar',data:{labels:top.map(x=>x[0].slice(0,30)),datasets:[{label:'Quantidade consumida',data:top.map(x=>x[1])}]},options:{...base,indexAxis:'y'}});
+  const lim=Date.now()-90*86400000,cons={};
+  const dentro90=m=>{const t=Date.parse(String(m.data||'').slice(0,10)+'T00:00:00');return Number.isFinite(t)&&t>=lim;};
+  movs.filter(m=>m.tipo==='SAIDA'&&dentro90(m)).forEach(m=>{const k=m.itemNome||m.codigo||'Item';if(!cons[k])cons[k]={fisico:0,historico:0};cons[k].fisico+=numeroSeguro(m.quantidade);});
+  hist.filter(dentro90).forEach(m=>{const k=m.itemNome||m.codigo||'Item';if(!cons[k])cons[k]={fisico:0,historico:0};cons[k].historico+=numeroSeguro(m.quantidade);});
+  const top=Object.entries(cons).sort((a,b)=>(b[1].fisico+b[1].historico)-(a[1].fisico+a[1].historico)).slice(0,10);
+  mk('consumoA109',{type:'bar',data:{labels:top.map(x=>x[0].slice(0,30)),datasets:[{label:'Baixa física',data:top.map(x=>x[1].fisico)},{label:'Histórico sem impacto',data:top.map(x=>x[1].historico)}]},options:{...base,indexAxis:'y'}});
   const rup=estoque.filter(i=>numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<=numeroSeguro(i.estoqueMinimo)).slice(0,15);
   mk('rupturaA109',{type:'bar',data:{labels:rup.map(i=>(i.nome||'').slice(0,30)),datasets:[{label:'Saldo',data:rup.map(i=>saldoA107(i))},{label:'Mínimo',data:rup.map(i=>numeroSeguro(i.estoqueMinimo))}]},options:{...base,indexAxis:'y'}});
   const ord=estoque.filter(i=>valA107(i)>0).sort((a,b)=>valA107(b)-valA107(a)),tot=ord.reduce((s,i)=>s+valA107(i),0)||1;let acc=0,A=0,B=0,C=0;ord.forEach(i=>{acc+=valA107(i);const p=acc/tot;if(p<=.8)A+=valA107(i);else if(p<=.95)B+=valA107(i);else C+=valA107(i);});
@@ -14640,6 +14715,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
   });
 })();
 </script>
+
 
 </body>
 </html>
