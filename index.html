@@ -9863,11 +9863,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
     async function v125CarregarColecao(nome,force=false){
       const agora=Date.now();
-      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<V126_CACHE_MS) return;
+      const critico=(nome==='almoxarifado_itens');
+      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<(critico?60000:V126_CACHE_MS)) return;
       if(v125Carregando[nome]) return v125Carregando[nome];
 
       // V12.6/V13.0: antes de tocar no Firestore, tenta cache desta aba e depois outra aba aberta.
-      if(!force){
+      if(!force && !critico){
         const local=v126LerCache(nome);
         if(v126CacheValido(local)){
           v125AplicarSnapshot(nome,local.data);
@@ -9886,7 +9887,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       v125Carregando[nome]=(async()=>{
         try{
           console.warn(`[V13.5 Firestore] leitura de coleção: ${nome}`);
-          const snap=await db.collection(nome).get();
+          // Rev03: inventário físico é dado crítico; ler do servidor, nunca aceitar snapshot vazio silenciosamente.
+          const colecaoCritica=(nome==='almoxarifado_itens');
+          const snap=colecaoCritica
+            ? await db.collection(nome).get({source:'server'})
+            : await db.collection(nome).get();
+          if(colecaoCritica && snap.empty){
+            throw new Error('ALERTA: Firestore retornou zero registros de estoque. Saldo NÃO confirmado. Não faça baixas até recuperar a leitura.');
+          }
           try{ if(typeof v130RegistrarLeituras==='function') v130RegistrarLeituras(nome,snap.size); }catch(_){}
           const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
           v125AplicarSnapshot(nome,arr);
@@ -9895,7 +9903,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }catch(err){
           // Se a cota estiver temporariamente indisponível, tenta cache expirado antes de falhar.
           const local=v126LerCache(nome);
-          if(local&&Array.isArray(local.data)&&local.data.length){
+          if(!critico && local&&Array.isArray(local.data)&&local.data.length){
             v125AplicarSnapshot(nome,local.data);
             v125UltimaCarga[nome]=Number(local.ts)||Date.now();
             console.warn('V12.6 — usando cache local expirado para '+nome+' devido a falha do Firestore.');
