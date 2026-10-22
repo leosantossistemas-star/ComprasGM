@@ -14090,15 +14090,25 @@ document.addEventListener('click',async e=>{
   }
   if(e.target.closest('#btnLiberarExternoV107')){ await salvarConfigAcessoV105({acessoExternoLiberado:true}); return; }
   if(e.target.closest('#btnBloquearExternoV107')){ await salvarConfigAcessoV105({acessoExternoLiberado:false,liberadoAteISO:''}); return; }
-  if(e.target.closest('#btnLiberarVinculoAlmoxV107')){
-    const confirmados=await db.collection('almoxarifado_itens').where('origemSaldo','==','INVENTARIO_20261022').get();
-  if(confirmados.size<writes.length)throw Error('Verificação pós-gravação incompleta: '+confirmados.size+'/'+writes.length+'. Vínculo permanece bloqueado.');
-  await db.collection('configuracoes').doc('almoxarifado_controle').set({vinculoAtivo:true,alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoEmISO:new Date().toISOString()},{merge:true});
-    showToast('Vínculo do estoque físico LIBERADO.'); return;
-  }
-  if(e.target.closest('#btnBloquearVinculoAlmoxV107')){
-    await db.collection('configuracoes').doc('almoxarifado_controle').set({vinculoAtivo:false,alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoEmISO:new Date().toISOString()},{merge:true});
-    showToast('Vínculo do estoque físico BLOQUEADO.'); return;
+  if(e.target.closest('#btnLiberarVinculoAlmoxV107') || e.target.closest('#btnBloquearVinculoAlmoxV107')){
+    const liberar=!!e.target.closest('#btnLiberarVinculoAlmoxV107');
+    if(getPerfil()!=='admin') {showToast('Somente o administrador pode alterar o vínculo.',true);return;}
+    if(liberar && !confirm('LIBERAR integração física? A partir desta operação, NFs de estoque e baixas poderão alterar o saldo real. Confirme somente se o inventário estiver validado.'))return;
+    const botao=e.target.closest('button');
+    if(botao)botao.disabled=true;
+    try{
+      const ref=db.collection('configuracoes').doc('almoxarifado_controle');
+      await ref.set({vinculoAtivo:liberar,alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoEmISO:new Date().toISOString()},{merge:true});
+      const snap=await ref.get({source:'server'});
+      if(!snap.exists || snap.data().vinculoAtivo!==liberar)throw Error('Firebase não confirmou o novo estado do vínculo.');
+      almoxConfigV107={...snap.data(),erroLeitura:false};
+      try{sessionStorage.removeItem(v126CacheKey('almoxConfigV107'));}catch(_){}
+      try{Object.keys(sessionStorage).filter(k=>k.includes('almoxarifado_controle')||k.includes('almoxConfig')).forEach(k=>sessionStorage.removeItem(k));}catch(_){}
+      showToast('Vínculo físico '+(liberar?'LIBERADO':'BLOQUEADO')+' e confirmado no Firebase.');
+      render();
+    }catch(err){showToast('Falha ao '+(liberar?'liberar':'bloquear')+' vínculo: '+(err?.message||err),true);console.error('Configuração do almoxarifado',err);}
+    finally{if(botao && botao.isConnected)botao.disabled=false;}
+    return;
   }
 });
 
