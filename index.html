@@ -5355,6 +5355,49 @@ auth.onAuthStateChanged(async (user) => {
       }
     }
 
+    // RC Rev08: bloqueio preventivo por estoque físico e compras em aberto.
+    // Não modifica saldos nem migra dados existentes.
+    async function validarTetoEstoqueRC2026(itens, centroCusto, numeroAtual) {
+      const estoque = estoqueFisicoPadraoV109(centroCusto);
+      const [snapAlmox, snapRC] = await Promise.all([
+        db.collection('almoxarifado_itens').get(),
+        db.collection('requisicoes').get()
+      ]);
+      const materiais = snapAlmox.docs.map(d=>({id:d.id,...d.data()}));
+      const requisicoes = snapRC.docs.map(d=>({id:d.id,...d.data()}));
+      const solicitados = new Map();
+      for(const item of itens){
+        const codigo=String(item.codigo||'').trim().toUpperCase();
+        if(!codigo) throw new Error('Selecione um material cadastrado com código antes de salvar a RC.');
+        solicitados.set(codigo,(solicitados.get(codigo)||0)+numeroSeguro(item.qtd));
+      }
+      for(const [codigo,quantidade] of solicitados){
+        const material = materiais.find(x=>
+          (String(x.codigoMaterial||'').toUpperCase()===codigo||String(x.codigoImportacao||'').toUpperCase()===codigo) &&
+          nomeEstoqueFisicoV109(x.estoqueFisico||x.centroCusto)===estoque && x.status!=='INATIVO');
+        if(!material) throw new Error(`${codigo}: material não encontrado no estoque físico de ${estoque}. Regularize o cadastro antes de comprar.`);
+        const saldo=saldoA107(material);
+        const minimo=numeroSeguro(material.estoqueMinimo);
+        const maximo=minimo>0?minimo*2:10;
+        let pendente=0;
+        for(const rc of requisicoes){
+          if(String(rc.numero||'')===String(numeroAtual||''))continue;
+          const status=String(rc.status||'').toLowerCase();
+          if(['rejeitado','rejeitada','cancelado','cancelada','concluido','concluida','finalizado','finalizada','rascunho'].includes(status))continue;
+          if(estoqueFisicoPadraoV109(rc.centroCusto||rc.aplicacao)!==estoque)continue;
+          for(const i of (Array.isArray(rc.itens)?rc.itens:[])){
+            if(String(i.codigo||'').trim().toUpperCase()===codigo) pendente+=numeroSeguro(i.qtd??i.quantidade);
+          }
+        }
+        const disponivel=Math.max(0,maximo-saldo-pendente);
+        if(quantidade>disponivel+0.000001){
+          if(minimo<=0) throw new Error(`Limite de compra atingido por não ter o estoque mínimo definido. Atualize o estoque mínimo. ${codigo}: limite total 10, saldo ${saldo}, RCs pendentes ${pendente}, permitido ${disponivel}, solicitado ${quantidade}.`);
+          throw new Error(`Compra bloqueada para ${codigo}: mínimo ${minimo}, máximo ${maximo}, saldo ${saldo}, RCs pendentes ${pendente}. Quantidade máxima para esta RC: ${disponivel}; solicitada: ${quantidade}.`);
+        }
+      }
+      return true;
+    }
+
     async function salvarRascunho(enviar = false) {
       const getVal = id => document.getElementById(id)?.value || '';
       const numero=getVal('rcNumero'), data=getVal('rcData'), fornecedor=getVal('rcFornecedor'),
@@ -5389,6 +5432,15 @@ auth.onAuthStateChanged(async (user) => {
       if(enviar){
         const validacao=validarFrotaParaEnvio(frota,total,existing?numero:'');
         if(!validacao.ok){showToast(validacao.motivo,true);return;}
+      }
+
+      // Bloqueia antes da gravação. Falha de conexão também impede a compra.
+      try {
+        await validarTetoEstoqueRC2026(itens, centroCusto, numero);
+      } catch(erroEstoque) {
+        showToast(erroEstoque.message||String(erroEstoque),true);
+        alert(erroEstoque.message||String(erroEstoque));
+        return;
       }
 
       const status=enviar?'em_aprovacao':'rascunho';
