@@ -1631,11 +1631,97 @@ auth.onAuthStateChanged(async (user) => {
       return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
         .toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
     }
+    // V17 — solicitações separadas do cadastro operacional; nenhum código é reservado antes da aprovação.
+    let v17SolicitacoesMateriais=[];
+    let v17SolicitacoesCarregadasEm=0;
+    const v17Canon=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    function v17PodeAprovar(){return ['admin','gerente'].includes(getPerfil());}
+    function v17ValidarMaterial(m){
+      for(const [campo,rotulo] of [['descricaoSimples','Descrição simples'],['categoria','Categoria'],['subcategoria','Subcategoria'],['unid','Unidade'],['usuario','Responsável']]){
+        if(!String(m[campo]||'').trim())throw new Error('Campo obrigatório: '+rotulo);
+      }
+      const ncm=String(m.ncm||m.NCM||'').trim();
+      if(ncm&&!/^\d{8}$/.test(ncm))throw new Error('NCM: informe exatamente 8 dígitos, sem pontos ou letras.');
+      if((m.ehEPI===true||String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM') && (!String(m.caNumero||m.CA||'').trim()||!String(m.caValidade||'').trim()))throw new Error('EPI exige número e validade do CA.');
+      for(const [campo,rotulo] of [['estoqueMin','Estoque mínimo'],['estoqueMax','Estoque máximo'],['loteMinimo','Lote mínimo'],['leadTime','Lead time'],['custoUnitarioNum','Custo unitário']]){
+        const valor=m[campo];if(valor!==''&&valor!=null&&(!Number.isFinite(Number(valor))||Number(valor)<0))throw new Error(rotulo+' inválido.');
+      }
+      if(Number(m.estoqueMax)>0&&Number(m.estoqueMin)>Number(m.estoqueMax))throw new Error('Estoque mínimo não pode exceder o máximo.');
+      const desc=v17Canon(m.descricaoCurta||m.descricaoSimples||m.descricaoCompleta);
+      const candidato=allItems.find(x=>x.ativo!==false&&v17Canon(x.descricaoCurta||x.descricaoSimples||x.descricaoCompleta)===desc);
+      if(candidato)throw new Error('Material já cadastrado: '+(candidato.codigo||candidato.id));
+      return true;
+    }
+    async function v17EnviarSolicitacaoMaterial(material){
+      v17ValidarMaterial(material);
+      const uid=getUsuarioUid();if(!uid)throw new Error('É necessário estar autenticado.');
+      const payload={material:{...material,id:null,codigo:null},status:'PENDENTE',solicitanteUid:uid,solicitanteEmail:getUsuarioEmail(),solicitanteNome:getUsuarioNome(),criadoEm:firebase.firestore.FieldValue.serverTimestamp(),atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
+      const ref=await db.collection('solicitacoes_materiais').add(payload);
+      v17SolicitacoesMateriais.unshift({...payload,id:ref.id,criadoEm:new Date()});
+      return ref.id;
+    }
+    async function v17CarregarSolicitacoes(force=false){
+      if(!v17PodeAprovar())return;
+      if(!force&&Date.now()-v17SolicitacoesCarregadasEm<5*60*1000)return;
+      const snap=await db.collection('solicitacoes_materiais').where('status','==','PENDENTE').limit(200).get();
+      v17SolicitacoesMateriais=snap.docs.map(d=>({id:d.id,...d.data()}));v17SolicitacoesCarregadasEm=Date.now();
+    }
+    async function v17DecidirMaterial(id,aprovar){
+      if(!v17PodeAprovar())throw new Error('Aprovação restrita ao gerente ou administrador.');
+      const item=v17SolicitacoesMateriais.find(x=>x.id===id);
+      if(!item||item.status!=='PENDENTE')throw new Error('Solicitação não disponível. Atualize a lista.');
+      if(item.solicitanteUid===getUsuarioUid())throw new Error('Não é permitido aprovar o próprio cadastro.');
+      const ref=db.collection('solicitacoes_materiais').doc(id);
+      if(aprovar){
+        v17ValidarMaterial(item.material);
+        // V17: solicitação, contador e material são gravados na MESMA transação.
+        // Dois aprovadores não conseguem concluir a mesma solicitação duas vezes.
+        const contador=db.collection('controleCadastro').doc('sequenciaMateriaisCRY');
+        const materialRef=db.collection('materiais').doc();
+        const maxLocal=allItems.reduce((n,m)=>{const a=String(m.codigo||'').match(/^CRY-(\d+)$/i);return a?Math.max(n,Number(a[1])):n;},0);
+        const salvo=await db.runTransaction(async tx=>{
+          const [pedido,seq]=await Promise.all([tx.get(ref),tx.get(contador)]);
+          if(!pedido.exists||pedido.data().status!=='PENDENTE')throw new Error('Solicitação já processada.');
+          if(pedido.data().solicitanteUid===getUsuarioUid())throw new Error('Autoaprovação não permitida.');
+          const numero=Math.max(maxLocal,Number(seq.exists?seq.data().ultimoCodigo:0)||0)+1;
+          const codigo='CRY-'+String(numero).padStart(4,'0');
+          const agora=firebase.firestore.FieldValue.serverTimestamp();
+          const dados={...pedido.data().material,id:materialRef.id,codigo,origemCadastro:'SISTEMA',origemSolicitacaoId:id,ativo:true,aprovadoPorUid:getUsuarioUid(),aprovadoPorEmail:getUsuarioEmail(),aprovadoEm:agora,dataCriacao:agora};
+          tx.set(contador,{ultimoCodigo:numero,atualizadoEm:agora},{merge:true});
+          tx.set(materialRef,dados);
+          tx.update(ref,{status:'APROVADO',materialId:materialRef.id,codigoGerado:codigo,decididoPorUid:getUsuarioUid(),decididoPorEmail:getUsuarioEmail(),decididoEm:agora});
+          return dados;
+        });
+        allItems.push({...salvo});v126SalvarCache('materiais',allItems);
+      }else{
+        const motivo=prompt('Justificativa obrigatória da devolução/rejeição:');
+        if(motivo===null)return;
+        if(!motivo.trim())throw new Error('Informe a justificativa.');
+        await ref.update({status:'DEVOLVIDO',motivo:motivo.trim(),decididoPorUid:getUsuarioUid(),decididoPorEmail:getUsuarioEmail(),decididoEm:firebase.firestore.FieldValue.serverTimestamp()});
+      }
+      v17SolicitacoesMateriais=v17SolicitacoesMateriais.filter(x=>x.id!==id);render();
+    }
+    function v17RenderAprovacoes(){
+      if(!v17PodeAprovar())return '';
+      const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      return `<div class="card" style="margin-bottom:16px"><div class="card-header"><div><div class="card-title">Aprovação de novos materiais</div><div class="card-sub">Solicitações aguardando análise técnica · não disponíveis para RC ou estoque até aprovação</div></div><button type="button" class="btn btn-ghost" id="v17RecarregarAprovacoes">Atualizar solicitações</button></div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Solicitante</th><th>Ações</th></tr></thead><tbody>${v17SolicitacoesMateriais.map(x=>`<tr><td>${esc(x.material?.descricaoSimples||'')}</td><td>${esc(x.material?.categoria||'')}</td><td>${esc(x.solicitanteNome||x.solicitanteEmail||'')}</td><td>${x.solicitanteUid===getUsuarioUid()?'Aguardando outro aprovador':`<button type="button" class="btn btn-accent btn-sm" data-v17-aprovar="${esc(x.id)}">Aprovar</button> <button type="button" class="btn btn-ghost btn-sm" data-v17-devolver="${esc(x.id)}">Devolver</button>`}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma solicitação pendente carregada.</td></tr>'}</tbody></table></div></div>`;
+    }
+    document.addEventListener('click',async e=>{
+      const reload=e.target.closest('#v17RecarregarAprovacoes'),ap=e.target.closest('[data-v17-aprovar]'),dev=e.target.closest('[data-v17-devolver]');
+      if(!reload&&!ap&&!dev)return;
+      try{if(reload){await v17CarregarSolicitacoes(true);render();return;}await v17DecidirMaterial((ap||dev).dataset[ap?'v17Aprovar':'v17Devolver'],!!ap);showToast('Solicitação processada.');}
+      catch(err){showToast('Falha na aprovação: '+err.message,true);}
+    });
     async function salvarMaterial(material) {
       const col = db.collection('materiais');
       const codigo = String(material.codigo || '').trim().toUpperCase();
       const descricao = normalizarDescricaoMaterial(material.descricaoCurta || material.descricaoSimples || material.descricaoCompleta);
       if (!descricao) throw new Error('Informe a descrição do material.');
+      const ncm=String(material.ncm||material.NCM||'').replace(/\D/g,'');
+      if((material.ncm||material.NCM) && ncm.length!==8)throw new Error('NCM deve ter exatamente 8 dígitos numéricos.');
+      if((material.ncm||material.NCM) && !/^\d{8}$/.test(String(material.ncm||material.NCM).replace(/[.\s]/g,'')))throw new Error('NCM inválido: use 8 dígitos, sem letras.');
+      const custo=Number(material.custoUnitarioNum);
+      if(material.custoUnitarioNum!=null && material.custoUnitarioNum!=='' && (!Number.isFinite(custo)||custo<0))throw new Error('Custo unitário inválido.');
       // O número é atribuído exclusivamente no Firebase, nunca por planilha ou cache local.
       if (material.id) {
         const ref = col.doc(material.id);
@@ -1646,16 +1732,18 @@ auth.onAuthStateChanged(async (user) => {
         await ref.update({...material, id: material.id, codigo: codigoOriginal});
         return {...material, codigo: codigoOriginal};
       }
-      const existentes = await col.get();
-      for (const d of existentes.docs) {
-        const m = d.data();
+      // V15: não reler TODA a coleção a cada cadastro (centenas de leituras por clique).
+      // Consulta compartilhada e cacheada; confirmação e numeração permanecem no servidor.
+      await v125CarregarColecao('materiais',false);
+      const existentes = Array.isArray(allItems) ? allItems : [];
+      for (const m of existentes) {
         const atual = normalizarDescricaoMaterial(m.descricaoCurta || m.descricaoSimples || m.descricaoCompleta);
         if (atual && atual === descricao && m.ativo !== false)
-          throw new Error('Material já cadastrado: '+(m.codigo || d.id)+'. Utilize o cadastro existente.');
+          throw new Error('Material já cadastrado: '+(m.codigo || m.id)+'. Utilize o cadastro existente.');
       }
-      const maximo = existentes.docs.reduce((n,d)=>{
-        const m = String(d.data().codigo || '').match(/^CRY-(\d+)$/i);
-        return m ? Math.max(n,Number(m[1])) : n;
+      const maximo = existentes.reduce((n,m)=>{
+        const codigoExistente = String(m.codigo || '').match(/^CRY-(\d+)$/i);
+        return codigoExistente ? Math.max(n,Number(codigoExistente[1])) : n;
       },0);
       // Operação transacional de reserva do próximo código, com verificação de colisão.
       const contador = db.collection('controleCadastro').doc('sequenciaMateriaisCRY');
@@ -3188,10 +3276,28 @@ auth.onAuthStateChanged(async (user) => {
       });
     }
 
+    async function v16BackupCadastros(){
+      if(getPerfil()!=='admin')throw new Error('Backup restrito ao administrador.');
+      const colecoes=['materiais','fornecedores','frotas','requisicoes','recebimentos_nf','solicitacoes','orcamentos_tecnicos','almoxarifado_itens','almoxarifado_movimentacoes','rh_colaboradores','rh_cargos','rh_folhas','rh_ferias','rh_asos','rh_ccts','rh_entregas_epi','rh_historico','configuracoes','controleCadastro','usuarios','categorias','historico','contadores','solicitacoes_materiais'];
+      const backup={sistema:'Gestão de Compras Mechatronics',versao:'V16',geradoEm:new Date().toISOString(),colecoes:{},erros:{}};
+      const converter=v=>v&&typeof v.toDate==='function'?{__timestamp:v.toDate().toISOString()}:v&&typeof v==='object'&&typeof v.latitude==='number'&&typeof v.longitude==='number'?{__geopoint:[v.latitude,v.longitude]}:Array.isArray(v)?v.map(converter):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,converter(x)])):v;
+      for(const nome of colecoes){
+        const dados=[];let ultimo=null;
+        try{for(;;){let q=db.collection(nome).orderBy(firebase.firestore.FieldPath.documentId()).limit(300);if(ultimo)q=q.startAfter(ultimo);const lote=await q.get({source:'server'});lote.docs.forEach(d=>dados.push({__id:d.id,...converter(d.data())}));if(lote.empty||lote.size<300)break;ultimo=lote.docs[lote.docs.length-1];}backup.colecoes[nome]=dados;}
+        catch(e){backup.erros[nome]=e.message||String(e);}
+      }
+      const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json;charset=utf-8'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Backup_Mechatronics_'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+      if(Object.keys(backup.erros).length)alert('Backup PARCIAL: algumas coleções não puderam ser exportadas. Consulte o campo erros no arquivo JSON.');
+      else showToast('Backup de cadastros gerado.');
+    }
+    document.addEventListener('click',e=>{if(e.target.closest('#v16Backup'))v16BackupCadastros().catch(err=>showToast('Falha no backup: '+err.message,true));});
     function renderMateriais() {
       const filtered = getFilteredItems();
       return `
         ${renderSyncV149()}
+        ${v17RenderAprovacoes()}
+        ${getPerfil()==='admin'?'<div class="card" style="margin-bottom:12px"><div class="card-header"><div><div class="card-title">Backup de cadastros</div><div class="card-sub">Exportação completa em JSON, sob demanda. Não altera o Firebase.</div></div><button class="btn btn-accent" id="v16Backup">Baixar backup</button></div></div>':''}
         ${renderFilters()}
         <div class="card">
           <div class="card-header"><div><div class="card-title">Lista de Materiais</div><div class="card-sub">Cadastro protegido: códigos permanentes e sem exclusão física</div></div></div>
@@ -4762,7 +4868,7 @@ auth.onAuthStateChanged(async (user) => {
                 <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Atualiza automaticamente ao trocar Cryotronics/Mechatronics. MECH possui sequência própria iniciando em MECH-0001.</div>
               </div>
               <div class="field"><label>Data Cadastro</label><input type="text" id="novoData" value="${today}" readonly style="background:#1a1f1a;" /></div>
-              <div class="field"><label>Usuário *</label><input type="text" id="novoUsuario" placeholder="Nome do responsável" /></div>
+              <div class="field"><label>Usuário *</label><input type="text" id="novoUsuario" required placeholder="Nome do responsável" /></div>
               <div class="field"><label>Cadastro Completo?</label><select id="novoCompleto"><option value="SIM">SIM</option><option value="NAO">NÃO</option></select></div>
               <div class="field"><label>Descrição Simples *</label><input type="text" id="novoDescSimples" required /></div>
               <div class="field"><label>Descrição Curta</label><input type="text" id="novoDescCurta" /></div>
@@ -4771,7 +4877,7 @@ auth.onAuthStateChanged(async (user) => {
               <div class="field"><label>Subcategoria *</label><select id="novoSubcategoria" required><option value="">Selecione</option>${subcategorias.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
               <div class="field"><label>Unidade *</label><select id="novoUnid" required><option value="">Selecione</option>${unidades.map(u => `<option value="${u}">${u}</option>`).join('')}</select></div>
               <div class="field"><label>Unidade Detalhe</label><input type="text" id="novoUnidDetalhe" /></div>
-              <div class="field"><label>NCM</label><input type="text" id="novoNcm" /></div>
+              <div class="field"><label>NCM</label><input type="text" id="novoNcm" inputmode="numeric" maxlength="8" pattern="[0-9]{8}" title="8 dígitos numéricos, sem pontos ou letras" /></div>
               <div class="field"><label>Marca</label><input type="text" id="novoMarca" /></div>
               <div class="field"><label>Modelo</label><input type="text" id="novoModelo" /></div>
               <div class="field"><label>Tipo Material</label><input type="text" id="novoTipoMat" /></div>
@@ -9733,14 +9839,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       if (botaoSalvar?.disabled) return;
       if (botaoSalvar) { botaoSalvar.disabled = true; botaoSalvar.textContent = 'Salvando…'; }
       try {
-        const salvo = await salvarMaterial(newItem);
-        // Atualização imediata da coleção local após a confirmação do servidor.
-        const docConfirmado = await db.collection('materiais').doc(salvo.id).get({source:'server'});
-        if (!docConfirmado.exists) throw new Error('O cadastro não foi localizado após a gravação. Verifique a conexão.');
-        const confirmado = {id:docConfirmado.id, ...docConfirmado.data()};
-        const idx = allItems.findIndex(i => i.id === confirmado.id);
-        if (idx >= 0) allItems[idx] = confirmado; else allItems.push(confirmado);
-        showToast(`Material ${confirmado.codigo} cadastrado com sucesso!`);
+        const solicitacaoId = await v17EnviarSolicitacaoMaterial(newItem);
+        showToast('Cadastro enviado para aprovação do gerente/administrador. Protocolo: '+solicitacaoId);
         formCadastro?.reset();
         const campoCodigo = document.getElementById('novoCodigo');
         if (campoCodigo) campoCodigo.value = getNextCode(getVal('novoEmpresaCodigo') || 'CRYO');
@@ -9933,19 +10033,20 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     async function v125CarregarColecao(nome,force=false){
       const agora=Date.now();
       const critico=(nome==='almoxarifado_itens');
-      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<(critico?60000:V126_CACHE_MS)) return;
+      const ttl=critico?10*60*1000:V126_CACHE_MS;
+      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<ttl) return;
       if(v125Carregando[nome]) return v125Carregando[nome];
 
       // V12.6/V13.0: antes de tocar no Firestore, tenta cache desta aba e depois outra aba aberta.
-      if(!force && !critico){
+      if(!force){
         const local=v126LerCache(nome);
-        if(v126CacheValido(local)){
+        if(local && Array.isArray(local.data) && local.data.length && (Date.now()-Number(local.ts))<ttl){
           v125AplicarSnapshot(nome,local.data);
           v125UltimaCarga[nome]=Number(local.ts);
           return;
         }
         const compartilhado=await v130PedirCacheOutraAba(nome);
-        if(compartilhado?.data && Array.isArray(compartilhado.data)){
+        if(compartilhado?.data && Array.isArray(compartilhado.data) && compartilhado.data.length && (Date.now()-Number(compartilhado.ts))<ttl){
           v125AplicarSnapshot(nome,compartilhado.data);
           v125UltimaCarga[nome]=Number(compartilhado.ts)||Date.now();
           v126SalvarCache(nome,compartilhado.data);
@@ -10058,6 +10159,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const deps=v125Dependencias(sec);
       try{
         await Promise.all(deps.map(c=>v125CarregarColecao(c,force)));
+      if(sec==='materiais' && v17PodeAprovar()) await v17CarregarSolicitacoes(force).catch(err=>console.warn('Aprovações não disponíveis:',err.message));
         // V13.0: Solicitar RC precisa enxergar imediatamente solicitações feitas por outros usuários.
         // A coleção costuma ser pequena e tem frescor de 2 min; na conversão, o documento exato é lido novamente.
         if(sec==='solicitar') await v130CarregarSolicitacoesFrescas(force);
@@ -10089,6 +10191,16 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       return v125CarregarColecao('orcamentos_tecnicos',false);
     }
 
+    const v15UltimaAtualizacaoManual=Object.create(null);
+    async function v15AtualizacaoManual(sec){
+      const agora=Date.now();
+      if(v15UltimaAtualizacaoManual[sec] && agora-v15UltimaAtualizacaoManual[sec]<180000){
+        showToast('Atualização recente. Aguarde 3 minutos para evitar consumo excessivo de leituras.');
+        return false;
+      }
+      v15UltimaAtualizacaoManual[sec]=agora;
+      return v125CarregarSecao(sec,true);
+    }
     function iniciarSistema() {
       perfilAtual = getPerfil();
       atualizarMenuPorPerfil();
@@ -10108,7 +10220,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           render();
         }));
         document.getElementById("btnResetFilters")?.addEventListener("click",()=>{state.rhBusca='';render();});
-        document.getElementById("btnAtualizarDadosV125")?.addEventListener("click",async()=>{await v125CarregarSecao(state.section,true);render();});
+        document.getElementById("btnAtualizarDadosV125")?.addEventListener("click",async()=>{await v15AtualizacaoManual(state.section);render();});
         document.getElementById("btnExportCSV")?.style.setProperty('display','none');
         document.getElementById("btnExportDataJS")?.style.setProperty('display','none');
         return;
@@ -10124,7 +10236,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // sincronizarCadastroMateriaisA108 / seedA107 / migrarEstoqueFisicoV109
       // permanecem no código para manutenção administrativa, mas não rodam automaticamente.
 
-      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V14.9.3";
+      document.getElementById("sidebarSource").textContent = "Ultra econômico — Firebase Firestore · V15.0";
 
       // Vincular botão Sair
       const btnLogout = document.getElementById('btnLogout');
@@ -10156,7 +10268,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById("btnAtualizarDadosV125")?.addEventListener("click",async()=>{
         const b=document.getElementById("btnAtualizarDadosV125");
         if(b){b.disabled=true;b.textContent='Atualizando...';}
-        await v125CarregarSecao(state.section,true);
+        await v15AtualizacaoManual(state.section);
         render();
         if(b){b.disabled=false;b.textContent='↻ Atualizar dados';}
       });
@@ -14400,7 +14512,7 @@ function cryoMovimentosVisiveis2026(){
 }
 function renderAlmoxarifadoV107(){
  const f=state.almoxFilters||{}, pode=podeMovAlmox107(), busca=nA107(f.busca||'');
- let itens=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||cryoCategoriaEstoque2026(i)===f.categoria)&&(!busca||nA107(`${i.codigoMaterial} ${i.codigoImportacao} ${i.nome} ${i.localArmazenamento}`).includes(busca)));
+ let itens=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||cryoCategoriaEstoque2026(i)===f.categoria)&&(!busca||nA107(`${i.codigoMaterial} ${i.codigoImportacao} ${i.nome} ${i.categoria} ${i.patrimonio} ${i.localArmazenamento}`).includes(busca)));
  const cats=['MAQUINA','FERRAMENTA','INSUMO','EPI'];
  const categoriaInventario=cryoCategoriaEstoque2026;
  const baixos=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||cryoCategoriaEstoque2026(i)===f.categoria)&&numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<numeroSeguro(i.estoqueMinimo));
@@ -14413,9 +14525,9 @@ function renderAlmoxarifadoV107(){
  <div class="card" style="margin-top:18px"><div class="card-header"><div><div class="card-title">Estoque Geral</div><div class="card-sub">Lista única · Estoque físico SANTOS atende Santos + Mechatronics · Estoque físico CAMAÇARI é independente · Saldos físicos provenientes do inventário implantado. Registros legados inativos são ocultados sem exclusão.</div></div>${pode?'<button class="btn btn-accent" id="novoA107">+ Adicionar item</button>':''}</div>
  <div class="filters-grid"><div class="field"><label>Estoque físico</label><select id="centroA107"><option value="">Todos</option>${['SANTOS','CAMAÇARI'].map(x=>`<option ${f.centro===x?'selected':''}>${x}</option>`).join('')}</select></div>
  <div class="field"><label>Categoria</label><select id="catA107"><option value="">Todas</option>${cats.map(x=>`<option ${f.categoria===x?'selected':''}>${x}</option>`).join('')}</select></div>
- <div class="field"><label>Buscar</label><input id="buscaA107" value="${f.busca||''}" placeholder="Código, item, local"></div>
+ <div class="field"><label>Buscar</label><input id="buscaA107" value="${f.busca||''}" placeholder="Digite código, nome, categoria, local ou patrimônio" autocomplete="off"></div>
  <div class="field"><label>Movimentos de</label><input type="date" id="iniA107" value="${f.dataIni||''}"></div><div class="field"><label>Até</label><input type="date" id="fimA107" value="${f.dataFim||''}"></div><div class="field"><label>Período</label><select id="periodoA107"><option value="">Personalizado / Todos</option><option value="hoje">Hoje</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="mes">Este mês</option></select></div><div class="field"><label>Filtros</label><button type="button" class="btn btn-ghost" id="limparA107">Limpar filtros</button></div></div><div class="card-sub" style="margin:6px 0 12px">As datas filtram o histórico de movimentações. A tabela e o valor do estoque representam o saldo físico atual.</div>
- <div class="table-wrap"><table><thead><tr><th>Código</th><th>Categoria</th><th>Item</th><th>Estoque físico</th><th>Proprietário</th><th>Qtd.</th><th>Mín.</th><th>Unit.</th><th>Total</th><th>Patrimônio</th><th>Local</th><th>Status</th>${pode?'<th>Ações</th>':''}</tr></thead><tbody>
+ <div class="card-sub" style="margin:8px 0">Exibindo ${itens.length} de ${almoxItensV107.length} registros (busca instantânea, sem novas leituras).</div><div class="table-wrap"><table><thead><tr><th>Código</th><th>Categoria</th><th>Item</th><th>Estoque físico</th><th>Proprietário</th><th>Qtd.</th><th>Mín.</th><th>Unit.</th><th>Total</th><th>Patrimônio</th><th>Local</th><th>Status</th>${pode?'<th>Ações</th>':''}</tr></thead><tbody>
  ${itens.map(i=>{let low=numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<numeroSeguro(i.estoqueMinimo);return `<tr><td><span class="code">${i.codigoMaterial||i.codigoImportacao||'—'}</span></td><td>${i.categoria}</td><td><strong>${i.nome}</strong></td><td><strong>${nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)}</strong></td><td>${i.proprietarioEstoque||'SANTOS'}</td><td style="${low?'color:#ffb020;font-weight:900':''}">${saldoA107(i)}</td><td>${numeroSeguro(i.estoqueMinimo)}</td><td>${fmt.money(numeroSeguro(i.valorUnitario))}</td><td>${fmt.money(valA107(i))}</td><td>${i.patrimonio||'—'}</td><td>${i.localArmazenamento||'—'}</td><td>${i.status||'ATIVO'}</td>${pode?`<td><button class="btn btn-ghost btn-sm" data-ed-a107="${i.id}">Editar</button><button class="btn btn-danger btn-sm" data-del-a107="${i.id}">Excluir</button></td>`:''}</tr>`}).join('')||'<tr><td colspan="12">Nenhum item.</td></tr>'}
  </tbody></table></div></div>
  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(470px,1fr));gap:18px;margin-top:18px">
@@ -14443,7 +14555,20 @@ async function salvarA107(){
  quantidadeAtual:numeroSeguro(document.getElementById('iqtdA107').value),estoqueMinimo:numeroSeguro(document.getElementById('iminA107').value),valorUnitario:numeroSeguro(document.getElementById('ivalA107').value),patrimonio:document.getElementById('ipatA107').value.trim(),
  dataCompra:document.getElementById('idataA107').value,localArmazenamento:document.getElementById('ilocA107').value.trim(),status:document.getElementById('istatA107').value,observacoes:document.getElementById('iobsA107').value,inventariado:true,
  alteradoPorUid:getUsuarioUid(),alteradoPorEmail:getUsuarioEmail(),alteradoEm:firebase.firestore.FieldValue.serverTimestamp()};
- if(!d.nome)throw new Error('Informe o nome.');let ref=id?db.collection('almoxarifado_itens').doc(id):db.collection('almoxarifado_itens').doc();await ref.set(d,{merge:true});
+ if(!d.nome)throw new Error('Informe o nome.');
+ if(!d.codigoMaterial)throw new Error('Informe o código do material.');
+ if(!d.localArmazenamento)throw new Error('Informe o local de armazenamento.');
+ for(const campo of ['quantidadeAtual','estoqueMinimo','valorUnitario']){
+  if(!Number.isFinite(d[campo])||d[campo]<0)throw new Error('Valor inválido: '+campo);
+ }
+ if(Math.round(d.quantidadeAtual*10000)!==d.quantidadeAtual*10000 && Math.abs(Math.round(d.quantidadeAtual*10000)-d.quantidadeAtual*10000)>0.00001)throw new Error('Quantidade aceita até quatro casas decimais.');
+ const canon=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+ const duplicado=almoxItensV107.find(x=>x.id!==id&&nomeEstoqueFisicoV109(x.estoqueFisico||x.centroCusto)===d.estoqueFisico&&x.status!=='INATIVO'&&(canon(x.codigoMaterial||x.codigoImportacao)===canon(d.codigoMaterial)||canon(x.nome)===canon(d.nome)));
+ if(duplicado)throw new Error('Cadastro duplicado no mesmo estoque: '+(duplicado.codigoMaterial||duplicado.nome)+'. Verifique o registro existente.');
+ let ref=id?db.collection('almoxarifado_itens').doc(id):db.collection('almoxarifado_itens').doc();await ref.set(d,{merge:true});
+ const atualizado={...d,id:ref.id};const idx=almoxItensV107.findIndex(x=>x.id===ref.id);
+ if(idx>=0)almoxItensV107[idx]={...almoxItensV107[idx],...atualizado};else almoxItensV107.push(atualizado);
+ v126SalvarCache('almoxarifado_itens',almoxItensV107);v125UltimaCarga['almoxarifado_itens']=Date.now();
 }
 async function entradaNFA107(r){
  if(!almoxConfigV107.vinculoAtivo||canonDestino102(r.destino)!=='ESTOQUE'||r.tipoDocumento!=='NF')return;
@@ -14692,7 +14817,7 @@ function listenersA107(){
   return Promise.all([
     v125CarregarColecao('almoxarifado_itens',false),
     v125CarregarColecao('almoxarifado_movimentacoes',false),
-    v125CarregarConfigAlmox(true)
+    v125CarregarConfigAlmox(false)
   ]);
 }
 function cryoEscPrint2026(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -14709,9 +14834,13 @@ document.addEventListener('change',e=>{if(e.target.id!=='periodoA107')return;con
 document.addEventListener('change',e=>{
  if(e.target.id==='dashAlmoxUnidadeV110'){state.dashAlmoxUnidadeV110=e.target.value;render();return;}
  state.almoxFilters=state.almoxFilters||{};if(e.target.id==='centroA107')state.almoxFilters.centro=e.target.value;else if(e.target.id==='catA107')state.almoxFilters.categoria=e.target.value;else if(e.target.id==='iniA107')state.almoxFilters.dataIni=e.target.value;else if(e.target.id==='fimA107')state.almoxFilters.dataFim=e.target.value;else return;render();});
-document.addEventListener('input',e=>{if(e.target.id==='buscaA107'){state.almoxFilters=state.almoxFilters||{};state.almoxFilters.busca=e.target.value;render();}});
+document.addEventListener('input',e=>{if(e.target.id==='buscaA107'){
+ state.almoxFilters=state.almoxFilters||{};state.almoxFilters.busca=e.target.value;
+ const pos=e.target.selectionStart;render();const campo=document.getElementById('buscaA107');
+ if(campo){campo.focus();try{campo.setSelectionRange(pos,pos);}catch(_){}}
+}});
 document.addEventListener('click',async e=>{if(e.target.closest('#novoA107')){document.body.insertAdjacentHTML('beforeend',modalA107({categoria:'INSUMO',centroCusto:'SANTOS'}));return;}let ed=e.target.closest('[data-ed-a107]');if(ed){let i=almoxItensV107.find(x=>x.id===ed.dataset.edA107);if(i)document.body.insertAdjacentHTML('beforeend',modalA107(i));return;}let dl=e.target.closest('[data-del-a107]');if(dl){if(confirm('Excluir este item?'))await db.collection('almoxarifado_itens').doc(dl.dataset.delA107).delete();return;}if(e.target.closest('[data-close-a107]'))document.getElementById('modalA107')?.remove();});
-document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.preventDefault();try{await salvarA107();document.getElementById('modalA107')?.remove();showToast('Item salvo.');}catch(err){showToast(err.message,true);}}});
+document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.preventDefault();try{await salvarA107();document.getElementById('modalA107')?.remove();showToast('Item salvo.');render();}catch(err){showToast(err.message,true);}}});
 
       document.addEventListener('input', function(e){
         if(e.target && e.target.id==='poBuscaRC') v137AtualizarBuscaPO();
