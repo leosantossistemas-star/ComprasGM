@@ -400,6 +400,15 @@
 .mat-full-v117{margin-top:6px;font-size:11px;line-height:1.35;color:#c8d1c8;white-space:normal;overflow-wrap:anywhere}
 @media(max-width:900px){.mat-panel-v117{min-width:calc(100vw - 32px)!important;width:calc(100vw - 32px)!important}.mat-grid-v117{grid-template-columns:1fr 1fr}}
 
+    /* Correção pontual: ações da RC sem cortes; aprovação sempre visível. */
+    .rc-acoes-visiveis { max-width:none; min-width:340px; overflow:visible; white-space:normal; }
+    .rc-acoes-flex { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
+    .rc-acoes-flex .btn { white-space:nowrap; }
+    /* RC em aprovação: aprovação destacada, sem depender da largura das demais ações. */
+    .rc-aprovacao-destaque { display:block; margin-bottom:7px; }
+    .rc-aprovacao-destaque .btn { display:inline-flex; align-items:center; justify-content:center; min-width:108px; padding:7px 14px; font-size:12px; font-weight:800; white-space:nowrap; background:#00cc66; color:#07130b; }
+    .rc-acoes-visiveis { overflow:visible!important; text-overflow:clip!important; }
+
 </style>
 
 <script>
@@ -497,6 +506,9 @@
 })();
 </script>
 
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#0d0f0d">
+  <link rel="apple-touch-icon" href="./icon-192.png">
 </head>
 <body>
 
@@ -4986,6 +4998,11 @@ auth.onAuthStateChanged(async (user) => {
           acoes.push(`<button class="btn btn-danger btn-sm" data-excluir-rc="${rc.numero}">Excluir</button>`);
         }
 
+        // A aprovação deve ser a primeira ação visível para o aprovador autorizado.
+        if (statusNormal === 'em_aprovacao' && ['gerente','admin'].includes(perfil)) {
+          acoes.sort((a,b) => Number(b.includes('data-aprovar-rc=')) - Number(a.includes('data-aprovar-rc=')));
+        }
+
         return `<tr>
           <td><span class="code">${rc.numero}</span></td>
           <td><span class="status-badge ${st.cls}">${st.label}</span></td>
@@ -4994,7 +5011,7 @@ auth.onAuthStateChanged(async (user) => {
           <td>${fmt.date(rc.data)}</td>
           <td><span class="destino-badge">${destinoLabel}</span></td>
           ${['gerente','admin'].includes(perfil) ? `<td>${statusNormal==='aprovado' ? (rc.aprovadoPorNome || rc.aprovadoPor || rc.aprovador || rc.aprovado_por || rc.usuarioAprovador || rc.aprovadoPorEmail || 'Aprovação histórica sem identificação') : '—'}</td>` : ''}
-          <td>${acoes.join(' ')}</td>
+          <td class="rc-acoes-visiveis"><div class="rc-acoes-flex">${acoes.join(' ')}</div></td>
         </tr>`;
       }).join('');
 
@@ -14684,7 +14701,8 @@ function cryoImprimirCompras2026(){
  const rows=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||cryoCategoriaEstoque2026(i)===f.categoria)&&numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<numeroSeguro(i.estoqueMinimo)).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
  const w=window.open('','_blank');if(!w){alert('Permita pop-ups para imprimir a lista de compras.');return;}
  const tr=rows.map(i=>`<tr><td>${cryoEscPrint2026(i.codigoMaterial||i.codigoImportacao||'—')}</td><td>${cryoEscPrint2026(i.nome)}</td><td>${cryoEscPrint2026(nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto))}</td><td>${cryoEscPrint2026(i.localArmazenamento||'—')}</td><td class="num">${saldoA107(i)}</td><td class="num">${numeroSeguro(i.estoqueMinimo)}</td><td class="num"><b>${Math.max(0,numeroSeguro(i.estoqueMinimo)-saldoA107(i))}</b></td></tr>`).join('');
- w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Lista de compras — Cryotronics</title><style>body{font:13px Arial;margin:25px;color:#111}h1{font-size:20px}p{color:#555}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:7px;text-align:left}th{background:#eee}.num{text-align:right}@media print{button{display:none}}</style></head><body><h1>Cryotronics — Solicitação de reposição do estoque</h1><p>Emissão: ${new Date().toLocaleString('pt-BR')} · Unidade: ${cryoEscPrint2026(f.centro||'Todas')} · Itens abaixo do mínimo: ${rows.length}</p><p>Quantidades sugeridas para alcançar o estoque mínimo. Conferir pedidos pendentes antes da compra.</p><button onclick="window.print()">Imprimir / Salvar em PDF</button><table><thead><tr><th>Código</th><th>Material</th><th>Estoque</th><th>Local</th><th>Saldo</th><th>Mínimo</th><th>Comprar</th></tr></thead><tbody>${tr||'<tr><td colspan="7">Nenhum item abaixo do mínimo.</td></tr>'}</tbody></table></body></html>`);w.document.close();
+ w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Lista de compras — Cryotronics</title><style>body{font:13px Arial;margin:25px;color:#111}h1{font-size:20px}p{color:#555}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:7px;text-align:left}th{background:#eee}.num{text-align:right}@media print{button{display:none}}</style></head><body><h1>Cryotronics — Solicitação de reposição do estoque</h1><p>Emissão: ${new Date().toLocaleString('pt-BR')} · Unidade: ${cryoEscPrint2026(f.centro||'Todas')} · Itens abaixo do mínimo: ${rows.length}</p><p>Quantidades sugeridas para alcançar o estoque mínimo. Conferir pedidos pendentes antes da compra.</p><button onclick="window.print()">Imprimir / Salvar em PDF</button><table><thead><tr><th>Código</th><th>Material</th><th>Estoque</th><th>Local</th><th>Saldo</th><th>Mínimo</th><th>Comprar</th></tr></thead><tbody>${tr||'<tr><td colspan="7">Nenhum item abaixo do mínimo.</td></tr>'}</tbody></table>
+</body></html>`);w.document.close();
 }
 document.addEventListener('click',e=>{if(e.target.closest('#imprimirComprasA107, #imprimirComprasA107Rodape')){cryoImprimirCompras2026();return;}if(e.target.closest('#verComprasA107')){document.getElementById('listaComprasAlmoxA107')?.scrollIntoView({behavior:'smooth',block:'start'});return;}if(e.target.closest('#limparA107')){state.almoxFilters={};render();return;}});
 document.addEventListener('change',e=>{if(e.target.id!=='periodoA107')return;const f=state.almoxFilters=state.almoxFilters||{};const d=new Date();const iso=x=>[x.getFullYear(),String(x.getMonth()+1).padStart(2,'0'),String(x.getDate()).padStart(2,'0')].join('-');const hoje=iso(d);const v=e.target.value;if(v==='hoje'){f.dataIni=hoje;f.dataFim=hoje;}else if(v==='mes'){f.dataIni=iso(new Date(d.getFullYear(),d.getMonth(),1));f.dataFim=hoje;}else if(v==='7'||v==='30'){const x=new Date(d);x.setDate(x.getDate()-Number(v)+1);f.dataIni=iso(x);f.dataFim=hoje;}else{f.dataIni='';f.dataFim='';}render();});
