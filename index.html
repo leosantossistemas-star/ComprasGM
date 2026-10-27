@@ -1798,7 +1798,7 @@ auth.onAuthStateChanged(async (user) => {
       if(!v17PodeAprovar())throw new Error('Aprovação restrita ao gerente ou administrador.');
       const item=v17SolicitacoesMateriais.find(x=>x.id===id);
       if(!item||item.status!=='PENDENTE')throw new Error('Solicitação não disponível. Atualize a lista.');
-      if(item.solicitanteUid===getUsuarioUid())throw new Error('Não é permitido aprovar o próprio cadastro.');
+      if(item.solicitanteUid===getUsuarioUid() && getPerfil()!=='admin')throw new Error('Gerente não pode aprovar o próprio cadastro.');
       const ref=db.collection('solicitacoes_materiais').doc(id);
       if(aprovar){
         v17ValidarMaterial(item.material);
@@ -1810,7 +1810,7 @@ auth.onAuthStateChanged(async (user) => {
         const salvo=await db.runTransaction(async tx=>{
           const [pedido,seq]=await Promise.all([tx.get(ref),tx.get(contador)]);
           if(!pedido.exists||pedido.data().status!=='PENDENTE')throw new Error('Solicitação já processada.');
-          if(pedido.data().solicitanteUid===getUsuarioUid())throw new Error('Autoaprovação não permitida.');
+          if(pedido.data().solicitanteUid===getUsuarioUid() && getPerfil()!=='admin')throw new Error('Gerente não pode aprovar o próprio cadastro.');
           const numero=Math.max(maxLocal,Number(seq.exists?seq.data().ultimoCodigo:0)||0)+1;
           const codigo='CRY-'+String(numero).padStart(4,'0');
           const agora=firebase.firestore.FieldValue.serverTimestamp();
@@ -1829,15 +1829,40 @@ auth.onAuthStateChanged(async (user) => {
       }
       v17SolicitacoesMateriais=v17SolicitacoesMateriais.filter(x=>x.id!==id);render();
     }
+    // V19.3 — análise técnica integral, sem consultas adicionais ao Firestore.
+    let v193DetalheSolicitacaoId=null;
+    function v193DetalhesSolicitacao(x){
+      const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const m=x.material||{};
+      const grupos=[
+        ['Identificação', [['Código solicitado',m.codigo],['Descrição simples',m.descricaoSimples],['Descrição curta',m.descricaoCurta],['Descrição completa',m.descricaoCompleta],['Categoria',m.categoria],['Subcategoria',m.subcategoria],['Unidade',m.unid],['NCM',m.ncm||m.NCM],['Cadastro completo',m.cadastroCompleto]]],
+        ['Especificações técnicas', [['Marca',m.marca],['Modelo',m.modelo],['Tipo de material',m.tipoMaterial],['É EPI?',m.ehEPI??m.ePI],['Número CA',m.caNumero],['Validade CA',m.caValidade],['Dimensões',m.dimensoes],['Cor',m.cor],['Peso',m.peso],['Tensão',m.tensao],['Pressão',m.pressao],['Temperatura',m.temperatura],['Certificações',m.certificacoes]]],
+        ['Compras e estoque', [['Fornecedor',m.fornecedor],['Fornecedores alternativos',m.fornecedoresAlt],['Código fornecedor',m.codigoFornecedor],['Moeda',m.moeda],['Custo unitário',m.custoUnitario??m.custoUnitarioNum],['Local de armazenamento',m.localArmazenagem],['Estoque mínimo',m.estoqueMin],['Estoque máximo',m.estoqueMax],['Ponto de pedido',m.pontoPedido],['Lote mínimo',m.loteMinimo],['Lead time (dias)',m.leadTime],['Condições de armazenamento',m.condicoesArmazenamento]]]
+      ];
+      const exibidos=new Set();
+      const secoes=grupos.map(([nome,campos])=>`<section style="margin-top:18px"><h3 style="color:var(--accent);font-size:14px;margin-bottom:9px">${esc(nome)}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">${campos.map(([rotulo,valor])=>{const k=Object.keys(m).find(k=>m[k]===valor);if(k)exibidos.add(k);return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;min-width:0"><div style="font-size:11px;color:var(--text-muted)">${esc(rotulo)}</div><div style="font-size:13px;overflow-wrap:anywhere;white-space:pre-wrap">${esc(valor===undefined||valor===null||valor===''?'Não informado':typeof valor==='object'?JSON.stringify(valor):valor)}</div></div>`}).join('')}</div></section>`).join('');
+      // Exibe também qualquer campo não contemplado no mapeamento acima.
+      const outros=Object.entries(m).filter(([k])=>!exibidos.has(k)&&!['id','codigo'].includes(k));
+      const extras=outros.length?`<details style="margin-top:16px"><summary style="cursor:pointer">Outros campos registrados (${outros.length})</summary><div style="margin-top:8px">${outros.map(([k,v])=>`<p style="padding:5px 0;overflow-wrap:anywhere"><strong>${esc(k)}:</strong> ${esc(typeof v==='object'?JSON.stringify(v):v)}</p>`).join('')}</div></details>`:'';
+      const descricao=v17Canon(m.descricaoCurta||m.descricaoSimples||m.descricaoCompleta);
+      const semelhantes=allItems.filter(y=>v17Canon(y.descricaoCurta||y.descricaoSimples||y.descricaoCompleta)===descricao).slice(0,10);
+      const avisos=semelhantes.length?`<p style="color:var(--danger);margin-top:14px">Atenção: ${semelhantes.length} material(is) existente(s) com descrição normalizada igual: ${semelhantes.map(y=>esc(y.codigo||y.id)).join(', ')}. Verifique antes de aprovar.</p>`:'<p style="color:var(--accent);margin-top:14px">Nenhuma descrição idêntica encontrada no catálogo carregado. Isso não descarta duplicidades por especificação.</p>';
+      const auto=x.solicitanteUid===getUsuarioUid() && getPerfil()!=='admin';
+      return `<div id="v193Overlay" class="modal-overlay active" style="z-index:25000" role="dialog" aria-modal="true" aria-label="Análise técnica do material"><div class="modal" style="max-width:1080px;max-height:92vh"><div class="modal-header"><h2>Análise técnica — Solicitação de material</h2><button type="button" class="modal-close" data-v193-fechar aria-label="Fechar">×</button></div><p style="font-size:12px;color:var(--text-muted)">Protocolo: ${esc(x.id)} · Solicitante: ${esc(x.solicitanteNome||x.solicitanteEmail||'')} · Status: ${esc(x.status)}</p>${secoes}${extras}${avisos}<div class="form-actions" style="position:sticky;bottom:-30px;background:var(--bg-card);padding:16px 0;border-top:1px solid var(--border);z-index:2"><button type="button" class="btn btn-ghost" data-v193-fechar>Fechar</button>${auto?'<span style="color:var(--warning);font-size:13px">Aguardando outro aprovador — gerente não pode aprovar a própria solicitação.</span>':`<button type="button" class="btn btn-accent" data-v17-aprovar="${esc(x.id)}">Aprovar cadastro</button><button type="button" class="btn btn-warning" data-v17-devolver="${esc(x.id)}">Devolver com justificativa</button>`}</div></div></div>`;
+    }
     function v17RenderAprovacoes(){
       if(!v17PodeAprovar())return '';
       const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-      return `<div class="card" style="margin-bottom:16px"><div class="card-header"><div><div class="card-title">Aprovação de novos materiais</div><div class="card-sub">Solicitações aguardando análise técnica · não disponíveis para RC ou estoque até aprovação</div></div><button type="button" class="btn btn-ghost" id="v17RecarregarAprovacoes">Atualizar solicitações</button></div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Solicitante</th><th>Ações</th></tr></thead><tbody>${v17SolicitacoesMateriais.map(x=>`<tr><td>${esc(x.material?.descricaoSimples||'')}</td><td>${esc(x.material?.categoria||'')}</td><td>${esc(x.solicitanteNome||x.solicitanteEmail||'')}</td><td>${x.solicitanteUid===getUsuarioUid()?'Aguardando outro aprovador':`<button type="button" class="btn btn-accent btn-sm" data-v17-aprovar="${esc(x.id)}">Aprovar</button> <button type="button" class="btn btn-ghost btn-sm" data-v17-devolver="${esc(x.id)}">Devolver</button>`}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma solicitação pendente carregada.</td></tr>'}</tbody></table></div></div>`;
+      return `<div class="card" style="margin-bottom:16px"><div class="card-header"><div><div class="card-title">Aprovação de novos materiais</div><div class="card-sub">Analise todos os dados antes de aprovar · solicitações pendentes não disponíveis para RC ou estoque</div></div><button type="button" class="btn btn-ghost" id="v17RecarregarAprovacoes">Atualizar solicitações</button></div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Solicitante</th><th>Ações</th></tr></thead><tbody>${v17SolicitacoesMateriais.map(x=>`<tr><td>${esc(x.material?.descricaoSimples||'')}</td><td>${esc(x.material?.categoria||'')}</td><td>${esc(x.solicitanteNome||x.solicitanteEmail||'')}</td><td><button type="button" class="btn btn-ghost btn-sm" data-v193-analisar="${esc(x.id)}">Analisar cadastro</button> ${(x.solicitanteUid===getUsuarioUid() && getPerfil()!=='admin')?'<span style="font-size:12px;color:var(--warning)">Aguardando outro aprovador</span>':''}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma solicitação pendente carregada.</td></tr>'}</tbody></table></div></div>${v193DetalheSolicitacaoId?(()=>{const x=v17SolicitacoesMateriais.find(x=>x.id===v193DetalheSolicitacaoId);return x?v193DetalhesSolicitacao(x):''})():''}`;
     }
     document.addEventListener('click',async e=>{
+      const fechar=e.target.closest('[data-v193-fechar]');
+      const analisar=e.target.closest('[data-v193-analisar]');
+      if(fechar){v193DetalheSolicitacaoId=null;render();return;}
+      if(analisar){v193DetalheSolicitacaoId=analisar.dataset.v193Analisar;render();return;}
       const reload=e.target.closest('#v17RecarregarAprovacoes'),ap=e.target.closest('[data-v17-aprovar]'),dev=e.target.closest('[data-v17-devolver]');
       if(!reload&&!ap&&!dev)return;
-      try{if(reload){await v17CarregarSolicitacoes(true);render();return;}await v17DecidirMaterial((ap||dev).dataset[ap?'v17Aprovar':'v17Devolver'],!!ap);showToast('Solicitação processada.');}
+      try{if(reload){await v17CarregarSolicitacoes(true);v193DetalheSolicitacaoId=null;render();return;}await v17DecidirMaterial((ap||dev).dataset[ap?'v17Aprovar':'v17Devolver'],!!ap);v193DetalheSolicitacaoId=null;showToast('Solicitação processada.');}
       catch(err){showToast('Falha na aprovação: '+err.message,true);}
     });
     function v192InvalidarCacheColecao(nome){
