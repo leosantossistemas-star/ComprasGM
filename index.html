@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — Dashboard</title>
+  <title>Gestão de Compras — V19 Governança de Leituras</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -380,6 +380,7 @@
   box-shadow:0 18px 48px rgba(0,0,0,.75)!important;padding:8px!important;color:#f3f6f3!important;
 }
 .mat-panel-v117 *{box-sizing:border-box;text-shadow:none!important}
+.mat-panel-v117 button{pointer-events:auto!important;cursor:pointer!important}
 .mat-panel-head-v117,.mat-panel-foot-v117{
   position:sticky;z-index:4;display:flex;align-items:center;gap:10px;
   padding:10px 12px;background:#101510!important;
@@ -409,6 +410,123 @@
     .rc-aprovacao-destaque .btn { display:inline-flex; align-items:center; justify-content:center; min-width:108px; padding:7px 14px; font-size:12px; font-weight:800; white-space:nowrap; background:#00cc66; color:#07130b; }
     .rc-acoes-visiveis { overflow:visible!important; text-overflow:clip!important; }
 
+
+    /* V19.2 — visualização de RC: overlay real, centralizado e responsivo. */
+    #modalVisualizacaoPublica.modal.active {
+      position: fixed !important; inset: 0 !important; z-index: 12000 !important;
+      display: flex !important; justify-content: center !important; align-items: center !important;
+      box-sizing: border-box !important; width: 100vw !important; max-width: none !important;
+      height: 100dvh !important; max-height: none !important; margin: 0 !important;
+      padding: clamp(12px, 3vw, 28px) !important;
+      border: 0 !important; border-radius: 0 !important;
+      background: rgba(0,0,0,.82) !important; overflow: hidden !important;
+    }
+    #modalVisualizacaoPublica .modal-card {
+      box-sizing: border-box; display: flex; flex-direction: column;
+      width: min(100%, 1100px) !important; max-width: 1100px !important;
+      max-height: calc(100dvh - 32px); min-width: 0;
+      padding: clamp(16px, 2vw, 26px); border-radius: 14px;
+      border: 1px solid var(--border); background: var(--bg-card);
+      box-shadow: 0 24px 80px rgba(0,0,0,.65); overflow: hidden;
+    }
+    #modalVisualizacaoPublica .modal-header { flex: 0 0 auto; gap: 12px; }
+    #modalVisualizacaoPublica .form-grid { flex: 0 0 auto; }
+    #modalVisualizacaoPublica .table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; max-width: 100%; }
+    #modalVisualizacaoPublica .table-wrap table { width: 100%; min-width: 680px; }
+    #modalVisualizacaoPublica .table-wrap td { overflow-wrap: anywhere; }
+    @media (max-width: 650px) {
+      #modalVisualizacaoPublica.modal.active { padding: 8px !important; }
+      #modalVisualizacaoPublica .modal-card { max-height: calc(100dvh - 16px); padding: 14px; }
+      #modalVisualizacaoPublica .form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    }
+
+
+    /* V19.2 — janela de consulta flutuante, arrastável e acima do conteúdo. */
+    #modalVisualizacaoPublica.modal.active { z-index: 2147483000 !important; }
+    #modalVisualizacaoPublica .modal-card {
+      position: relative; resize: both; overflow: hidden;
+      min-width: min(360px, calc(100vw - 16px)); min-height: 220px;
+      max-width: calc(100vw - 16px) !important; max-height: calc(100dvh - 16px) !important;
+    }
+    #modalVisualizacaoPublica .modal-header {
+      cursor: grab; user-select: none; touch-action: none;
+      padding: 4px 0 12px; border-bottom: 1px solid var(--border);
+    }
+    #modalVisualizacaoPublica .modal-header:active { cursor: grabbing; }
+    #modalVisualizacaoPublica .modal-header button { cursor: pointer; touch-action: auto; }
+    #modalVisualizacaoPublica .modal-card.v192-dragging { transition: none !important; }
+    @media(max-width:650px) {
+      #modalVisualizacaoPublica .modal-card { resize: none; width: 100% !important; }
+    }
+
+
+    /* V19.2 Fase 2 — RC nova/edição em janela flutuante, sem deslocar a lista. */
+    #rcFormContainer:not(:empty) {
+      position:fixed !important; inset:0 !important; z-index:2147482900 !important;
+      display:flex !important; align-items:center; justify-content:center;
+      padding:14px; background:rgba(0,0,0,.74); box-sizing:border-box;
+    }
+    #rcFormContainer:not(:empty) > .card {
+      position:relative; width:min(1320px,calc(100vw - 28px));
+      max-width:calc(100vw - 28px); max-height:calc(100dvh - 28px);
+      min-height:240px; margin:0 !important; overflow:auto;
+      resize:both; overscroll-behavior:contain; box-sizing:border-box;
+      box-shadow:0 22px 70px rgba(0,0,0,.7);
+    }
+    #rcFormContainer .card-header {
+      position:sticky; top:0; z-index:3; background:var(--card,#141a16);
+      cursor:grab; touch-action:none; user-select:none;
+      padding-top:12px; padding-bottom:12px;
+    }
+    #rcFormContainer .card-header:active {cursor:grabbing}
+    #rcFormContainer .card-header button {cursor:pointer;touch-action:auto}
+    #rcFormContainer .card.v192-dragging {transition:none !important}
+    #rcFormContainer #formRC {min-width:0}
+    @media(max-width:900px) {
+      #rcFormContainer #formRC > div[style*="grid-template-columns:1fr 1fr 1fr 1fr"] {
+        grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+      }
+    }
+    @media(max-width:650px) {
+      #rcFormContainer:not(:empty) {padding:5px}
+      #rcFormContainer:not(:empty) > .card {
+        width:calc(100vw - 10px);max-width:calc(100vw - 10px);
+        max-height:calc(100dvh - 10px);resize:none;
+      }
+      #rcFormContainer #formRC > div[style*="grid-template-columns:1fr 1fr 1fr 1fr"] {
+        grid-template-columns:minmax(0,1fr) !important;
+      }
+      #rcFormContainer .card-header {touch-action:auto;cursor:default}
+    }
+
+  
+    /* V19.2 — Consulta de RC: descrição completa e legível, sem truncamento. */
+    #modalVisualizacaoPublica .table-wrap { overflow-x:auto; overflow-y:auto; }
+    #modalVisualizacaoPublica .table-wrap table { table-layout:fixed; width:100%; min-width:0; }
+    #modalVisualizacaoPublica .table-wrap th,
+    #modalVisualizacaoPublica .table-wrap td {
+      white-space:normal !important; text-overflow:clip !important;
+      overflow:visible !important; overflow-wrap:anywhere !important;
+      word-break:normal !important; vertical-align:top; line-height:1.5;
+      height:auto !important; max-width:none !important;
+    }
+    #modalVisualizacaoPublica .table-wrap th:nth-child(1),
+    #modalVisualizacaoPublica .table-wrap td:nth-child(1) { width:4%; }
+    #modalVisualizacaoPublica .table-wrap th:nth-child(2),
+    #modalVisualizacaoPublica .table-wrap td:nth-child(2) { width:12%; }
+    #modalVisualizacaoPublica .table-wrap th:nth-child(3),
+    #modalVisualizacaoPublica .table-wrap td:nth-child(3) { width:43%; }
+    #modalVisualizacaoPublica .table-wrap th:nth-child(4),
+    #modalVisualizacaoPublica .table-wrap td:nth-child(4) { width:7%; }
+    #modalVisualizacaoPublica .table-wrap th:nth-child(5),
+    #modalVisualizacaoPublica .table-wrap td:nth-child(5) { width:7%; }
+    #modalVisualizacaoPublica .table-wrap th:nth-child(6),
+    #modalVisualizacaoPublica .table-wrap td:nth-child(6) { width:13%; }
+    #modalVisualizacaoPublica .table-wrap th:nth-child(7),
+    #modalVisualizacaoPublica .table-wrap td:nth-child(7) { width:14%; }
+    @media(max-width:650px){
+      #modalVisualizacaoPublica .table-wrap table { min-width:620px; }
+    }
 </style>
 
 <script>
@@ -961,10 +1079,19 @@
       <div class="mat-panel-foot-v117"><button type="button" class="btn btn-ghost" data-mat-cancel-v117>Cancelar</button><button type="button" class="btn btn-accent" data-mat-confirm-v117 disabled>Confirmar material</button></div>`;
       painel.style.display='block';
       painel.querySelectorAll('[data-mat-i-v117]').forEach(btn=>{btn.addEventListener('mousedown',e=>e.preventDefault());btn.addEventListener('click',()=>{painel.querySelectorAll('.mat-result-v117').forEach(x=>x.classList.remove('selecionado-v117'));btn.classList.add('selecionado-v117');painel.__matSelecionado=Number(btn.dataset.matIV117);const ok=painel.querySelector('[data-mat-confirm-v117]');if(ok)ok.disabled=false;});});
-      const fechar=()=>{fecharPainelV117(painel);try{input.focus({preventScroll:true});}catch(e){}};
+      // V19.2.1: impedir que eventos de seleção sejam interceptados por handlers globais.
+      // Não devolver foco automaticamente: o handler 'focus' da pesquisa reabria o painel.
+      painel.addEventListener('pointerdown', e=>e.stopPropagation());
+      painel.addEventListener('click', e=>e.stopPropagation());
+      const fechar=(e)=>{if(e){e.preventDefault();e.stopPropagation();}fecharPainelV117(painel);};
       painel.querySelector('[data-mat-fechar-v117]')?.addEventListener('click',fechar);
       painel.querySelector('[data-mat-cancel-v117]')?.addEventListener('click',fechar);
-      painel.querySelector('[data-mat-confirm-v117]')?.addEventListener('click',()=>{const m=painel.__matItens?.[painel.__matSelecionado];if(!m)return;onConfirm(m);fecharPainelV117(painel);});
+      painel.querySelector('[data-mat-confirm-v117]')?.addEventListener('click',e=>{
+        e.preventDefault();e.stopPropagation();
+        const m=painel.__matItens?.[painel.__matSelecionado];
+        if(!m)return;
+        try{onConfirm(m);fecharPainelV117(painel);}catch(err){console.error('[V19.2] Falha ao confirmar material:',err);if(typeof showToast==='function')showToast('Não foi possível confirmar o material: '+err.message,true);}
+      });
     }
     function manterFocoPesquisaV117(input){
       requestAnimationFrame(()=>{try{const p=(input.value||'').length;input.focus({preventScroll:true});input.setSelectionRange(p,p);}catch(e){}});
@@ -1173,6 +1300,7 @@
 
     async function logout() {
       try {
+        try { Object.keys(sessionStorage).filter(k=>k.startsWith('cryotronics_v126_')).forEach(k=>sessionStorage.removeItem(k)); } catch (_) {}
         await auth.signOut();
       } finally {
         location.reload();
@@ -1712,6 +1840,11 @@ auth.onAuthStateChanged(async (user) => {
       try{if(reload){await v17CarregarSolicitacoes(true);render();return;}await v17DecidirMaterial((ap||dev).dataset[ap?'v17Aprovar':'v17Devolver'],!!ap);showToast('Solicitação processada.');}
       catch(err){showToast('Falha na aprovação: '+err.message,true);}
     });
+    function v192InvalidarCacheColecao(nome){
+      delete v125UltimaCarga[nome];
+      try{sessionStorage.removeItem(v126CacheKey(nome));}catch(_){ }
+      // Não reutilizar dados locais após uma escrita confirmada.
+    }
     async function salvarMaterial(material) {
       const col = db.collection('materiais');
       const codigo = String(material.codigo || '').trim().toUpperCase();
@@ -1725,12 +1858,27 @@ auth.onAuthStateChanged(async (user) => {
       // O número é atribuído exclusivamente no Firebase, nunca por planilha ou cache local.
       if (material.id) {
         const ref = col.doc(material.id);
-        const anterior = await ref.get();
-        if (!anterior.exists) throw new Error('Cadastro original não localizado. Atualize a página.');
-        const codigoOriginal = String(anterior.data().codigo || '').trim().toUpperCase();
-        if (codigo && codigo !== codigoOriginal) throw new Error('Código do material é permanente. Não pode ser alterado.');
-        await ref.update({...material, id: material.id, codigo: codigoOriginal});
-        return {...material, codigo: codigoOriginal};
+        // Controle de concorrência: updateTime da leitura original, quando disponível.
+        // Cadastros legados sem versão recebem versão 1 na primeira edição.
+        const esperado = material._versaoEdicao ?? material.versaoCadastro;
+        const salvo = await db.runTransaction(async tx => {
+          const anterior = await tx.get(ref);
+          if (!anterior.exists) throw new Error('Cadastro original não localizado. Atualize a página.');
+          const atual = anterior.data();
+          const codigoOriginal = String(atual.codigo || '').trim().toUpperCase();
+          if (codigo && codigo !== codigoOriginal) throw new Error('Código do material é permanente. Não pode ser alterado.');
+          const versaoAtual = Number(atual.versaoCadastro || 0);
+          if (esperado !== undefined && Number(esperado) !== versaoAtual)
+            throw new Error('Material alterado por outro usuário. Atualize o cadastro antes de salvar.');
+          // Não persistir o token auxiliar no Firestore.
+          const {_versaoEdicao, ...dados} = material;
+          const novaVersao = versaoAtual + 1;
+          tx.update(ref, {...dados, id:ref.id, codigo:codigoOriginal,
+            versaoCadastro:novaVersao, alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
+          return {...dados,id:ref.id,codigo:codigoOriginal,versaoCadastro:novaVersao};
+        });
+        v192InvalidarCacheColecao('materiais');
+        return salvo;
       }
       // V15: não reler TODA a coleção a cada cadastro (centenas de leituras por clique).
       // Consulta compartilhada e cacheada; confirmação e numeração permanecem no servidor.
@@ -1757,6 +1905,7 @@ auth.onAuthStateChanged(async (user) => {
         return novoCodigo;
       });
       material.id=novo.id; material.codigo=criado;
+      v192InvalidarCacheColecao('materiais');
       return material;
     }
     async function excluirMaterial(id) {
@@ -1943,27 +2092,63 @@ auth.onAuthStateChanged(async (user) => {
     /* ============================================================
        FUNÇÕES FIRESTORE – RCs (mantidas)
     ============================================================ */
+    /* V19.2 FASE 2: controle otimista transacional de documentos de RC.
+       Não cria reservas, não altera saldos, não executa migrações.
+       A proteção completa entre RCs distintas exige contador de reservas
+       compartilhado e atualização de TODOS os demais escritores. */
+    function v192StatusRC(v){return String(v||'').trim().toLowerCase();}
+    function v192ConferirSnapshotRC(atual,local){
+      if(!atual) throw new Error('RC excluída em outro terminal. Recarregue.');
+      if(!local) throw new Error('RC não carregada localmente. Atualize os dados.');
+      const va=Number(atual.versaoConcorrenciaV192||0),vl=Number(local.versaoConcorrenciaV192||0);
+      if(va!==vl)throw new Error('Conflito: RC modificada em outro terminal. Recarregue antes de continuar.');
+      if(v192StatusRC(atual.status)!==v192StatusRC(local.status))
+        throw new Error('Conflito: situação da RC alterada em outro terminal. Recarregue.');
+      if(JSON.stringify(atual.itens||[])!==JSON.stringify(local.itens||[]))
+        throw new Error('Conflito: itens da RC alterados em outro terminal. Recarregue.');
+    }
     async function salvarRC(rc) {
-      if (rc.id) {
-        const {id, ...payload}=rc;
-        await db.collection('requisicoes').doc(id).set(payload);
-      } else {
-        const payload={...rc};
-        delete payload.id;
-        const docRef = await db.collection('requisicoes').add(payload);
-        rc.id = docRef.id;
+      const col=db.collection('requisicoes');
+      if(rc.id){
+        const {id,...payload}=rc;
+        const local=rcs.find(x=>x.id===id);
+        const versao=await db.runTransaction(async tx=>{
+          const ref=col.doc(id),snap=await tx.get(ref);
+          if(!snap.exists)throw new Error('RC inexistente. Não é permitido recriar automaticamente.');
+          const atual=snap.data();v192ConferirSnapshotRC(atual,local);
+          const prox=Number(atual.versaoConcorrenciaV192||0)+1;
+          tx.set(ref,{...payload,versaoConcorrenciaV192:prox,atualizadoEmV192:firebase.firestore.FieldValue.serverTimestamp()});
+          return prox;
+        });
+        rc.versaoConcorrenciaV192=versao;
+      }else{
+        const payload={...rc};delete payload.id;
+        const ref=col.doc();
+        await db.runTransaction(async tx=>{
+          const snap=await tx.get(ref);
+          if(snap.exists)throw new Error('ID de RC já utilizado.');
+          tx.set(ref,{...payload,versaoConcorrenciaV192:1,atualizadoEmV192:firebase.firestore.FieldValue.serverTimestamp()});
+        });
+        rc.id=ref.id;rc.versaoConcorrenciaV192=1;
       }
-      // V13.0: mantém a tela/cache coerentes sem reler a coleção inteira.
-      const idx=rcs.findIndex(r=>r.id===rc.id || r.numero===rc.numero);
-      if(idx>=0) rcs[idx]={...rcs[idx],...rc}; else rcs.push(rc);
-      try{ if(typeof v126SalvarCache==='function') v126SalvarCache('requisicoes',rcs); }catch(_){}
+      const idx=rcs.findIndex(r=>r.id===rc.id);
+      if(idx>=0)rcs[idx]={...rcs[idx],...rc};else rcs.push(rc);
+      try{v126SalvarCache('requisicoes',rcs);}catch(_){}
       return rc;
     }
-
     async function excluirRC(id) {
-      await db.collection('requisicoes').doc(id).delete();
+      const ref=db.collection('requisicoes').doc(id);
+      const local=rcs.find(r=>r.id===id);
+      await db.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists)throw new Error('RC já excluída. Recarregue.');
+        const atual=snap.data();v192ConferirSnapshotRC(atual,local);
+        if(!['rascunho','rejeitado','rejeitada','cancelado','cancelada'].includes(v192StatusRC(atual.status)))
+          throw new Error('Exclusão bloqueada: somente RCs em rascunho, rejeitadas ou canceladas podem ser excluídas.');
+        tx.delete(ref);
+      });
       rcs=rcs.filter(r=>r.id!==id);
-      try{ if(typeof v126SalvarCache==='function') v126SalvarCache('requisicoes',rcs); }catch(_){}
+      try{v126SalvarCache('requisicoes',rcs);}catch(_){}
     }
 
     /* ============================================================
@@ -2137,14 +2322,35 @@ auth.onAuthStateChanged(async (user) => {
         .catch(err => showToast('Erro ao salvar: ' + err.message, true));
     }
 
-    function updateItem(codigo, newData) {
-      encontrarMaterialPorCodigo(codigo)
-        .then(material => {
-          if (!material) throw new Error('Material não encontrado');
-          return db.collection('materiais').doc(material.id).update(newData);
-        })
-        .then(() => showToast('Material atualizado com sucesso!'))
-        .catch(err => showToast('Erro ao atualizar: ' + err.message, true));
+    async function updateItem(codigo, newData) {
+      // V19.2: a edição deve usar a mesma rotina transacional do cadastro.
+      // O token vem do momento em que o modal foi aberto, não do cache atualizado depois.
+      const btn = document.querySelector('#formEdit button[type="submit"]');
+      if(btn) btn.disabled=true;
+      try {
+        const original = allItems.find(i=>String(i.codigo||'').toUpperCase()===String(codigo||'').toUpperCase());
+        if(!original?.id) throw new Error('Material não carregado. Atualize a listagem antes de editar.');
+        if(!window.v192EdicaoMaterial || window.v192EdicaoMaterial.id!==original.id)
+          throw new Error('Sessão de edição inválida. Feche e reabra o cadastro.');
+        const salvo = await salvarMaterial({
+          ...original, ...newData, id:original.id, codigo:original.codigo,
+          _versaoEdicao:window.v192EdicaoMaterial.versao
+        });
+        const idx=allItems.findIndex(i=>i.id===salvo.id);
+        if(idx>=0) allItems[idx]={...allItems[idx],...salvo};
+        // Salvar no cache de sessão somente depois do commit confirmado.
+        v126SalvarCache('materiais',allItems);
+        v125UltimaCarga['materiais']=Date.now();
+        document.getElementById('editModal').classList.remove('active');
+        window.v192EdicaoMaterial=null;
+        render();
+        showToast('Material atualizado e confirmado no Firebase.');
+        return true;
+      } catch(err) {
+        console.error('Falha na edição transacional de material:',err);
+        showToast('Não foi possível salvar o material: '+(err?.message||err),true);
+        return false;
+      } finally {if(btn) btn.disabled=false;}
     }
 
     function deleteItem(codigo) {
@@ -2214,22 +2420,49 @@ auth.onAuthStateChanged(async (user) => {
       return await salvarRC(rc);
     }
 
-    async function updateRC(numero, newData) {
-      const rc = rcs.find(r => r.numero === numero);
-      if (!rc) throw new Error('RC não encontrada.');
-      await db.collection('requisicoes').doc(rc.id).update(newData);
-
-      // V12.9: como o modo ultra econômico não usa snapshot permanente,
-      // atualizamos imediatamente a cópia local após a confirmação do Firestore.
-      Object.assign(rc, newData);
-      // Mantém a data ISO do PO legível após aprovação, mesmo antes do timestamp do servidor.
-      if (newData.status === 'aprovado' && newData.po?.dataAprovacaoLocal &&
-          newData.aprovadoEm && typeof newData.aprovadoEm.toDate !== 'function') {
-        rc.aprovadoEm = newData.po.dataAprovacaoLocal;
-      }
-      try {
-        if (typeof v126SalvarCache === 'function') v126SalvarCache('requisicoes', rcs);
-      } catch (_) {}
+    async function updateRC(numero,newData) {
+      const rc=rcs.find(r=>r.numero===numero);
+      if(!rc)throw new Error('RC não encontrada. Recarregue.');
+      const ref=db.collection('requisicoes').doc(rc.id);
+      const versao=await db.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists)throw new Error('RC não encontrada no servidor.');
+        const atual=snap.data();v192ConferirSnapshotRC(atual,rc);
+        if(String(atual.numero||'')!==String(numero))throw new Error('Número da RC divergente.');
+        const antes=v192StatusRC(atual.status),depois=v192StatusRC(newData.status||atual.status);
+        // V19.2 Auditoria: regras de transição verificadas dentro da transação.
+        // A segurança definitiva também depende das regras Firestore publicadas.
+        const perfilOperador=String(getPerfil()||'').toLowerCase();
+        const aprovadorAutorizado=['gerente','admin'].includes(perfilOperador);
+        if(newData.status && depois!==antes){
+          if(['aprovado','rejeitado','rejeitada'].includes(depois) && !aprovadorAutorizado)
+            throw new Error('Permissão negada: somente Gerente ou Administrador pode aprovar/rejeitar RC.');
+          if(antes==='aprovado' && !aprovadorAutorizado)
+            throw new Error('Permissão negada: somente Gerente ou Administrador pode reverter RC aprovada.');
+          if(antes==='aprovado' && depois!=='rascunho')
+            throw new Error('Transição inválida: RC aprovada deve retornar para Compras pelo fluxo de devolução.');
+          if(antes==='aprovado' && (!newData.devolvidoParaComprasMotivo || newData.poStatus!=='CANCELADO'))
+            throw new Error('Reversão bloqueada: motivo e cancelamento do PO são obrigatórios.');
+          if(depois==='em_aprovacao' && !['rascunho','rejeitado'].includes(antes))
+            throw new Error('Envio bloqueado: a RC não está em Compras.');
+        }
+        if(antes==='aprovado' && depois==='aprovado' && newData.status==='aprovado')
+          throw new Error('RC já aprovada. Operação duplicada bloqueada.');
+        if(newData.status==='aprovado' && !['em_aprovacao','pendente_aprovacao'].includes(antes))
+          throw new Error('Aprovação bloqueada: a RC não está aguardando aprovação.');
+        if(['rejeitado','rejeitada'].includes(depois) && newData.status && !['em_aprovacao','pendente_aprovacao'].includes(antes))
+          throw new Error('Rejeição bloqueada: a RC não está aguardando aprovação.');
+        if(antes==='aprovado' && newData.itens && JSON.stringify(newData.itens)!==JSON.stringify(atual.itens||[]))
+          throw new Error('Itens de RC aprovada não podem ser alterados diretamente.');
+        const prox=Number(atual.versaoConcorrenciaV192||0)+1;
+        tx.update(ref,{...newData,versaoConcorrenciaV192:prox,atualizadoEmV192:firebase.firestore.FieldValue.serverTimestamp()});
+        return prox;
+      });
+      Object.assign(rc,newData,{versaoConcorrenciaV192:versao});
+      if(newData.status==='aprovado' && newData.po?.dataAprovacaoLocal &&
+         newData.aprovadoEm && typeof newData.aprovadoEm.toDate!=='function')
+        rc.aprovadoEm=newData.po.dataAprovacaoLocal;
+      try{v126SalvarCache('requisicoes',rcs);}catch(_){}
       return true;
     }
 
@@ -2693,6 +2926,9 @@ auth.onAuthStateChanged(async (user) => {
     }
 
     async function handleAprovarRC(numero) {
+      if(!['gerente','admin'].includes(String(getPerfil()||'').toLowerCase())){
+        showToast('Somente Gerente ou Administrador pode aprovar RC.',true);return;
+      }
       if (!confirm(`Aprovar requisição ${numero}?`)) return;
       try {
         const rcAtual=rcs.find(r=>r.numero===numero);
@@ -2768,6 +3004,9 @@ auth.onAuthStateChanged(async (user) => {
     }
 
     function handleRejeitarRC(numero) {
+      if(!['gerente','admin'].includes(String(getPerfil()||'').toLowerCase())){
+        showToast('Somente Gerente ou Administrador pode rejeitar RC.',true);return;
+      }
       const modal = document.getElementById('rejeitarModal');
       modal.classList.add('active');
       document.getElementById('rejeitarJustificativa').value = '';
@@ -5409,10 +5648,46 @@ auth.onAuthStateChanged(async (user) => {
     /* ============================================================
        HANDLERS DAS RCs (formulário)
     ============================================================ */
+
+    // Janela flutuante: reaproveita o formulário original, seus IDs e handlers.
+    // Não realiza gravação, não altera regras de acesso e não muda dados Firebase.
+    function v192AtivarPopupFormularioRC(container) {
+      const card=container?.querySelector(':scope > .card');
+      const header=card?.querySelector('.card-header');
+      if(!card||!header||header.dataset.v192DragRc)return;
+      header.dataset.v192DragRc='1';
+      let pointer=null;
+      header.addEventListener('pointerdown',e=>{
+        if(e.button!==0 || e.target.closest('button,a,input,select,textarea'))return;
+        if(window.matchMedia('(max-width:650px)').matches)return;
+        const rect=card.getBoundingClientRect();
+        pointer={id:e.pointerId,dx:e.clientX-rect.left,dy:e.clientY-rect.top};
+        card.style.position='fixed';card.style.margin='0';
+        card.style.left=rect.left+'px';card.style.top=rect.top+'px';
+        card.classList.add('v192-dragging');
+        header.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      header.addEventListener('pointermove',e=>{
+        if(!pointer||pointer.id!==e.pointerId)return;
+        const x=Math.max(0,Math.min(e.clientX-pointer.dx,window.innerWidth-card.offsetWidth));
+        const y=Math.max(0,Math.min(e.clientY-pointer.dy,window.innerHeight-card.offsetHeight));
+        card.style.left=x+'px';card.style.top=y+'px';
+      });
+      const stop=e=>{
+        if(!pointer||pointer.id!==e.pointerId)return;
+        pointer=null;card.classList.remove('v192-dragging');
+        if(header.hasPointerCapture(e.pointerId))header.releasePointerCapture(e.pointerId);
+      };
+      header.addEventListener('pointerup',stop);
+      header.addEventListener('pointercancel',stop);
+    }
+
     function handleNovaRC() {
       const container = document.getElementById('rcFormContainer');
       if (!container) return;
       container.innerHTML = renderFormRC();
+      v192AtivarPopupFormularioRC(container);
       const itensContainer = document.getElementById('rcItensContainer');
       if (itensContainer) addItemRowRC(itensContainer);
       document.getElementById('btnAddItemRC')?.addEventListener('click', () => {
@@ -5482,12 +5757,35 @@ auth.onAuthStateChanged(async (user) => {
     // Não modifica saldos nem migra dados existentes.
     async function validarTetoEstoqueRC2026(itens, centroCusto, numeroAtual) {
       const estoque = estoqueFisicoPadraoV109(centroCusto);
-      const [snapAlmox, snapRC] = await Promise.all([
-        db.collection('almoxarifado_itens').get(),
-        db.collection('requisicoes').get()
-      ]);
-      const materiais = snapAlmox.docs.map(d=>({id:d.id,...d.data()}));
-      const requisicoes = snapRC.docs.map(d=>({id:d.id,...d.data()}));
+      // V19: buscar apenas códigos solicitados, sem varrer todo o almoxarifado.
+      // A regra original usa codigoMaterial OU codigoImportacao, não o campo codigo.
+      const codigos = [...new Set(itens.map(i=>String(i.codigo||'').trim().toUpperCase()).filter(Boolean))];
+      const materiaisPorId = new Map();
+      const tarefas=[];
+      for (let i=0;i<codigos.length;i+=30) {
+        const lote=codigos.slice(i,i+30);
+        for(const campo of ['codigoMaterial','codigoImportacao']) {
+          tarefas.push(db.collection('almoxarifado_itens').where(campo,'in',lote).get().then(snap=>{
+            v19AuditarLeitura('almoxarifado_itens',snap.size,'validacao_rc_'+campo);
+            snap.forEach(d=>materiaisPorId.set(d.id,{id:d.id,...d.data()}));
+          }));
+        }
+      }
+      // Mantém a leitura de RCs para preservar a regra de compras em aberto.
+      // Sua substituição por índice de pendências exige migração transacional e auditoria.
+      // Reutiliza snapshot integral já carregado e dentro do TTL; nunca consulta
+      // novamente todas as RCs por clique. Sem snapshot confiável, bloqueia.
+      const cacheRC=v126LerCache('requisicoes');
+      const ttlRC=typeof V126_CACHE_MS==='number'?V126_CACHE_MS:60000;
+      const cacheValido=cacheRC&&Array.isArray(cacheRC.data)&&
+        Date.now()-Number(cacheRC.ts)<ttlRC;
+      const memoriaValida=Array.isArray(rcs)&&rcs.length>0&&
+        Date.now()-Number(v125UltimaCarga['requisicoes']||0)<ttlRC;
+      if(!cacheValido&&!memoriaValida)
+        throw new Error('RCs pendentes sem cache válido. Atualize os dados antes de validar a compra.');
+      const requisicoes=cacheValido?cacheRC.data:rcs;
+      await Promise.all(tarefas);
+      const materiais=[...materiaisPorId.values()];
       const solicitados = new Map();
       for(const item of itens){
         const codigo=String(item.codigo||'').trim().toUpperCase();
@@ -6374,6 +6672,49 @@ function gerarPDF(rcData) {
     }
 
     
+
+    // V19.2: drag limitado à viewport; nenhum dado é alterado.
+    function v192HabilitarArrasteConsulta(modal) {
+      const card=modal?.querySelector('.modal-card');
+      const header=card?.querySelector('.modal-header');
+      if(!card||!header)return;
+      let pointer=null;
+      const limitar=(x,y)=>{
+        const w=card.offsetWidth,h=card.offsetHeight;
+        return {x:Math.max(0,Math.min(x,window.innerWidth-w)),y:Math.max(0,Math.min(y,window.innerHeight-h))};
+      };
+      header.addEventListener('pointerdown',e=>{
+        if(e.button!==0||e.target.closest('button,a,input,select'))return;
+        if(window.matchMedia('(max-width:650px)').matches)return;
+        const rect=card.getBoundingClientRect();
+        pointer={id:e.pointerId,dx:e.clientX-rect.left,dy:e.clientY-rect.top};
+        card.style.position='fixed';card.style.margin='0';
+        card.style.left=rect.left+'px';card.style.top=rect.top+'px';
+        card.classList.add('v192-dragging');
+        header.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      header.addEventListener('pointermove',e=>{
+        if(!pointer||pointer.id!==e.pointerId)return;
+        const pos=limitar(e.clientX-pointer.dx,e.clientY-pointer.dy);
+        card.style.left=pos.x+'px';card.style.top=pos.y+'px';
+      });
+      const terminar=e=>{
+        if(!pointer||pointer.id!==e.pointerId)return;
+        pointer=null;card.classList.remove('v192-dragging');
+        if(header.hasPointerCapture(e.pointerId))header.releasePointerCapture(e.pointerId);
+      };
+      header.addEventListener('pointerup',terminar);
+      header.addEventListener('pointercancel',terminar);
+      // Escape fecha apenas a janela de consulta ativa.
+      const tecla=e=>{
+        if(e.key==='Escape'&&document.getElementById('modalVisualizacaoPublica')===modal){
+          modal.remove();document.removeEventListener('keydown',tecla);
+        }
+      };
+      document.addEventListener('keydown',tecla);
+    }
+
     function abrirVisualizacaoRC(numero) {
       document.getElementById('modalVisualizacaoPublica')?.remove();
       const rc = rcs.find(r => r.numero === numero);
@@ -6418,6 +6759,8 @@ function gerarPDF(rcData) {
           </div>
         </div>`;
       document.body.appendChild(modal);
+      modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
+      v192HabilitarArrasteConsulta(modal);
     }
 
     function abrirVisualizacaoSolicitacao(id) {
@@ -6469,6 +6812,7 @@ function gerarPDF(rcData) {
           </div>
         </div>`;
       document.body.appendChild(modal);
+      v192HabilitarArrasteConsulta(modal);
     }
 
 function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) {
@@ -6891,9 +7235,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         // Grava RC + vínculo na solicitação de forma atômica: ou os dois gravam ou nenhum grava.
         const rcRef=db.collection('requisicoes').doc();
         const solRef=db.collection('solicitacoes').doc(sol.id);
-        const batch=db.batch();
-        batch.set(rcRef,rcData);
-        batch.update(solRef,{
+        // V19.2: leitura da solicitação DENTRO da transação evita dupla conversão.
+        await db.runTransaction(async tx=>{
+          const solSnap=await tx.get(solRef);
+          if(!solSnap.exists)throw new Error('Solicitação não encontrada no servidor.');
+          const solAtual=solSnap.data();
+          if(solAtual.convertida || solAtual.rcGeradaId || solAtual.rcGerada)
+            throw new Error('Solicitação já convertida em RC por outro usuário. Atualize a tela.');
+          tx.set(rcRef,{...rcData,versaoConcorrenciaV192:1,atualizadoEmV192:firebase.firestore.FieldValue.serverTimestamp()});
+          tx.update(solRef,{
           convertida:true,
           convertidaEm:firebase.firestore.FieldValue.serverTimestamp(),
           convertidaPorUid:getUsuarioUid(),
@@ -6905,9 +7255,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             codigo:i.codigo,materialId:i.materialId,descricao:i.descricao,unidade:i.unidade,qtd:i.qtd,valorUnit:i.valorUnit,total:i.total
           }))
         });
-        await batch.commit();
+        });
 
-        const rcLocal={...rcData,id:rcRef.id,criadoEm:null};
+        const rcLocal={...rcData,id:rcRef.id,versaoConcorrenciaV192:1,criadoEm:null};
         rcs.push(rcLocal);
         const idx=solicitacoes.findIndex(s=>s.id===sol.id);
         const solLocal={...sol,convertida:true,rcGerada:numero,rcGeradaId:rcRef.id,convertidaPorNome:getUsuarioNome(),convertidaEmLocal:new Date().toISOString()};
@@ -9292,6 +9642,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             const container = document.getElementById('rcFormContainer');
             if (container) {
               container.innerHTML = renderFormRC(rc);
+              v192AtivarPopupFormularioRC(container);
               const itensContainer = document.getElementById('rcItensContainer');
               if (itensContainer) {
                 itensContainer.innerHTML = '';
@@ -9725,7 +10076,6 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         newData.custoEstoqueMax = `R$ ${(estMax * custoUnitNum).toFixed(2)}`;
 
         updateItem(codigo, newData);
-        document.getElementById('editModal').classList.remove('active');
       });
 
       // Fornecedor modal (já vinculado acima)
@@ -9864,6 +10214,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     function abrirModalEdicao(codigo) {
       const item = allItems.find(i => i.codigo === codigo);
       if (!item) { showToast('Material não encontrado.', true); return; }
+      window.v192EdicaoMaterial={id:item.id,versao:Number(item.versaoCadastro||0)};
 
       document.getElementById('editCodigo').value = item.codigo;
       document.getElementById('editData').value = item.dataCadastro || '';
@@ -10030,23 +10381,44 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
     }
 
+    /* V19.2 FASE 1: observabilidade local, sem gravações adicionais no Firestore. */
+    window.V19AuditMetrics={versao:'19.2-fase1',inicio:new Date().toISOString(),documentosRetornados:0,acertosCache:0,erros:0,operacoes:[],porColecao:Object.create(null)};
+    function v19AuditarLeitura(colecao,docs,motivo,origem='consulta',extra={}){
+      const m=window.V19AuditMetrics,n=Number(docs)||0;
+      const c=m.porColecao[colecao]||(m.porColecao[colecao]={consultas:0,documentos:0,cache:0,erros:0});
+      if(origem==='cache'){m.acertosCache++;c.cache++;}
+      else if(origem==='erro'){m.erros++;c.erros++;}
+      else{m.documentosRetornados+=n;c.consultas++;c.documentos+=n;}
+      m.operacoes.push({hora:new Date().toISOString(),colecao,docs:n,motivo,origem,...extra});
+      if(m.operacoes.length>1000)m.operacoes.shift();
+      if(origem==='erro')console.warn('[V19.2 AUDIT]',colecao,motivo,extra);
+    }
+    window.V192ExportarAuditoria=function(){
+      const blob=new Blob([JSON.stringify(window.V19AuditMetrics,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='auditoria_firestore_v19_2_'+new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+    };
+    window.V192Governanca={modo:'seguro_sem_migracao',dominios:['materiais','almoxarifado','requisicoes'],versoesAtivas:false,cachePersistenteAtivo:false,reservaTransacionalAtiva:false};
     async function v125CarregarColecao(nome,force=false){
       const agora=Date.now();
       const critico=(nome==='almoxarifado_itens');
       const ttl=critico?10*60*1000:V126_CACHE_MS;
-      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<ttl) return;
+      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<ttl) {v19AuditarLeitura(nome,0,'ttl_memoria','cache');return;}
       if(v125Carregando[nome]) return v125Carregando[nome];
 
       // V12.6/V13.0: antes de tocar no Firestore, tenta cache desta aba e depois outra aba aberta.
       if(!force){
         const local=v126LerCache(nome);
         if(local && Array.isArray(local.data) && local.data.length && (Date.now()-Number(local.ts))<ttl){
+          v19AuditarLeitura(nome,0,'cache_sessao','cache');
           v125AplicarSnapshot(nome,local.data);
           v125UltimaCarga[nome]=Number(local.ts);
           return;
         }
         const compartilhado=await v130PedirCacheOutraAba(nome);
         if(compartilhado?.data && Array.isArray(compartilhado.data) && compartilhado.data.length && (Date.now()-Number(compartilhado.ts))<ttl){
+          v19AuditarLeitura(nome,0,'cache_outra_aba','cache');
           v125AplicarSnapshot(nome,compartilhado.data);
           v125UltimaCarga[nome]=Number(compartilhado.ts)||Date.now();
           v126SalvarCache(nome,compartilhado.data);
@@ -10065,6 +10437,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           if(colecaoCritica && snap.empty){
             throw new Error('ALERTA: Firestore retornou zero registros de estoque. Saldo NÃO confirmado. Não faça baixas até recuperar a leitura.');
           }
+          v19AuditarLeitura(nome,snap.size,'carregamento_colecao');
           try{ if(typeof v130RegistrarLeituras==='function') v130RegistrarLeituras(nome,snap.size); }catch(_){}
           const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
           v125AplicarSnapshot(nome,arr);
@@ -10073,12 +10446,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }catch(err){
           // Se a cota estiver temporariamente indisponível, tenta cache expirado antes de falhar.
           const local=v126LerCache(nome);
-          if(!critico && local&&Array.isArray(local.data)&&local.data.length){
+          if(!critico && err?.code!=='permission-denied' && local&&Array.isArray(local.data)&&local.data.length){
             v125AplicarSnapshot(nome,local.data);
             v125UltimaCarga[nome]=Number(local.ts)||Date.now();
             console.warn('V12.6 — usando cache local expirado para '+nome+' devido a falha do Firestore.');
             return;
           }
+          v19AuditarLeitura(nome,0,'falha_carregamento','erro',{codigo:err?.code||'',mensagem:String(err?.message||err).slice(0,240)});
           console.error('V12.6 — erro ao carregar '+nome,err);
           throw err;
         }finally{
@@ -10128,7 +10502,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         fornecedores:['fornecedores'],
         novo:['materiais','fornecedores'],
         frotas:['frotas'],
-        requisicoes:['requisicoes'],
+        requisicoes:['requisicoes','frotas','fornecedores','materiais'], // V19.2 correção: formulário RC depende destes cadastros
         recebimentoNFs:['recebimentos_nf','requisicoes','frotas','fornecedores','materiais','almoxarifado_itens'],
         pagamentosNF:['recebimentos_nf'],
         solicitar:['frotas','materiais'],
@@ -10268,9 +10642,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById("btnAtualizarDadosV125")?.addEventListener("click",async()=>{
         const b=document.getElementById("btnAtualizarDadosV125");
         if(b){b.disabled=true;b.textContent='Atualizando...';}
-        await v15AtualizacaoManual(state.section);
-        render();
-        if(b){b.disabled=false;b.textContent='↻ Atualizar dados';}
+        try { await v15AtualizacaoManual(state.section); render(); }
+        catch(err) { console.error('[V19] Atualização:',err); showToast('Falha ao atualizar dados. Consulte suas permissões.',true); }
+        finally { if(b){b.disabled=false;b.textContent='↻ Atualizar dados';} }
       });
       document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
       document.getElementById("btnExportDataJS").addEventListener("click", exportDataJS);
@@ -14565,22 +14939,73 @@ async function salvarA107(){
  const canon=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
  const duplicado=almoxItensV107.find(x=>x.id!==id&&nomeEstoqueFisicoV109(x.estoqueFisico||x.centroCusto)===d.estoqueFisico&&x.status!=='INATIVO'&&(canon(x.codigoMaterial||x.codigoImportacao)===canon(d.codigoMaterial)||canon(x.nome)===canon(d.nome)));
  if(duplicado)throw new Error('Cadastro duplicado no mesmo estoque: '+(duplicado.codigoMaterial||duplicado.nome)+'. Verifique o registro existente.');
- let ref=id?db.collection('almoxarifado_itens').doc(id):db.collection('almoxarifado_itens').doc();await ref.set(d,{merge:true});
- const atualizado={...d,id:ref.id};const idx=almoxItensV107.findIndex(x=>x.id===ref.id);
- if(idx>=0)almoxItensV107[idx]={...almoxItensV107[idx],...atualizado};else almoxItensV107.push(atualizado);
- v126SalvarCache('almoxarifado_itens',almoxItensV107);v125UltimaCarga['almoxarifado_itens']=Date.now();
+  const ref=id?db.collection('almoxarifado_itens').doc(id):db.collection('almoxarifado_itens').doc();
+  const anteriorLocal=id?almoxItensV107.find(x=>x.id===id):null;
+  await db.runTransaction(async tx=>{
+    const snap=await tx.get(ref);
+    if(id&&!snap.exists)throw new Error('Item removido no servidor. Atualize o almoxarifado.');
+    if(!id&&snap.exists)throw new Error('Identificador já existente.');
+    const atual=snap.exists?snap.data():{};
+    if(id&&anteriorLocal&&Number(atual.versaoCadastro||0)!==Number(anteriorLocal.versaoCadastro||0))
+      throw new Error('Item alterado por outro usuário. Atualize antes de salvar.');
+    // Saldo é crítico: impedir que uma edição baseada em tela antiga desfaça movimentações.
+    if(id&&anteriorLocal&&Math.abs(numeroSeguro(atual.quantidadeAtual)-numeroSeguro(anteriorLocal.quantidadeAtual))>0.000001)
+      throw new Error('Saldo alterado por movimentação recente. Atualize antes de editar.');
+    const dados={...d,versaoCadastro:Number(atual.versaoCadastro||0)+1};
+    if(snap.exists)tx.update(ref,dados);else tx.set(ref,dados);
+  });
+  v192InvalidarCacheColecao('almoxarifado_itens');
+  await v125CarregarColecao('almoxarifado_itens',true);
 }
-async function entradaNFA107(r){
- if(!almoxConfigV107.vinculoAtivo||canonDestino102(r.destino)!=='ESTOQUE'||r.tipoDocumento!=='NF')return;
- for(const it of r.itensRecebidos||[]){
+ async function entradaNFA107(r){
+  if(!almoxConfigV107.vinculoAtivo||canonDestino102(r.destino)!=='ESTOQUE'||r.tipoDocumento!=='NF')return;
+  const itens=r.itensRecebidos||[];
+  if(!itens.length)return;
   const estoqueFisico=estoqueFisicoPadraoV109(r.centroCusto||r.destino||'SANTOS');
-  let a=acharA107PorEstoque(it.codigo,it.descricao,estoqueFisico);
-  if(!a){let ref=db.collection('almoxarifado_itens').doc();a={id:ref.id,categoria:'INSUMO',codigoMaterial:it.codigo||'',codigoImportacao:it.codigo||'',nome:it.descricao||it.codigo,centroCusto:estoqueFisico,estoqueFisico:estoqueFisico,proprietarioEstoque:estoqueFisico,quantidadeAtual:0,estoqueMinimo:0,valorUnitario:numeroSeguro(it.valorUnitario),localArmazenamento:'',status:'ATIVO',inventariado:true};await ref.set(a);}
-  let ref=db.collection('almoxarifado_itens').doc(a.id),mr=db.collection('almoxarifado_movimentacoes').doc(),q=numeroSeguro(it.quantidadeRecebida??it.quantidade);
-  await db.runTransaction(async tr=>{let s=await tr.get(ref),at=s.exists?numeroSeguro(s.data().quantidadeAtual):0;tr.set(ref,{quantidadeAtual:at+q,valorUnitario:numeroSeguro(it.valorUnitario),ultimaMovimentacao:new Date().toISOString()},{merge:true});
-   tr.set(mr,{tipo:'ENTRADA',data:r.dataDocumento,itemId:ref.id,codigo:it.codigo||'',itemNome:it.descricao||'',quantidade:q,valorUnitario:numeroSeguro(it.valorUnitario),valorTotal:q*numeroSeguro(it.valorUnitario),centroCusto:r.centroCusto||'SANTOS',estoqueFisico:estoqueFisico,proprietarioEstoque:estoqueFisico,fornecedor:r.fornecedor||'',origem:'NF_RC_ESTOQUE',referencia:r.numeroNF||'',rcNumero:r.rcNumero||'',criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()});});
+  // Idempotência exige uma referência estável da NF/recebimento; não repetir entradas.
+  const chave=String(r.id||r.recebimentoId||'').trim();
+  if(!chave)throw new Error('Recebimento sem ID persistente: entrada automática bloqueada para evitar duplicidade.');
+  if(itens.length>150)throw new Error('NF com muitos itens: dividir em lotes controlados antes da entrada.');
+  const marcador=db.collection('almoxarifado_integracoes_nf').doc(chave);
+  const operacoes=itens.map((it,i)=>{
+    const a=acharA107PorEstoque(it.codigo,it.descricao,estoqueFisico);
+    const ref=a?db.collection('almoxarifado_itens').doc(a.id):db.collection('almoxarifado_itens').doc();
+    const q=numeroSeguro(it.quantidadeRecebida??it.quantidade);
+    if(!Number.isFinite(q)||q<=0)throw new Error('Quantidade de entrada inválida na linha '+(i+1));
+    return {it,a,ref,q,mov:db.collection('almoxarifado_movimentacoes').doc()};
+  });
+  await db.runTransaction(async tx=>{
+    const [controle,...atuais]=await Promise.all([tx.get(marcador),...operacoes.map(op=>tx.get(op.ref))]);
+    if(controle.exists){
+      if(controle.data().estado==='CONCLUIDO')return;
+      throw new Error('Integração NF com estado inesperado. Verifique antes de repetir.');
+    }
+    // Todas as leituras foram realizadas antes de qualquer escrita.
+    for(let i=0;i<operacoes.length;i++){
+      const {it,a,ref,q,mov}=operacoes[i],snap=atuais[i];
+      const base=snap.exists?snap.data():{};
+      const dados={quantidadeAtual:numeroSeguro(base.quantidadeAtual)+q,
+        valorUnitario:numeroSeguro(it.valorUnitario),ultimaMovimentacao:new Date().toISOString(),
+        versaoCadastro:Number(base.versaoCadastro||0)+1};
+      if(snap.exists)tx.update(ref,dados);
+      else tx.set(ref,{categoria:'INSUMO',codigoMaterial:it.codigo||'',codigoImportacao:it.codigo||'',
+        nome:it.descricao||it.codigo,centroCusto:estoqueFisico,estoqueFisico,
+        proprietarioEstoque:estoqueFisico,estoqueMinimo:0,localArmazenamento:'',
+        status:'ATIVO',inventariado:true,...dados});
+      tx.set(mov,{tipo:'ENTRADA',data:r.dataDocumento,itemId:ref.id,codigo:it.codigo||'',
+        itemNome:it.descricao||'',quantidade:q,valorUnitario:numeroSeguro(it.valorUnitario),
+        valorTotal:q*numeroSeguro(it.valorUnitario),centroCusto:r.centroCusto||'SANTOS',
+        estoqueFisico,proprietarioEstoque:estoqueFisico,fornecedor:r.fornecedor||'',
+        origem:'NF_RC_ESTOQUE',referencia:r.numeroNF||'',rcNumero:r.rcNumero||'',
+        criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),
+        criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+    }
+    tx.set(marcador,{estado:'CONCLUIDO',recebimentoId:chave,quantidadeItens:itens.length,
+      atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+  });
+  v192InvalidarCacheColecao('almoxarifado_itens');
+  v192InvalidarCacheColecao('almoxarifado_movimentacoes');
  }
-}
 // V11.5 — grava a nova baixa e a movimentação física de forma atômica.
 // Assim, uma falha no recebimentos_nf não pode descontar o estoque sem registrar a baixa.
 async function salvarNovaBaixaAtomicaV115(mat,q,r){
