@@ -527,6 +527,10 @@
     @media(max-width:650px){
       #modalVisualizacaoPublica .table-wrap table { min-width:620px; }
     }
+/* V19.4.1 — notificações de aprovação visíveis acima do modal */
+.toast { z-index: 2147483647 !important; max-width: min(650px, calc(100vw - 24px)); white-space: normal; overflow-wrap: anywhere; }
+#v193Overlay [data-v17-aprovar]:disabled,
+#v193Overlay [data-v17-devolver]:disabled { opacity:.7; cursor:wait; }
 </style>
 
 <script>
@@ -1823,7 +1827,7 @@ auth.onAuthStateChanged(async (user) => {
         allItems.push({...salvo});v126SalvarCache('materiais',allItems);
       }else{
         const motivo=prompt('Justificativa obrigatória da devolução/rejeição:');
-        if(motivo===null)return;
+        if(motivo===null)return false;
         if(!motivo.trim())throw new Error('Informe a justificativa.');
         await ref.update({status:'DEVOLVIDO',motivo:motivo.trim(),decididoPorUid:getUsuarioUid(),decididoPorEmail:getUsuarioEmail(),decididoEm:firebase.firestore.FieldValue.serverTimestamp()});
       }
@@ -1862,8 +1866,33 @@ auth.onAuthStateChanged(async (user) => {
       if(analisar){v193DetalheSolicitacaoId=analisar.dataset.v193Analisar;render();return;}
       const reload=e.target.closest('#v17RecarregarAprovacoes'),ap=e.target.closest('[data-v17-aprovar]'),dev=e.target.closest('[data-v17-devolver]');
       if(!reload&&!ap&&!dev)return;
-      try{if(reload){await v17CarregarSolicitacoes(true);v193DetalheSolicitacaoId=null;render();return;}await v17DecidirMaterial((ap||dev).dataset[ap?'v17Aprovar':'v17Devolver'],!!ap);v193DetalheSolicitacaoId=null;showToast('Solicitação processada.');}
-      catch(err){showToast('Falha na aprovação: '+err.message,true);}
+      const botao = reload || ap || dev;
+      if(botao.disabled)return;
+      const textoOriginal=botao.textContent;
+      botao.disabled=true;
+      botao.textContent=reload?'Atualizando...':ap?'Processando aprovação...':'Processando devolução...';
+      try{
+        if(reload){
+          await v17CarregarSolicitacoes(true);
+          v193DetalheSolicitacaoId=null;
+          render();
+          showToast('Solicitações atualizadas.');
+          return;
+        }
+        const id=(ap||dev).dataset[ap?'v17Aprovar':'v17Devolver'];
+        if(!id)throw new Error('Protocolo da solicitação não identificado.');
+        const resultado=await v17DecidirMaterial(id,!!ap);
+        if(resultado===false){showToast('Operação cancelada.');return;}
+        v193DetalheSolicitacaoId=null;
+        render();
+        showToast(ap?'Cadastro aprovado e gravado no Firebase.':'Solicitação devolvida.');
+      }catch(err){
+        console.error('[APROVACAO_MATERIAL]',err);
+        const codigo=err?.code?(' ['+err.code+']'):'';
+        showToast('Falha na operação'+codigo+': '+(err?.message||String(err)),true);
+      }finally{
+        if(botao.isConnected){botao.disabled=false;botao.textContent=textoOriginal;}
+      }
     });
     function v192InvalidarCacheColecao(nome){
       delete v125UltimaCarga[nome];
