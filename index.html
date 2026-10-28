@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19 Governança de Leituras</title>
+  <title>Gestão de Compras — V19.8 Governança de Leituras</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -1896,8 +1896,12 @@ auth.onAuthStateChanged(async (user) => {
     });
     function v192InvalidarCacheColecao(nome){
       delete v125UltimaCarga[nome];
+      try{if(typeof v198UltimaConsultaForcada!=='undefined')delete v198UltimaConsultaForcada[nome];}catch(_){ }
       try{sessionStorage.removeItem(v126CacheKey(nome));}catch(_){ }
-      // Não reutilizar dados locais após uma escrita confirmada.
+      // Invalidação cooperativa: outra aba do MESMO usuário não deve reutilizar
+      // um inventário anterior à escrita. Não executa leitura automática.
+      try{if(typeof v130CanalCache!=='undefined' && v130CanalCache)
+        v130CanalCache.postMessage({tipo:'invalidar',uid:v126UidCache(),nome});}catch(_){ }
     }
     async function salvarMaterial(material) {
       const col = db.collection('materiais');
@@ -10339,6 +10343,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     const V126_CACHE_PREFIX = 'cryotronics_v126_';
     const v125UltimaCarga = Object.create(null); // nome mantido por compatibilidade interna
     const v125Carregando = Object.create(null);
+    const v198UltimaConsultaForcada = Object.create(null);
 
     function v126UidCache(){
       try{return (auth.currentUser&&auth.currentUser.uid)||'anon';}catch(_){return 'anon';}
@@ -10398,6 +10403,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           if(Array.isArray(data) && ts>0 && ts<=Date.now() && Date.now()-ts<ttl){
             v130CanalCache.postMessage({tipo:'responder',uid:m.uid,nome:m.nome,req:m.req,ts,data});
           }
+        }else if(m.tipo==='invalidar' && typeof m.nome==='string'){
+          delete v125UltimaCarga[m.nome];
+          try{sessionStorage.removeItem(v126CacheKey(m.nome));}catch(_){ }
+          // O dado visível permanece até atualização voluntária; transações
+          // sempre conferem o documento real no servidor antes de gravar.
         }else if(m.tipo==='responder' && v130RespostasCache.has(m.req)){
           v130RespostasCache.get(m.req)(m);
         }
@@ -10478,6 +10488,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const agora=Date.now();
       const critico=(nome==='almoxarifado_itens');
       const ttl=critico?10*60*1000:V126_CACHE_MS;
+      // Protege contra rajadas de atualização manual entre seções que
+      // compartilham coleções, sem alterar consultas transacionais.
+      if(force && v198UltimaConsultaForcada[nome] && agora-v198UltimaConsultaForcada[nome]<180000 &&
+         v125UltimaCarga[nome] && agora-v125UltimaCarga[nome]<180000){
+        v19AuditarLeitura(nome,0,'reuso_atualizacao_recente','cache');return;
+      }
       if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<ttl) {v19AuditarLeitura(nome,0,'ttl_memoria','cache');return;}
 
 
@@ -10516,6 +10532,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const arr=[]; snap.forEach(doc=>arr.push({id:doc.id,...doc.data()}));
           v125AplicarSnapshot(nome,arr);
           v125UltimaCarga[nome]=Date.now();
+          if(force)v198UltimaConsultaForcada[nome]=v125UltimaCarga[nome];
           v126SalvarCache(nome,arr);
         }catch(err){
           // Se a cota estiver temporariamente indisponível, tenta cache expirado antes de falhar.
@@ -10537,7 +10554,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       finally { if(v125Carregando[nome]===tarefa) delete v125Carregando[nome]; }
     }
 
+    let v198ConfigEmCurso=null;
     async function v125CarregarConfigAlmox(force=false){
+      if(v198ConfigEmCurso)return v198ConfigEmCurso;
+      const tarefa=v198CarregarConfigAlmoxInterna(force);
+      v198ConfigEmCurso=tarefa;
+      try{return await tarefa;}
+      finally{if(v198ConfigEmCurso===tarefa)v198ConfigEmCurso=null;}
+    }
+    async function v198CarregarConfigAlmoxInterna(force=false){
       const nome='configuracoes/almoxarifado_controle';
       if(!force && v125UltimaCarga[nome] && Date.now()-v125UltimaCarga[nome]<V126_CACHE_MS)return;
       if(!force){
@@ -10705,8 +10730,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       render();
 
+      let v198Navegacao=0;
       document.querySelectorAll(".nav-btn").forEach(btn => {
         btn.addEventListener("click", () => {
+          const numeroNavegacao=++v198Navegacao;
           document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
           state.section = btn.dataset.section;
@@ -10714,7 +10741,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           state.rcPage = 1;
           const app=document.getElementById('appContent');
           if(app) app.innerHTML='<div class="loading"><div class="spinner"></div><span>Carregando dados deste módulo…</span></div>';
-          v125CarregarSecao(state.section,false).then(()=>render()).catch(()=>render());
+          v125CarregarSecao(state.section,false).then(()=>{
+            if(numeroNavegacao===v198Navegacao)render();
+          }).catch(()=>{if(numeroNavegacao===v198Navegacao)render();});
           // Fechar menu mobile ao clicar em um item
           if (window.innerWidth <= 768) {
             document.querySelector('.sidebar').classList.remove('mobile-open');
