@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.8 Governança de Leituras</title>
+  <title>Gestão de Compras — V19.9.2 Armadilha de Leituras</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -28,6 +28,77 @@
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+    /* V19.9.1 ARMADILHA FIRESTORE: observação local, sem leituras/gravações próprias. */
+    (function(){
+      const max=1500, eventos=[], inicio=new Date().toISOString();
+      let ligado=true, sequencia=0;
+      const agora=()=>new Date().toISOString();
+      function secao(){try{return typeof state!=='undefined' ? String(state.section||'inicializacao') : 'inicializacao';}catch(_){return 'inicializacao';}}
+      function origem(){
+        try{return (new Error()).stack.split('\n').slice(3,9).map(x=>x.trim().replace(location.origin,'')).join(' | ').slice(0,850);}catch(_){return 'indisponivel';}
+      }
+      function destino(ref){
+        try {return String(ref.path || (ref._delegate&&ref._delegate.path&&ref._delegate.path.canonicalString&&ref._delegate.path.canonicalString()) || ref.id || 'consulta_sem_caminho').slice(0,150);}catch(_){return 'desconhecido';}
+      }
+      function registrar(ev){if(!ligado)return;eventos.push(ev);if(eventos.length>max)eventos.shift();}
+      function contar(snap){if(snap&&typeof snap.size==='number')return snap.size;return snap&&snap.exists?1:0;}
+      function instrumentar(proto,metodo,tipo){
+        if(!proto||typeof proto[metodo]!=='function'||proto[metodo].__armadilha)return false;
+        const original=proto[metodo];
+        function interceptado(...args){
+          if(!ligado)return original.apply(this,args);
+          const id=++sequencia, inicioMs=performance.now(), base={id,hora:agora(),tipo,operacao:metodo,alvo:destino(this),secao:secao(),origem:origem()};
+          let resposta;
+          try{resposta=original.apply(this,args);}catch(e){registrar({...base,status:'erro_sincrono',erro:String(e&&e.code||e&&e.message||e).slice(0,130),ms:Math.round(performance.now()-inicioMs)});throw e;}
+          if(metodo==='get'&&resposta&&typeof resposta.then==='function'){
+            // A promise devolvida continua sendo a original: instrumentação sem mudar seu resultado.
+            resposta.then(s=>registrar({...base,status:'ok',docs:contar(s),fonte:s&&s.metadata&&s.metadata.fromCache?'cache':'servidor_ou_indefinido',ms:Math.round(performance.now()-inicioMs)}),e=>registrar({...base,status:'erro',docs:0,erro:String(e&&e.code||e&&e.message||e).slice(0,130),ms:Math.round(performance.now()-inicioMs)}));
+          }else if(metodo==='onSnapshot'){
+            registrar({...base,status:'listener_registrado',docs:null,ms:0});
+          }
+          return resposta;
+        }
+        interceptado.__armadilha=true;proto[metodo]=interceptado;return true;
+      }
+      const proto=firebase.firestore;
+      const cobertura=[];
+      for(const [obj,nome] of [[proto.Query&&proto.Query.prototype,'Query'],[proto.DocumentReference&&proto.DocumentReference.prototype,'DocumentReference']]){
+        for(const metodo of ['get','onSnapshot'])if(instrumentar(obj,metodo,nome))cobertura.push(nome+'.'+metodo);
+      }
+      // Registra também leituras de transações sem interferir em atomicidade.
+      if(proto.Transaction&&proto.Transaction.prototype&&instrumentar(proto.Transaction.prototype,'get','Transaction'))cobertura.push('Transaction.get');
+      const api={inicio,cobertura,eventos,ativar(v){ligado=!!v;},ativo(){return ligado;},limpar(){eventos.length=0;},resumo(){
+        const dados=eventos.filter(e=>e.status==='ok');
+        const grupos={};for(const e of dados){const chave=e.alvo;const g=grupos[chave]||(grupos[chave]={alvo:chave,consultas:0,documentos:0});g.consultas++;g.documentos+=e.docs||0;}
+        return {consultas:dados.length,documentos:dados.reduce((n,e)=>n+(e.docs||0),0),erros:eventos.filter(e=>e.status.startsWith('erro')).length,porAlvo:Object.values(grupos).sort((a,b)=>b.documentos-a.documentos)};
+      },exportar(){
+        const dados={versao:'19.9.1',inicio,cobertura,geradoEm:agora(),aviso:'Contagem local de documentos retornados; nao equivale necessariamente a leituras faturadas. Caminhos e stacks podem conter IDs internos.',eventos:[...eventos]};
+        const blob=new Blob([JSON.stringify(dados,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+        a.href=url;a.download='armadilha_firestore_'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      }};
+      Object.defineProperty(window,'Arm99',{value:api,configurable:false,writable:false});
+      function atualizarPainel(){
+        const el=document.getElementById('arm99Resumo');if(!el)return;
+        const r=api.resumo();
+        el.textContent='Consultas concluídas: '+r.consultas+' | Documentos retornados: '+r.documentos+' | Erros: '+r.erros+' | Registros: '+eventos.length+' | Monitor: '+(ligado?'ATIVO':'PAUSADO');
+        const corpo=document.getElementById('arm99Linhas');if(corpo){corpo.replaceChildren();for(const g of r.porAlvo.slice(0,15)){
+          const tr=document.createElement('tr');for(const valor of [g.alvo,g.consultas,g.documentos]){const td=document.createElement('td');td.textContent=String(valor);td.style.padding='7px';td.style.borderBottom='1px solid var(--border)';tr.appendChild(td);}corpo.appendChild(tr);
+        }}
+        const ult=document.getElementById('arm99Ultimos');if(ult){ult.replaceChildren();for(const e of eventos.slice(-12).reverse()){
+          const div=document.createElement('div');div.textContent=e.hora.slice(11,19)+' | '+e.secao+' | '+e.operacao+' '+e.alvo+' | '+(e.docs??'—')+' docs | '+e.status+' | '+(e.ms??0)+' ms';div.style.padding='5px 0';div.style.borderBottom='1px solid var(--border)';ult.appendChild(div);
+        }}
+      }
+      document.addEventListener('click',e=>{
+        const btn=e.target.closest&&e.target.closest('[data-arm99]');if(!btn)return;
+        if(typeof getPerfil==='function'&&getPerfil()!=='admin')return;
+        const acao=btn.dataset.arm99;
+        if(acao==='exportar')api.exportar();
+        if(acao==='limpar'){if(confirm('Limpar os registros temporários da armadilha nesta aba?'))api.limpar();}
+        if(acao==='alternar')api.ativar(!api.ativo());
+        atualizarPainel();
+      });
+      setInterval(atualizarPainel,2000);
+    })();
     const auth = firebase.auth();
     /* V9.4 SECURITY: persistência offline desabilitada para evitar retenção local de dados sensíveis. */
   </script>
@@ -7993,6 +8064,19 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         else html = '<div class="loading"><span>Carregando…</span></div>';
 
         document.getElementById('appContent').innerHTML = html;
+        // Dados em memória podem envelhecer entre computadores. Informar a
+        // idade sem gerar consultas automáticas a cada navegação.
+        if(['almoxarifado','dashboardAlmoxV109','recebimentoNFs'].includes(sec)){
+          const ts=Number(v125UltimaCarga['almoxarifado_itens'])||0;
+          const idade=ts?Date.now()-ts:0;
+          if(ts && idade>10*60*1000){
+            const aviso=document.createElement('div');
+            aviso.setAttribute('role','status');
+            aviso.style.cssText='margin:8px 0 14px;padding:11px 14px;border:1px solid #b8860b;border-radius:8px;background:#fff7df;color:#594000;font-size:13px';
+            aviso.textContent='Atenção: estoque exibido com dados de '+Math.floor(idade/60000)+' minutos atrás. Para consultar o saldo mais recente de outros computadores, utilize Atualizar dados antes de uma decisão operacional.';
+            document.getElementById('appContent').prepend(aviso);
+          }
+        }
         if(sec==='dashboardAlmoxV109') setTimeout(drawDashboardAlmoxV109,100);
         bindEvents();
         if (sec === 'solicitar' && state.solicitacaoPrefillOrcamento) {
@@ -10629,16 +10713,27 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       if(faltantes.length) await Promise.all(faltantes.map(n=>v125CarregarColecao(n,false)));
     }
 
-    async function v125CarregarSecao(sec=state.section,force=false){
+    // V19.9: navegação NÃO é atualização de banco. Uma coleção carregada e
+    // não invalidada continua disponível durante a sessão, independentemente
+    // do TTL. Atualização explícita, primeiro acesso e invalidação continuam
+    // consultando o servidor pelas rotinas originais.
+    function v199ColecaoJaDisponivel(nome){
+      return Number(v125UltimaCarga[nome])>0;
+    }
+    async function v125CarregarSecao(sec=state.section,force=false,apenasNavegacao=false){
       const deps=v125Dependencias(sec);
       try{
-        await Promise.all(deps.map(c=>v125CarregarColecao(c,force)));
-      if(sec==='materiais' && v17PodeAprovar()) await v17CarregarSolicitacoes(force).catch(err=>console.warn('Aprovações não disponíveis:',err.message));
+        await Promise.all(deps.filter(c=>!apenasNavegacao||force||!v199ColecaoJaDisponivel(c))
+          .map(c=>v125CarregarColecao(c,force)));
+      if(sec==='materiais' && v17PodeAprovar() && (!apenasNavegacao || force || !v17SolicitacoesCarregadasEm))
+        await v17CarregarSolicitacoes(force).catch(err=>console.warn('Aprovações não disponíveis:',err.message));
         // V13.0: Solicitar RC precisa enxergar imediatamente solicitações feitas por outros usuários.
         // A coleção costuma ser pequena e tem frescor de 2 min; na conversão, o documento exato é lido novamente.
-        if(sec==='solicitar') await v130CarregarSolicitacoesFrescas(force);
+        if(sec==='solicitar' && (!apenasNavegacao || force || !v199ColecaoJaDisponivel('solicitacoes')))
+          await v130CarregarSolicitacoesFrescas(force);
         if(['almoxarifado','dashboardAlmoxV109','recebimentoNFs','controleAcessoV104'].includes(sec)){
-          await v125CarregarConfigAlmox(force).catch(()=>{});
+          if(!apenasNavegacao || force || !v199ColecaoJaDisponivel('configuracoes/almoxarifado_controle'))
+            await v125CarregarConfigAlmox(force).catch(()=>{});
         }
         return true;
       }catch(err){
@@ -10700,7 +10795,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',async()=>{
           if(!['rh','recebimentoNFs','almoxarifado','dashboardAlmoxV109'].includes(btn.dataset.section))return;
           state.section=btn.dataset.section;
-          await v125CarregarSecao(state.section,false);
+          await v125CarregarSecao(state.section,false,true);
           render();
         }));
         document.getElementById("btnResetFilters")?.addEventListener("click",()=>{state.rhBusca='';render();});
@@ -10741,7 +10836,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           state.rcPage = 1;
           const app=document.getElementById('appContent');
           if(app) app.innerHTML='<div class="loading"><div class="spinner"></div><span>Carregando dados deste módulo…</span></div>';
-          v125CarregarSecao(state.section,false).then(()=>{
+          v125CarregarSecao(state.section,false,true).then(()=>{
             if(numeroNavegacao===v198Navegacao)render();
           }).catch(()=>{if(numeroNavegacao===v198Navegacao)render();});
           // Fechar menu mobile ao clicar em um item
@@ -14567,6 +14662,20 @@ function renderControleAcessoV104(){
   const temp=c.liberadoAteISO && new Date(c.liberadoAteISO).getTime()>Date.now();
 
   return `
+  <div class="card" style="border:1px solid #4ea1ff;margin-bottom:18px" id="arm99Painel">
+    <div class="card-title">🔎 Armadilha Firestore — Diagnóstico de Leituras</div>
+    <div class="card-sub" style="margin:7px 0 12px">Monitor temporário nesta aba do navegador. Não realiza consultas nem gravações adicionais. Identifica chamadas capturadas, origem e documentos retornados. Não equivale ao faturamento do Firebase.</div>
+    <div id="arm99Resumo" style="padding:12px;background:var(--surface-2);border-radius:8px;font-weight:600">Inicializando contadores…</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0">
+      <button type="button" class="btn btn-accent" data-arm99="alternar">⏯ Ativar / Pausar</button>
+      <button type="button" class="btn btn-ghost" data-arm99="exportar">⬇ Exportar diagnóstico JSON</button>
+      <button type="button" class="btn btn-ghost" data-arm99="limpar">🗑 Limpar contadores</button>
+    </div>
+    <div style="overflow-x:auto"><table style="width:100%;font-size:12px;text-align:left;border-collapse:collapse"><thead><tr><th>Consulta / documento</th><th>Chamadas</th><th>Documentos retornados</th></tr></thead><tbody id="arm99Linhas"></tbody></table></div>
+    <div style="font-size:12px;font-weight:700;margin-top:15px">Últimas chamadas registradas</div>
+    <div id="arm99Ultimos" style="font:11px/1.5 monospace;max-height:230px;overflow:auto;margin-top:6px"></div>
+    <div class="card-sub" style="margin-top:12px">A exportação contém caminhos de documentos e pilhas de execução. Compartilhe somente com a equipe técnica autorizada. Ao fechar a aba, o histórico é descartado.</div>
+  </div>
   <div class="card" style="border:1px solid var(--accent);max-width:1050px">
     <div class="card-header"><div>
       <div class="card-title">Acesso Externo — Compras</div>
@@ -15001,6 +15110,17 @@ function cryoMovimentosVisiveis2026(){
 function renderAlmoxarifadoV107(){
  const f=state.almoxFilters||{}, pode=podeMovAlmox107(), busca=nA107(f.busca||'');
  let itens=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||cryoCategoriaEstoque2026(i)===f.categoria)&&(!busca||nA107(`${i.codigoMaterial} ${i.codigoImportacao} ${i.nome} ${i.categoria} ${i.patrimonio} ${i.localArmazenamento}`).includes(busca)));
+ // Ordenação apenas visual: códigos CRY/CRYO por número crescente; não altera documentos nem faz leituras.
+ const numeroCodigoEstoqueV1992 = item => {
+   const codigo=String(item.codigoMaterial||item.codigoImportacao||'').trim().toUpperCase();
+   const m=codigo.match(/^(?:CRY|CRYO)[\s-]*0*(\d+)$/);
+   return m?Number(m[1]):Number.POSITIVE_INFINITY;
+ };
+ itens.sort((a,b)=>{
+   const na=numeroCodigoEstoqueV1992(a),nb=numeroCodigoEstoqueV1992(b);
+   if(na!==nb)return na-nb;
+   return String(a.codigoMaterial||a.codigoImportacao||'').localeCompare(String(b.codigoMaterial||b.codigoImportacao||''),'pt-BR',{numeric:true})||String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR');
+ });
  const cats=['MAQUINA','FERRAMENTA','INSUMO','EPI'];
  const categoriaInventario=cryoCategoriaEstoque2026;
  const baixos=almoxItensV107.filter(i=>i.status!=='INATIVO'&&!String(i.nome||'').startsWith('LEGADO INATIVO')&&(!f.centro||nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===f.centro)&&(!f.categoria||cryoCategoriaEstoque2026(i)===f.categoria)&&numeroSeguro(i.estoqueMinimo)>0&&saldoA107(i)<numeroSeguro(i.estoqueMinimo));
