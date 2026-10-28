@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.9.2 Armadilha de Leituras</title>
+  <title>Gestão de Compras — V19.9.3 Navegação e Cache Controlado</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -10483,7 +10483,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if(m.tipo==='pedir'){
           const data=v130DadosColecao(m.nome);
           const ts=Number(v125UltimaCarga[m.nome])||0;
-          const ttl=m.nome==='almoxarifado_itens'?10*60*1000:V126_CACHE_MS;
+          const ttl=V126_CACHE_MS; // V19.9.3: mesma política entre abas para inventário.
           if(Array.isArray(data) && ts>0 && ts<=Date.now() && Date.now()-ts<ttl){
             v130CanalCache.postMessage({tipo:'responder',uid:m.uid,nome:m.nome,req:m.req,ts,data});
           }
@@ -10571,14 +10571,14 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const tarefa=(async()=>{
       const agora=Date.now();
       const critico=(nome==='almoxarifado_itens');
-      const ttl=critico?10*60*1000:V126_CACHE_MS;
+      const ttl=V126_CACHE_MS; // V19.9.3: estoque compartilha cache de sessão; atualização explícita continua disponível.
       // Protege contra rajadas de atualização manual entre seções que
       // compartilham coleções, sem alterar consultas transacionais.
       if(force && v198UltimaConsultaForcada[nome] && agora-v198UltimaConsultaForcada[nome]<180000 &&
          v125UltimaCarga[nome] && agora-v125UltimaCarga[nome]<180000){
         v19AuditarLeitura(nome,0,'reuso_atualizacao_recente','cache');return;
       }
-      if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<ttl) {v19AuditarLeitura(nome,0,'ttl_memoria','cache');return;}
+      if(!force && v125UltimaCarga[nome]) {v19AuditarLeitura(nome,0,'memoria_sessao_sem_releitura','cache');return;}
 
 
       // V12.6/V13.0: antes de tocar no Firestore, tenta cache desta aba e depois outra aba aberta.
