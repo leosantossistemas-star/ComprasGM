@@ -10395,7 +10395,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const data=v130DadosColecao(m.nome);
           const ts=Number(v125UltimaCarga[m.nome])||0;
           const ttl=m.nome==='almoxarifado_itens'?10*60*1000:V126_CACHE_MS;
-          if(Array.isArray(data)&&data.length && ts>0 && ts<=Date.now() && Date.now()-ts<ttl){
+          if(Array.isArray(data) && ts>0 && ts<=Date.now() && Date.now()-ts<ttl){
             v130CanalCache.postMessage({tipo:'responder',uid:m.uid,nome:m.nome,req:m.req,ts,data});
           }
         }else if(m.tipo==='responder' && v130RespostasCache.has(m.req)){
@@ -10471,23 +10471,27 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     };
 
     async function v125CarregarColecao(nome,force=false){
+      // V19.7: uma única consulta por coleção e aba, inclusive durante negociação
+      // de cache com outra aba. A versão anterior só protegia após o await de 220 ms.
+      if(v125Carregando[nome]) return v125Carregando[nome];
+      const tarefa=(async()=>{
       const agora=Date.now();
       const critico=(nome==='almoxarifado_itens');
       const ttl=critico?10*60*1000:V126_CACHE_MS;
       if(!force && v125UltimaCarga[nome] && (agora-v125UltimaCarga[nome])<ttl) {v19AuditarLeitura(nome,0,'ttl_memoria','cache');return;}
-      if(v125Carregando[nome]) return v125Carregando[nome];
+
 
       // V12.6/V13.0: antes de tocar no Firestore, tenta cache desta aba e depois outra aba aberta.
       if(!force){
         const local=v126LerCache(nome);
-        if(local && Array.isArray(local.data) && local.data.length && (Date.now()-Number(local.ts))<ttl){
+        if(local && Array.isArray(local.data) && (Date.now()-Number(local.ts))<ttl){
           v19AuditarLeitura(nome,0,'cache_sessao','cache');
           v125AplicarSnapshot(nome,local.data);
           v125UltimaCarga[nome]=Number(local.ts);
           return;
         }
         const compartilhado=await v130PedirCacheOutraAba(nome);
-        if(compartilhado?.data && Array.isArray(compartilhado.data) && compartilhado.data.length && (Date.now()-Number(compartilhado.ts))<ttl){
+        if(compartilhado?.data && Array.isArray(compartilhado.data) && (Date.now()-Number(compartilhado.ts))<ttl){
           v19AuditarLeitura(nome,0,'cache_outra_aba','cache');
           v125AplicarSnapshot(nome,compartilhado.data);
           v125UltimaCarga[nome]=Number(compartilhado.ts)||Date.now();
@@ -10496,7 +10500,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }
       }
 
-      v125Carregando[nome]=(async()=>{
+      return await (async()=>{
         try{
           console.warn(`[V13.5 Firestore] leitura de coleção: ${nome}`);
           // Rev03: inventário físico é dado crítico; ler do servidor, nunca aceitar snapshot vazio silenciosamente.
@@ -10525,11 +10529,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           v19AuditarLeitura(nome,0,'falha_carregamento','erro',{codigo:err?.code||'',mensagem:String(err?.message||err).slice(0,240)});
           console.error('V12.6 — erro ao carregar '+nome,err);
           throw err;
-        }finally{
-          delete v125Carregando[nome];
         }
       })();
-      return v125Carregando[nome];
+      })();
+      v125Carregando[nome]=tarefa;
+      try { return await tarefa; }
+      finally { if(v125Carregando[nome]===tarefa) delete v125Carregando[nome]; }
     }
 
     async function v125CarregarConfigAlmox(force=false){
@@ -10617,8 +10622,18 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
     }
 
+    const v197AtualizacaoManual = Object.create(null);
     window.v125AtualizarTela=async function(force=true){
-      await v125CarregarSecao(state.section,force);
+      const sec=state.section;
+      // Evita rajadas de releituras integrais por cliques repetidos no botão.
+      // Não interfere com transações nem com as verificações de saldo por documento.
+      if(force && v197AtualizacaoManual[sec] && Date.now()-v197AtualizacaoManual[sec]<60000){
+        showToast('Dados atualizados recentemente. Aguarde 1 minuto para nova consulta completa.');
+        render(); return;
+      }
+      if(force) v197AtualizacaoManual[sec]=Date.now();
+      const ok=await v125CarregarSecao(sec,force);
+      if(!ok && force) delete v197AtualizacaoManual[sec];
       render();
     };
 
