@@ -10346,9 +10346,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     function v126CacheKey(nome){
       return V126_CACHE_PREFIX + v126UidCache() + '_' + String(nome).replace(/[^a-z0-9_/-]/gi,'_');
     }
-    function v126SalvarCache(nome,arr){
+    function v126SalvarCache(nome,arr,tsOriginal){
       try{
-        sessionStorage.setItem(v126CacheKey(nome),JSON.stringify({ts:Date.now(),data:arr}));
+        const ts=(Number.isFinite(Number(tsOriginal)) && Number(tsOriginal)>0 && Number(tsOriginal)<=Date.now())?Number(tsOriginal):Date.now();
+        sessionStorage.setItem(v126CacheKey(nome),JSON.stringify({ts,data:arr}));
       }catch(err){
         // Quota/privacidade do navegador: cache é otimização, nunca requisito.
         console.warn('V12.6 — cache local indisponível para '+nome,err&&err.message?err.message:err);
@@ -10392,8 +10393,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if(m.uid!==v126UidCache()) return;
         if(m.tipo==='pedir'){
           const data=v130DadosColecao(m.nome);
-          if(Array.isArray(data)&&data.length){
-            v130CanalCache.postMessage({tipo:'responder',uid:m.uid,nome:m.nome,req:m.req,ts:Date.now(),data});
+          const ts=Number(v125UltimaCarga[m.nome])||0;
+          const ttl=m.nome==='almoxarifado_itens'?10*60*1000:V126_CACHE_MS;
+          if(Array.isArray(data)&&data.length && ts>0 && ts<=Date.now() && Date.now()-ts<ttl){
+            v130CanalCache.postMessage({tipo:'responder',uid:m.uid,nome:m.nome,req:m.req,ts,data});
           }
         }else if(m.tipo==='responder' && v130RespostasCache.has(m.req)){
           v130RespostasCache.get(m.req)(m);
@@ -10436,7 +10439,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
     }
 
     /* V19.2 FASE 1: observabilidade local, sem gravações adicionais no Firestore. */
-    window.V19AuditMetrics={versao:'19.2-fase1',inicio:new Date().toISOString(),documentosRetornados:0,acertosCache:0,erros:0,operacoes:[],porColecao:Object.create(null)};
+    window.V19AuditMetrics={versao:'19.5-auditoria-cache',inicio:new Date().toISOString(),documentosRetornados:0,acertosCache:0,erros:0,operacoes:[],porColecao:Object.create(null)};
     function v19AuditarLeitura(colecao,docs,motivo,origem='consulta',extra={}){
       const m=window.V19AuditMetrics,n=Number(docs)||0;
       const c=m.porColecao[colecao]||(m.porColecao[colecao]={consultas:0,documentos:0,cache:0,erros:0});
@@ -10454,6 +10457,19 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
     };
     window.V192Governanca={modo:'seguro_sem_migracao',dominios:['materiais','almoxarifado','requisicoes'],versoesAtivas:false,cachePersistenteAtivo:false,reservaTransacionalAtiva:false};
+    /* V19.5: diagnóstico passivo; somente dados já observados, sem novas consultas. */
+    window.V195RelatorioLeituras=function(){
+      const m=window.V19AuditMetrics;
+      const linhas=Object.entries(m.porColecao).map(([colecao,d])=>({
+        colecao,consultas:d.consultas,documentosRetornados:d.documentos,
+        acertosCache:d.cache,erros:d.erros
+      })).sort((a,b)=>b.documentosRetornados-a.documentosRetornados);
+      console.table(linhas);
+      console.info('[V19.5] Documentos retornados por consultas observadas nesta aba:',m.documentosRetornados,
+        '— não equivale necessariamente a leituras faturadas; métricas incluem apenas rotinas instrumentadas.');
+      return {inicio:m.inicio,documentosRetornados:m.documentosRetornados,acertosCache:m.acertosCache,erros:m.erros,colecoes:linhas};
+    };
+
     async function v125CarregarColecao(nome,force=false){
       const agora=Date.now();
       const critico=(nome==='almoxarifado_itens');
@@ -10475,7 +10491,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           v19AuditarLeitura(nome,0,'cache_outra_aba','cache');
           v125AplicarSnapshot(nome,compartilhado.data);
           v125UltimaCarga[nome]=Number(compartilhado.ts)||Date.now();
-          v126SalvarCache(nome,compartilhado.data);
+          v126SalvarCache(nome,compartilhado.data,compartilhado.ts);
           return;
         }
       }
