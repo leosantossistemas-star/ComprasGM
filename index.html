@@ -15011,6 +15011,7 @@ async function salvarA107(){
  if(duplicado)throw new Error('Cadastro duplicado no mesmo estoque: '+(duplicado.codigoMaterial||duplicado.nome)+'. Verifique o registro existente.');
   const ref=id?db.collection('almoxarifado_itens').doc(id):db.collection('almoxarifado_itens').doc();
   const anteriorLocal=id?almoxItensV107.find(x=>x.id===id):null;
+  let itemConfirmado=null;
   await db.runTransaction(async tx=>{
     const snap=await tx.get(ref);
     if(id&&!snap.exists)throw new Error('Item removido no servidor. Atualize o almoxarifado.');
@@ -15023,9 +15024,18 @@ async function salvarA107(){
       throw new Error('Saldo alterado por movimentação recente. Atualize antes de editar.');
     const dados={...d,versaoCadastro:Number(atual.versaoCadastro||0)+1};
     if(snap.exists)tx.update(ref,dados);else tx.set(ref,dados);
+    itemConfirmado={id:ref.id,...(snap.exists?atual:{}),...dados};
   });
-  v192InvalidarCacheColecao('almoxarifado_itens');
-  await v125CarregarColecao('almoxarifado_itens',true);
+  // V19.6: a transação confirmou o documento específico; não reler os 1.425 itens.
+  // Preserva o instante original da carga para não estender artificialmente a validade do saldo.
+  if(itemConfirmado && Array.isArray(almoxItensV107)){
+    const idx=almoxItensV107.findIndex(x=>x.id===ref.id);
+    if(idx>=0)almoxItensV107[idx]=itemConfirmado;
+    else almoxItensV107.push(itemConfirmado);
+    const ts=v125UltimaCarga['almoxarifado_itens'];
+    if(ts)v126SalvarCache('almoxarifado_itens',almoxItensV107,ts);
+    else v192InvalidarCacheColecao('almoxarifado_itens');
+  }else v192InvalidarCacheColecao('almoxarifado_itens');
 }
  async function entradaNFA107(r){
   if(!almoxConfigV107.vinculoAtivo||canonDestino102(r.destino)!=='ESTOQUE'||r.tipoDocumento!=='NF')return;
@@ -15334,7 +15344,15 @@ document.addEventListener('input',e=>{if(e.target.id==='buscaA107'){
  const pos=e.target.selectionStart;render();const campo=document.getElementById('buscaA107');
  if(campo){campo.focus();try{campo.setSelectionRange(pos,pos);}catch(_){}}
 }});
-document.addEventListener('click',async e=>{if(e.target.closest('#novoA107')){document.body.insertAdjacentHTML('beforeend',modalA107({categoria:'INSUMO',centroCusto:'SANTOS'}));return;}let ed=e.target.closest('[data-ed-a107]');if(ed){let i=almoxItensV107.find(x=>x.id===ed.dataset.edA107);if(i)document.body.insertAdjacentHTML('beforeend',modalA107(i));return;}let dl=e.target.closest('[data-del-a107]');if(dl){if(confirm('Excluir este item?'))await db.collection('almoxarifado_itens').doc(dl.dataset.delA107).delete();return;}if(e.target.closest('[data-close-a107]'))document.getElementById('modalA107')?.remove();});
+document.addEventListener('click',async e=>{if(e.target.closest('#novoA107')){document.body.insertAdjacentHTML('beforeend',modalA107({categoria:'INSUMO',centroCusto:'SANTOS'}));return;}let ed=e.target.closest('[data-ed-a107]');if(ed){let i=almoxItensV107.find(x=>x.id===ed.dataset.edA107);if(i)document.body.insertAdjacentHTML('beforeend',modalA107(i));return;}let dl=e.target.closest('[data-del-a107]');if(dl){if(confirm('Excluir este item?')){try{
+  const id=dl.dataset.delA107;
+  await db.collection('almoxarifado_itens').doc(id).delete();
+  almoxItensV107=almoxItensV107.filter(x=>x.id!==id);
+  const ts=v125UltimaCarga['almoxarifado_itens'];
+  if(ts)v126SalvarCache('almoxarifado_itens',almoxItensV107,ts);
+  else v192InvalidarCacheColecao('almoxarifado_itens');
+  render();showToast('Item excluído.');
+ }catch(err){showToast('Falha ao excluir: '+(err.message||err),true);}}return;}if(e.target.closest('[data-close-a107]'))document.getElementById('modalA107')?.remove();});
 document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.preventDefault();try{await salvarA107();document.getElementById('modalA107')?.remove();showToast('Item salvo.');render();}catch(err){showToast(err.message,true);}}});
 
       document.addEventListener('input', function(e){
