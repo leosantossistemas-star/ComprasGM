@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.9.3 Navegação e Cache Controlado</title>
+  <title>Gestão de Compras — V19.9.4 Validações e RC Assistida</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -1841,18 +1841,18 @@ auth.onAuthStateChanged(async (user) => {
     function v17PodeAprovar(){return ['admin','gerente'].includes(getPerfil());}
     function v17ValidarMaterial(m){
       for(const [campo,rotulo] of [['descricaoSimples','Descrição simples'],['categoria','Categoria'],['subcategoria','Subcategoria'],['unid','Unidade'],['usuario','Responsável']]){
-        if(!String(m[campo]||'').trim())throw new Error('Campo obrigatório: '+rotulo);
+        if(!String(m[campo]||'').trim())throw new Error(rotulo+': preenchimento obrigatório. Informe '+({'descricaoSimples':'o nome do material','categoria':'uma categoria existente','subcategoria':'uma subcategoria','unid':'a unidade de medida (por exemplo: un, kg ou m)','usuario':'o responsável pelo cadastro'}[campo]||'um valor válido')+' antes de salvar.');
       }
       const ncm=String(m.ncm||m.NCM||'').trim();
       if(ncm&&!/^\d{8}$/.test(ncm))throw new Error('NCM: informe exatamente 8 dígitos, sem pontos ou letras.');
-      if((m.ehEPI===true||String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM') && (!String(m.caNumero||m.CA||'').trim()||!String(m.caValidade||'').trim()))throw new Error('EPI exige número e validade do CA.');
+      if((m.ehEPI===true||String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM') && (!String(m.caNumero||m.CA||'').trim()||!String(m.caValidade||'').trim()))throw new Error('Material marcado como EPI: informe o número do Certificado de Aprovação (CA) e sua data de validade. Se o material não for EPI, selecione NÃO no campo EPI.');
       for(const [campo,rotulo] of [['estoqueMin','Estoque mínimo'],['estoqueMax','Estoque máximo'],['loteMinimo','Lote mínimo'],['leadTime','Lead time'],['custoUnitarioNum','Custo unitário']]){
-        const valor=m[campo];if(valor!==''&&valor!=null&&(!Number.isFinite(Number(valor))||Number(valor)<0))throw new Error(rotulo+' inválido.');
+        const valor=m[campo];if(valor!==''&&valor!=null&&(!Number.isFinite(Number(String(valor).replace(',','.')))||Number(String(valor).replace(',','.'))<0))throw new Error(rotulo+' inválido. Informe um número igual ou superior a zero (exemplo: 10). Se o campo for opcional e não houver valor definido, deixe-o vazio; não digite N/A.');
       }
-      if(Number(m.estoqueMax)>0&&Number(m.estoqueMin)>Number(m.estoqueMax))throw new Error('Estoque mínimo não pode exceder o máximo.');
+      if(Number(m.estoqueMax)>0&&Number(m.estoqueMin)>Number(m.estoqueMax))throw new Error('Estoque máximo incompatível: o máximo informado ('+m.estoqueMax+') é menor que o mínimo ('+m.estoqueMin+'). Aumente o estoque máximo ou reduza o mínimo para que o máximo seja igual ou superior ao mínimo.');
       const desc=v17Canon(m.descricaoCurta||m.descricaoSimples||m.descricaoCompleta);
       const candidato=allItems.find(x=>x.ativo!==false&&v17Canon(x.descricaoCurta||x.descricaoSimples||x.descricaoCompleta)===desc);
-      if(candidato)throw new Error('Material já cadastrado: '+(candidato.codigo||candidato.id));
+      if(candidato)throw new Error('Material já cadastrado sob o código '+(candidato.codigo||candidato.id)+'. Pesquise esse código na aba Materiais antes de criar um novo cadastro; evite duplicar o mesmo produto.');
       return true;
     }
     async function v17EnviarSolicitacaoMaterial(material){
@@ -7414,28 +7414,28 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const dataFim=String(sol.dataSaida||sol.dataFimManutencaoPrevista||sol.dataPrevisaoSaida||'').trim();
       const itens=Array.isArray(sol.itens)?sol.itens:[];
 
-      if(!cc) erros.push('Filial / Centro de custo');
-      if(!destino) erros.push('Frota / Projeto / Destino');
-      if(!dataNec) erros.push('Data de necessidade');
-      if(!dataIni) erros.push('Início real da manutenção');
-      if(!Number.isFinite(dias)||dias<1) erros.push('Dias previstos em manutenção');
-      if(!dataFim) erros.push('Fim previsto da manutenção');
-      if(!itens.length) erros.push('Pelo menos um material');
+      if(!cc) erros.push('Selecione a Filial / Centro de custo antes de salvar');
+      if(!destino) erros.push('Informe ou selecione a Frota, Projeto ou Destino da solicitação');
+      if(!dataNec) erros.push('Informe a data em que os materiais serão necessários');
+      if(!dataIni) erros.push('Informe a data de início da manutenção');
+      if(!Number.isFinite(dias)||dias<1) erros.push('Informe o número de dias previstos de manutenção (mínimo: 1)');
+      if(!dataFim) erros.push('Informe o fim previsto da manutenção');
+      if(!itens.length) erros.push('Adicione pelo menos um material à solicitação');
 
       itens.forEach((item,i)=>{
         const n=i+1;
         if(!String(item.codigo||'').trim() || !String(item.materialId||'').trim())
-          erros.push(`Item ${n}: selecione o material pelo catálogo`);
+          erros.push(`Item ${n}: escolha um material na lista oficial; não basta digitar a descrição`);
         if(!String(item.descricao||'').trim())
-          erros.push(`Item ${n}: descrição do material`);
+          erros.push(`Item ${n}: selecione um material que possua descrição cadastrada`);
         if(!(Number(item.qtd)>0))
-          erros.push(`Item ${n}: quantidade maior que zero`);
+          erros.push(`Item ${n}: informe uma quantidade numérica maior que zero`);
         if(!String(item.unidade||'').trim())
-          erros.push(`Item ${n}: unidade`);
+          erros.push(`Item ${n}: informe a unidade de medida (por exemplo: un ou kg)`);
       });
 
       // Coerência das datas: não bloqueia necessidade passada, mas impede fim anterior ao início.
-      if(dataIni && dataFim && dataFim<dataIni) erros.push('Fim previsto não pode ser anterior ao início da manutenção');
+      if(dataIni && dataFim && dataFim<dataIni) erros.push('A data final prevista deve ser igual ou posterior à data inicial da manutenção');
 
       return {ok:erros.length===0,erros};
     }
@@ -7535,7 +7535,25 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
     }
 
+    // Monitor local de pendência: não faz consultas, não repete gravações e não altera regras.
     async function salvarSolicitacaoHandler() {
+      let avisoDemoraRC = null;
+      if (!solicitacaoSalvandoV1471) {
+        avisoDemoraRC = setTimeout(() => {
+          showToast('A confirmação da solicitação está demorando. Não clique novamente em Salvar e não feche esta tela: a gravação pode estar pendente de conexão ou autorização. Aguarde a confirmação ou uma mensagem de erro.', true);
+        }, 12000);
+      }
+      try {
+        return await salvarSolicitacaoHandlerInternoV1994();
+      } catch (erroInesperado) {
+        console.error('Falha inesperada no fluxo da solicitação:', erroInesperado);
+        showToast('Não foi possível concluir a solicitação. Verifique os campos e a conexão. Detalhes: '+(erroInesperado?.message||erroInesperado), true);
+      } finally {
+        if (avisoDemoraRC !== null) clearTimeout(avisoDemoraRC);
+      }
+    }
+
+    async function salvarSolicitacaoHandlerInternoV1994() {
       if (solicitacaoSalvandoV1471) {
         showToast('A solicitação já está sendo gravada. Aguarde a confirmação.', true);
         return;
@@ -7549,7 +7567,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const dataSaida = calcularDataFimInclusivaV121(dataInicioManutencao,diasManutencaoPrevistos);
       const valorServico = parseMoney(getVal('solValorServico'));
       if (!Number.isFinite(valorServico) || valorServico < 0) {
-        showToast('O valor do serviço não pode ser negativo.', true);
+        showToast('Valor do serviço inválido: informe um valor igual ou superior a zero (exemplo: 0,00).', true);
         return;
       }
 
@@ -7612,7 +7630,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const ref=await db.collection('frotas').add(payloadDestino);
           destinoRef={id:ref.id,...payloadDestino};
         } catch(err) {
-          showToast('Não foi possível cadastrar a Frota/Projeto: '+err.message,true);
+          showToast('A solicitação não foi gravada: não foi possível cadastrar a Frota/Projeto de destino. Confira se o destino já existe e se o seu perfil tem permissão para cadastrá-lo. Detalhes: '+(err?.message||err),true);
           return;
         }
       }
@@ -7632,7 +7650,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             alteradoEm: firebase.firestore.FieldValue.serverTimestamp()
           }, {merge:true});
         } catch(err) {
-          showToast('Não foi possível atualizar os dados da frota: '+err.message, true);
+          showToast('A solicitação não foi gravada: falha na atualização dos dados da frota. Verifique a permissão do seu perfil e tente novamente após corrigir a causa. Detalhes: '+(err?.message||err), true);
           return;
         }
       }
@@ -7721,7 +7739,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           btnSolV1471.disabled=false;
           btnSolV1471.textContent=textoBtnSolV1471;
         }
-        showToast('Erro ao salvar solicitação: '+(err?.message||err), true);
+        showToast('Solicitação não confirmada. '+(err?.code==='permission-denied'?'Seu perfil não tem autorização para gravar esta solicitação. Solicite ao administrador a revisão do acesso, sem alterar as regras do RH. ':err?.code==='unavailable'?'Conexão com o Firebase indisponível. Confira a internet antes de tentar novamente. ':'Confira os dados e a conexão. ')+'Detalhes: '+(err?.message||err), true);
         return;
       }
       solicitacaoSalvandoV1471=false;
@@ -10274,7 +10292,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const moeda = getVal('novoMoeda') || 'Real';
 
       if (!descricaoSimples || !categoria || !subcategoria || !unid || !fornecedor) {
-        showToast('Preencha os campos obrigatórios.', true);
+        showToast('Cadastro incompleto: preencha Descrição simples, Categoria, Subcategoria, Unidade e Fornecedor. Confira os campos destacados como obrigatórios (*) antes de salvar.', true);
         return;
       }
 
