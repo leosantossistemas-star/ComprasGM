@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.9.4 Validações e RC Assistida</title>
+  <title>Gestão de Compras — V19.9.5 EPI e RH Independente</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -755,7 +755,7 @@
       <!-- NOVA ABA: SOLICITAR RC -->
       <li><button class="nav-btn" data-section="solicitar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v8M8 12h8"/><rect x="3" y="4" width="18" height="16" rx="1"/></svg>Solicitar RC</button></li>
       <li id="navOrcamentoTecnico" style="display:none"><button class="nav-btn" data-section="orcamentoTecnico"><span style="font-size:17px">🧾</span>Orçamento Técnico</button></li>
-      <li id="navRH" style="display:none"><button class="nav-btn" data-section="rh"><span style="font-size:17px">👥</span>RH</button></li>
+      <li id="navRH" style="display:none" hidden><button class="nav-btn" data-section="rh"><span style="font-size:17px">👥</span>RH</button></li>
     </ul>
     <div class="sidebar-footer" id="sidebarSource">—</div>
   </aside>
@@ -4925,13 +4925,13 @@ auth.onAuthStateChanged(async (user) => {
       if (navControleAcessoV104) navControleAcessoV104.style.display = perfil === 'admin' ? '' : 'none';
       if (navPag) navPag.style.display = ['gerente','admin'].includes(perfil) ? '' : 'none';
       if (navOT) navOT.style.display = ['encarregado','gerente','admin'].includes(perfil) ? '' : 'none';
-      if (navRH) navRH.style.display = ['rh','gerente','admin'].includes(perfil) ? '' : 'none';
+      if (navRH) navRH.closest('li').style.display = 'none'; // RH migrou para app independente
 
       // Perfil RH é isolado: enxerga apenas o módulo RH.
       document.querySelectorAll('.nav-btn').forEach(btn => {
         const sec = btn.dataset.section;
         if (perfil === 'rh') {
-          btn.closest('li').style.display = (sec === 'rh' || sec === 'recebimentoNFs' || sec === 'almoxarifado' || sec === 'dashboardAlmoxV109') ? '' : 'none';
+          btn.closest('li').style.display = (sec === 'recebimentoNFs' || sec === 'almoxarifado' || sec === 'dashboardAlmoxV109') ? '' : 'none';
         } else if (sec === 'controleAcessoV104') {
           btn.closest('li').style.display = perfil === 'admin' ? '' : 'none';
         } else if (sec !== 'pagamentosNF' && sec !== 'orcamentoTecnico' && sec !== 'rh') {
@@ -4940,9 +4940,9 @@ auth.onAuthStateChanged(async (user) => {
       });
 
       if (perfil === 'rh') {
-        state.section = 'rh';
+        state.section = 'recebimentoNFs';
       } else {
-        if (state.section === 'rh' && !['gerente','admin'].includes(perfil)) state.section='dashboard';
+        if (state.section === 'rh') state.section='dashboard';
         if (state.section === 'orcamentoTecnico' && !['encarregado','gerente','admin'].includes(perfil)) state.section='dashboard';
         if (state.section === 'pagamentosNF' && !['gerente','admin'].includes(perfil)) state.section='dashboard';
         if (state.section === 'controleAcessoV104' && perfil !== 'admin') state.section='dashboard';
@@ -8078,7 +8078,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         else if (sec === 'pagamentosNF') html = renderPagamentosNF();
         else if (sec === 'solicitar') html = renderSolicitar();
         else if (sec === 'orcamentoTecnico') html = renderOrcamentoTecnico();
-        else if (sec === 'rh') html = renderRH();
+        else if (sec === 'rh') { state.section='dashboard'; html=renderDashboard(); }
         else html = '<div class="loading"><span>Carregando…</span></div>';
 
         document.getElementById('appContent').innerHTML = html;
@@ -8434,6 +8434,22 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const baixaResultados=document.getElementById('baixaMaterialResultados');
       const descBaixa=item=>item.descricaoSimples||item.descricaoCurta||item.descricaoCompleta||'Material';
 
+      // V19.9.5 — categoria e flag legado são critérios de classificação; saldo é independente.
+      const materialEhEpiV1995 = m => !!m && (m.ehEPI===true ||
+        String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM' ||
+        nA107(m.categoria)==='EPI');
+      const saldoLocalV1995 = (m, centro) => {
+        const ef=estoqueFisicoPadraoV109(centro||'SANTOS');
+        const itens=almoxItensV107.filter(x=>
+          String(x.codigoMaterial||'').trim()===String(m.codigo||'').trim() &&
+          nomeEstoqueFisicoV109(x.estoqueFisico||x.centroCusto)===ef);
+        return {ef, encontrado:itens.length>0, saldo:itens.reduce((n,x)=>n+numeroSeguro(x.quantidadeAtual),0)};
+      };
+      const validarEpiV1995 = (m, data) => {
+        if(!materialEhEpiV1995(m)) throw new Error(`O material ${m.codigo||''} não está classificado como EPI. Revise o cadastro antes da entrega.`);
+        if(!m.caNumero||!m.caValidade) throw new Error(`O EPI ${m.codigo||''} não possui número e validade de CA cadastrados. Atualize o cadastro antes da entrega.`);
+        if(m.caValidade<data) throw new Error(`ENTREGA BLOQUEADA: CA ${m.caNumero} do EPI ${m.codigo||''} vencido em ${fmt.date(m.caValidade)}.`);
+      };
       const aplicarMaterialBaixa=codigo=>{
         const material=allItems.find(i=>String(i.codigo||'')===String(codigo||''));
         if(!material)return false;
@@ -8450,9 +8466,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           if(tipo==='EPI'){
             const vencido = !!material.caValidade && material.caValidade < hojeISO();
             caInfo.style.display='';
-            caInfo.innerHTML = material.ehEPI===true
-              ? `<strong>CA ${material.caNumero||'NÃO INFORMADO'}</strong> · Validade: <strong>${material.caValidade?fmt.date(material.caValidade):'NÃO INFORMADA'}</strong> ${vencido?'<span class="badge badge-danger">CA VENCIDO — ENTREGA BLOQUEADA</span>':'<span class="badge badge-ok">CA VÁLIDO</span>'}`
-              : '<span class="badge badge-danger">Este material não está cadastrado como EPI.</span>';
+            const saldoInfo=saldoLocalV1995(material,document.getElementById('baixaCentro')?.value);
+            const estoqueTexto=almoxConfigV107.vinculoAtivo
+              ? (!saldoInfo.encontrado || saldoInfo.saldo<=0
+                ? `<span class="badge badge-danger">SEM SALDO REGISTRADO NO ESTOQUE ${saldoInfo.ef} — baixa bloqueada</span>`
+                : `<span class="badge badge-ok">Saldo em memória (${saldoInfo.ef}): ${saldoInfo.saldo}. Será confirmado no servidor ao baixar.</span>`)
+              : '<span class="badge badge-danger">Vínculo físico desativado: a operação não descontará saldo físico.</span>';
+            caInfo.innerHTML = materialEhEpiV1995(material)
+              ? `<strong>CA ${material.caNumero||'NÃO INFORMADO'}</strong> · Validade: <strong>${material.caValidade?fmt.date(material.caValidade):'NÃO INFORMADA'}</strong> ${vencido?'<span class="badge badge-danger">CA VENCIDO — ENTREGA BLOQUEADA</span>':(!material.caNumero||!material.caValidade?'<span class="badge badge-danger">CA INCOMPLETO — ENTREGA BLOQUEADA</span>':'<span class="badge badge-ok">CA CADASTRADO</span>')} · ${estoqueTexto}`
+              : '<span class="badge badge-danger">Este material não está classificado como EPI. Corrija a classificação no cadastro.</span>';
           } else caInfo.style.display='none';
         }
         if(baixaResultados){baixaResultados.style.display='none';baixaResultados.innerHTML='';}
@@ -8539,10 +8561,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if(valorUnitario<0) throw new Error('Informe um valor unitário válido.');
         const tipo=document.getElementById('baixaTipo')?.value||'MATERIAL';
         if(tipo==='EPI'){
-          if(material.ehEPI!==true) throw new Error('O item selecionado não está cadastrado como EPI.');
-          if(!material.caNumero||!material.caValidade) throw new Error('EPI sem número/validade de CA.');
-          const data=document.getElementById('baixaData')?.value||hojeISO();
-          if(material.caValidade<data) throw new Error(`ENTREGA BLOQUEADA: CA ${material.caNumero} vencido em ${fmt.date(material.caValidade)}.`);
+          validarEpiV1995(material,document.getElementById('baixaData')?.value||hojeISO());
         }
         return {
           codigo:material.codigo||codigo,
@@ -8551,7 +8570,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           unidade:material.unid||material.unidade||'UN',
           quantidade, valorUnitario,
           fornecedor:(document.getElementById('baixaFornecedor')?.value||material.fornecedor||'').trim(),
-          ehEPI:material.ehEPI===true,
+          ehEPI:materialEhEpiV1995(material),
           caNumero:material.caNumero||'', caValidade:material.caValidade||''
         };
       };
@@ -8617,7 +8636,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const fisicos=itens.map(it=>{
           const mat=allItems.find(m=>String(m.codigo||'')===String(it.codigo));
           const a=acharA107PorEstoque(it.codigo,it.descricao,estoqueFisico);
-          if(!mat||!a)throw new Error(`ESTOQUE INSUFICIENTE: ${it.codigo} — ${it.descricao}.`);
+          if(!mat||!a)throw new Error(`SEM SALDO REGISTRADO para ${it.codigo} no estoque físico ${estoqueFisico}. Quantidade disponível cadastrada: 0. Nenhuma baixa realizada.`);
           return {it,mat,a,itemRef:db.collection('almoxarifado_itens').doc(a.id),movRef:db.collection('almoxarifado_movimentacoes').doc()};
         });
         await db.runTransaction(async tr=>{
@@ -8663,7 +8682,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const dataLote=document.getElementById('baixaData')?.value||hojeISO();
           if(tipoBaixa==='EPI'){
             for(const it of window.baixaLoteV148){
-              if(!it.ehEPI) return showToast(`O item ${it.codigo} não está cadastrado como EPI.`,true);
+              if(!it.ehEPI) return showToast(`O material ${it.codigo} não está classificado como EPI. Revise o cadastro.`,true);
               if(!it.caNumero||!it.caValidade) return showToast(`EPI ${it.codigo} sem CA/validade.`,true);
               if(it.caValidade<dataLote) return showToast(`ENTREGA BLOQUEADA: CA ${it.caNumero} do item ${it.codigo} está vencido.`,true);
             }
@@ -8679,14 +8698,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             };
             const itensLote=[...window.baixaLoteV148];
             const resultado=await salvarBaixaLoteV148(itensLote,comum);
-            if(tipoBaixa==='EPI'){
-              const b=db.batch();
-              itensLote.forEach(it=>{
-                const ref=db.collection('rh_entregas_epi').doc();
-                b.set(ref,{origem:'BAIXA_ALMOXARIFADO',tipoBaixa:'EPI',data:dataLote,dataDocumento:dataLote,colaboradorNome:colaborador,colaboradorRetirada:colaborador,codigo:it.codigo,descricao:it.descricao,quantidade:it.quantidade,valorUnitario:it.valorUnitario,valorTotal:numeroSeguro(it.quantidade)*numeroSeguro(it.valorUnitario),destino,centroCusto:centro,fornecedor:it.fornecedor||fornecedor,caNumero:it.caNumero||'',caValidade:it.caValidade||'',baixaLoteId:resultado.loteId,criadoPorUid:getUsuarioUid(),criadoPorEmail:getUsuarioEmail(),criadoPorNome:getUsuarioNome(),criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
-              });
-              await b.commit();
-            }
+            // RH independente: nenhuma gravação em rh_entregas_epi pelo aplicativo de Compras.
             window.baixaLoteV148=[];
             state.nfEditId=null;state.recebimentoOperacao='BAIXA_ESTOQUE';
             showToast(`Baixa em lote concluída: ${itensLote.length} item(ns).`);
@@ -8707,7 +8719,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if (!destino) return showToast('Selecione o local de uso/destino.', true);
         if (!colaborador) return showToast('Informe o colaborador que retirou/recebeu o item.', true);
         if (tipoBaixa === 'EPI') {
-          if (material.ehEPI !== true) return showToast('O item selecionado não está cadastrado como EPI.', true);
+          if (!materialEhEpiV1995(material)) return showToast('Este material não está classificado como EPI. Revise o cadastro.', true);
           if (!material.caNumero || !material.caValidade) return showToast('EPI sem número/validade de CA. Corrija o cadastro do material antes da entrega.', true);
           const dataEntrega = document.getElementById('baixaData')?.value || hojeISO();
           if (material.caValidade < dataEntrega) return showToast(`ENTREGA BLOQUEADA: CA ${material.caNumero} vencido em ${fmt.date(material.caValidade)}.`, true);
@@ -8776,16 +8788,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           } else {
             await salvarRecebimentoNF(registro);
           }
-          if (tipoBaixa === 'EPI' && !editId) {
-            try {
-              await db.collection('rh_entregas_epi').add({
-                origem:'BAIXA_ALMOXARIFADO', tipoBaixa:'EPI', data:registro.dataDocumento, dataDocumento:registro.dataDocumento,
-                colaboradorNome:colaborador, colaboradorRetirada:colaborador, codigo:matCod, descricao:desc, quantidade:qtd, valorUnitario:unit, valorTotal:total, destino, centroCusto:centro, fornecedor,
-                caNumero: material.caNumero || '', caValidade: material.caValidade || '',
-                criadoPorUid:getUsuarioUid(), criadoPorEmail:getUsuarioEmail(), criadoPorNome:getUsuarioNome(), criadoEm:firebase.firestore.FieldValue.serverTimestamp()
-              });
-            } catch(epiErr) { console.error('Falha ao alimentar RH/EPI:',epiErr); showToast('Baixa salva, mas o histórico RH do EPI não pôde ser gravado: '+epiErr.message,true); }
-          }
+          // RH independente: a baixa fica nas coleções de Compras; sem escrita no RH.
           state.nfEditId = null;
           state.recebimentoOperacao = 'BAIXA_ESTOQUE';
           showToast(tipoBaixa==='EPI' ? 'Entrega de EPI registrada no custo real.' : 'Baixa de almoxarifado registrada no custo real.');
@@ -10807,11 +10810,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         document.getElementById("sidebarSource").textContent = "Ultra econômico — RH / Firestore · V14.9.3";
         const btnLogout=document.getElementById('btnLogout'); if(btnLogout) btnLogout.addEventListener('click',logout);
 
-        v125CarregarSecao('rh',false).then(()=>render());
+        v125CarregarSecao('recebimentoNFs',false).then(()=>render());
         render();
 
         document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',async()=>{
-          if(!['rh','recebimentoNFs','almoxarifado','dashboardAlmoxV109'].includes(btn.dataset.section))return;
+          if(!['recebimentoNFs','almoxarifado','dashboardAlmoxV109'].includes(btn.dataset.section))return;
           state.section=btn.dataset.section;
           await v125CarregarSecao(state.section,false,true);
           render();
@@ -15289,7 +15292,7 @@ async function salvarNovaBaixaAtomicaV115(mat,q,r){
   );
 
   if(!a){
-    throw new Error(`ESTOQUE INSUFICIENTE NO ESTOQUE FÍSICO ${estoqueFisico}. A baixa não utilizará saldo de outro local.`);
+    throw new Error(`SEM SALDO REGISTRADO para ${mat.codigo} no estoque físico ${estoqueFisico}. Quantidade disponível cadastrada: 0. Nenhuma baixa realizada.`);
   }
 
   const itemRef = db.collection('almoxarifado_itens').doc(a.id);
@@ -15341,7 +15344,7 @@ async function saidaA107(mat,q,r){
  if(!almoxConfigV107.vinculoAtivo)return;
  let estoqueFisico=estoqueFisicoPadraoV109(r.centroCusto||r.destino||'SANTOS');
  let a=acharA107PorEstoque(mat.codigo,mat.descricaoSimples||mat.descricaoCurta||mat.descricaoCompleta,estoqueFisico);
- if(!a)throw new Error(`ESTOQUE INSUFICIENTE NO ESTOQUE FÍSICO ${estoqueFisico}. A baixa não utilizará saldo de outro local.`);
+ if(!a)throw new Error(`SEM SALDO REGISTRADO para ${mat.codigo} no estoque físico ${estoqueFisico}. Quantidade disponível cadastrada: 0. Nenhuma baixa realizada.`);
  let ref=db.collection('almoxarifado_itens').doc(a.id),mr=db.collection('almoxarifado_movimentacoes').doc();
  await db.runTransaction(async tr=>{let s=await tr.get(ref);if(!s.exists)throw new Error('ESTOQUE INSUFICIENTE.');let saldo=numeroSeguro(s.data().quantidadeAtual);
   if(saldo<=0||saldo+0.000001<q)throw new Error(`ESTOQUE INSUFICIENTE. Saldo disponível: ${saldo}. Quantidade solicitada: ${q}.`);
