@@ -2000,9 +2000,9 @@ auth.onAuthStateChanged(async (user) => {
           if (esperado !== undefined && Number(esperado) !== versaoAtual)
             throw new Error('Material alterado por outro usuário. Atualize o cadastro antes de salvar.');
           // Não persistir o token auxiliar no Firestore.
-          const {_versaoEdicao, ...dados} = material;
+          const {_versaoEdicao, sincronizadoRev07, ...dados} = material;
           const novaVersao = versaoAtual + 1;
-          tx.update(ref, {...dados, id:ref.id, codigo:codigoOriginal,
+          tx.update(ref, {...dados, ...(Object.prototype.hasOwnProperty.call(atual,'sincronizadoRev07')?{sincronizadoRev07:atual.sincronizadoRev07}:{}), id:ref.id, codigo:codigoOriginal,
             versaoCadastro:novaVersao, alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
           return {...dados,id:ref.id,codigo:codigoOriginal,versaoCadastro:novaVersao};
         });
@@ -2477,7 +2477,10 @@ auth.onAuthStateChanged(async (user) => {
         return true;
       } catch(err) {
         console.error('Falha na edição transacional de material:',err);
-        showToast('Não foi possível salvar o material: '+(err?.message||err),true);
+        const orientacao = err?.code === 'permission-denied' || /missing or insufficient permissions/i.test(err?.message||'')
+          ? 'O Firebase bloqueou a edição deste material. O registro foi preservado. Verifique se o usuário possui perfil autorizado e se o cadastro contém campos protegidos (por exemplo, sincronizadoRev07). Solicite ao administrador a revisão específica da regra; não tente cadastrar o mesmo material novamente.'
+          : (err?.message||String(err));
+        showToast('Não foi possível salvar o material: '+orientacao,true);
         return false;
       } finally {if(btn) btn.disabled=false;}
     }
@@ -8437,7 +8440,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       // V19.9.5 — categoria e flag legado são critérios de classificação; saldo é independente.
       const materialEhEpiV1995 = m => !!m && (m.ehEPI===true ||
         String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM' ||
-        nA107(m.categoria)==='EPI');
+        String(m.categoria||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase()==='EPI');
       const saldoLocalV1995 = (m, centro) => {
         const ef=estoqueFisicoPadraoV109(centro||'SANTOS');
         const itens=almoxItensV107.filter(x=>
@@ -8447,7 +8450,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       };
       const validarEpiV1995 = (m, data) => {
         if(!materialEhEpiV1995(m)) throw new Error(`O material ${m.codigo||''} não está classificado como EPI. Revise o cadastro antes da entrega.`);
-        if(!m.caNumero||!m.caValidade) throw new Error(`O EPI ${m.codigo||''} não possui número e validade de CA cadastrados. Atualize o cadastro antes da entrega.`);
+        if(!m.caNumero||!m.caValidade) throw new Error(`EPI ${m.codigo||''}: informe número e validade do CA no cadastro do material antes de confirmar a entrega.`);
         if(m.caValidade<data) throw new Error(`ENTREGA BLOQUEADA: CA ${m.caNumero} do EPI ${m.codigo||''} vencido em ${fmt.date(m.caValidade)}.`);
       };
       const aplicarMaterialBaixa=codigo=>{
@@ -8561,6 +8564,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if(valorUnitario<0) throw new Error('Informe um valor unitário válido.');
         const tipo=document.getElementById('baixaTipo')?.value||'MATERIAL';
         if(tipo==='EPI'){
+          if(almoxConfigV107.vinculoAtivo){
+            const consulta=saldoLocalV1995(material,document.getElementById('baixaCentro')?.value);
+            if(consulta.encontrado && consulta.saldo<=0) throw new Error(`O EPI ${material.codigo} possui saldo físico 0 no estoque ${consulta.ef}. Não é possível realizar a entrega; solicite a regularização do estoque.`);
+          }
           validarEpiV1995(material,document.getElementById('baixaData')?.value||hojeISO());
         }
         return {
@@ -8600,6 +8607,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
 
       async function salvarBaixaLoteV148(itens, comum){
         if(!Array.isArray(itens)||!itens.length)throw new Error('Adicione pelo menos um item à baixa.');
+        if(comum.tipoBaixa==='EPI') for(const it of itens){ const mat=allItems.find(m=>String(m.codigo||'')===String(it.codigo)); validarEpiV1995(mat,comum.dataDocumento); }
         const loteId='BX-'+String(Date.now())+'-'+Math.random().toString(36).slice(2,7).toUpperCase();
         const refs=itens.map(()=>db.collection('recebimentos_nf').doc());
 
@@ -8682,8 +8690,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           const dataLote=document.getElementById('baixaData')?.value||hojeISO();
           if(tipoBaixa==='EPI'){
             for(const it of window.baixaLoteV148){
-              if(!it.ehEPI) return showToast(`O material ${it.codigo} não está classificado como EPI. Revise o cadastro.`,true);
-              if(!it.caNumero||!it.caValidade) return showToast(`EPI ${it.codigo} sem CA/validade.`,true);
+              if(!materialEhEpiV1995(allItems.find(m=>String(m.codigo||'')===String(it.codigo)))) return showToast(`O material ${it.codigo} não está classificado como EPI. Revise o cadastro.`,true);
+              if(!it.caNumero||!it.caValidade) return showToast(`EPI ${it.codigo}: preencha o número e a validade do CA no cadastro do material antes de confirmar a entrega.`,true);
               if(it.caValidade<dataLote) return showToast(`ENTREGA BLOQUEADA: CA ${it.caNumero} do item ${it.codigo} está vencido.`,true);
             }
           }
@@ -8704,7 +8712,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             showToast(`Baixa em lote concluída: ${itensLote.length} item(ns).`);
             render();
           }catch(err){
-            showToast('Erro ao salvar baixa em lote: '+(err.message||err),true);
+            showToast('Erro ao salvar baixa em lote: '+((err.code==='permission-denied')?'O Firestore recusou uma das gravações. Confira perfil ativo (Compras, Gerente ou Admin), autorização para recebimentos_nf e almoxarifado e os campos obrigatórios da operação. Nenhuma baixa do lote foi confirmada.':(err.message||err)),true);
           }finally{
             formBaixa.dataset.saving='0';
             if(btn){btn.disabled=false;btn.textContent='Confirmar baixa / lote';}
@@ -8719,8 +8727,12 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if (!destino) return showToast('Selecione o local de uso/destino.', true);
         if (!colaborador) return showToast('Informe o colaborador que retirou/recebeu o item.', true);
         if (tipoBaixa === 'EPI') {
+          if (almoxConfigV107.vinculoAtivo) {
+            const consulta=saldoLocalV1995(material,centro);
+            if (consulta.encontrado && consulta.saldo<=0) return showToast(`O EPI ${material.codigo} está com saldo físico 0 no estoque ${consulta.ef}. Não é possível dar baixa; solicite a regularização do estoque.`,true);
+          }
           if (!materialEhEpiV1995(material)) return showToast('Este material não está classificado como EPI. Revise o cadastro.', true);
-          if (!material.caNumero || !material.caValidade) return showToast('EPI sem número/validade de CA. Corrija o cadastro do material antes da entrega.', true);
+          if (!material.caNumero || !material.caValidade) return showToast(`EPI ${material.codigo}: informe o número e a validade do CA no cadastro do material antes de confirmar a entrega.`, true);
           const dataEntrega = document.getElementById('baixaData')?.value || hojeISO();
           if (material.caValidade < dataEntrega) return showToast(`ENTREGA BLOQUEADA: CA ${material.caNumero} vencido em ${fmt.date(material.caValidade)}.`, true);
         }
@@ -8794,7 +8806,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           showToast(tipoBaixa==='EPI' ? 'Entrega de EPI registrada no custo real.' : 'Baixa de almoxarifado registrada no custo real.');
           render();
         } catch(err) {
-          showToast('Erro ao salvar baixa: '+(err.message||err), true);
+          showToast('Erro ao salvar baixa: '+((err.code==='permission-denied')?'O Firestore recusou a operação. Verifique perfil ativo, centro de custo, identificação do responsável e, para EPI, número e validade do CA. Confira o histórico antes de repetir.':(err.message||err)), true);
         } finally {
           formBaixa.dataset.saving='0';
           if (btn) { btn.disabled=false; btn.textContent='Confirmar baixa de almoxarifado'; }
@@ -10200,9 +10212,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           marca: getVal('editMarca'),
           modelo: getVal('editModelo'),
           tipoMaterial: getVal('editTipoMat'),
-          ehEPI: getVal('editEhEPI') === 'SIM',
-          caNumero: getVal('editEhEPI') === 'SIM' ? getVal('editCANumero').trim() : '',
-          caValidade: getVal('editEhEPI') === 'SIM' ? getVal('editCAValidade') : '',
+          ehEPI: getVal('editEhEPI') === 'SIM' || String(getVal('editCategoria')||'').trim().toUpperCase()==='EPI',
+          caNumero: (getVal('editEhEPI') === 'SIM' || String(getVal('editCategoria')||'').trim().toUpperCase()==='EPI') ? getVal('editCANumero').trim() : '',
+          caValidade: (getVal('editEhEPI') === 'SIM' || String(getVal('editCategoria')||'').trim().toUpperCase()==='EPI') ? getVal('editCAValidade') : '',
           dimensoes: getVal('editDimensoes'),
           cor: getVal('editCor'),
           peso: getVal('editPeso'),
@@ -10238,6 +10250,19 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         newData.custoEstoqueMin = `R$ ${(estMin * custoUnitNum).toFixed(2)}`;
         newData.custoEstoqueMax = `R$ ${(estMax * custoUnitNum).toFixed(2)}`;
 
+        // V19.9.6: validar antes de iniciar qualquer escrita no Firestore.
+        if (estMin < 0 || estMax < 0 || (estMax > 0 && estMax < estMin)) {
+          showToast(`Estoque máximo incompatível: o mínimo é ${estMin} e o máximo é ${estMax}. Informe um máximo igual ou superior ao mínimo, ou corrija o mínimo.`, true);
+          document.getElementById('editEstMax')?.focus();
+          return;
+        }
+        const loteDigitado = getVal('editLoteMin').trim();
+        if (loteDigitado && !/^(?:\d+)(?:[.,]\d+)?$/.test(loteDigitado)) {
+          showToast('Lote mínimo inválido: informe uma quantidade numérica maior ou igual a zero, ou deixe vazio se não se aplica. Não utilize N/A.', true);
+          document.getElementById('editLoteMin')?.focus();
+          return;
+        }
+        // Não alterar o indicador EPI de registros legados apenas por abrir e salvar o modal.
         updateItem(codigo, newData);
       });
 
@@ -10391,7 +10416,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('editMarca').value = item.marca || '';
       document.getElementById('editModelo').value = item.modelo || '';
       document.getElementById('editTipoMat').value = item.tipoMaterial || '';
-      document.getElementById('editEhEPI').value = item.ehEPI === true ? 'SIM' : 'NAO';
+      document.getElementById('editEhEPI').value = (item.ehEPI === true || String(item.categoria||'').trim().toUpperCase()==='EPI') ? 'SIM' : 'NAO';
       document.getElementById('editCANumero').value = item.caNumero || '';
       document.getElementById('editCAValidade').value = item.caValidade || '';
       document.querySelectorAll('.epi-edit-field').forEach(el=>el.style.display=item.ehEPI===true?'':'none');
