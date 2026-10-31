@@ -703,6 +703,28 @@
   <meta name="theme-color" content="#0d0f0d">
   <link rel="apple-touch-icon" href="./icon-192.png">
 <!-- Code 128 locally generated: no external barcode dependency -->
+<script id="v19102-barcode-direct">
+/* Code 128 B, desenho imediato durante a montagem da tabela, sem observers ou CDN. */
+(function(){'use strict';
+const P=["BaBbBb","BbBaBb","BbBbBa","AbAbBc","AbAcBb","AcAbBb","AbBbAc","AbBcAb","AcBbAb","BbAbAc","BbAcAb","BcAbAb","AaBbCb","AbBaCb","AbBbCa","AaCbBb","AbCaBb","AbCbBa","BbCbAa","BbAaCb","BbAbCa","BaCbAb","BbCaAb","CaBaCa","CaAbBb","CbAaBb","CbAbBa","CaBbAb","CbBaAb","CbBbAa","BaBaBc","BaBcBa","BcBaBa","AaAcBc","AcAaBc","AcAcBa","AaBcAc","AcBaAc","AcBcAa","BaAcAc","BcAaAc","BcAcAa","AaBaCc","AaBcCa","AcBaCa","AaCaBc","AaCcBa","AcCaBa","CaCaBa","BaAcCa","BcAaCa","BaCaAc","BaCcAa","BaCaCa","CaAaBc","CaAcBa","CcAaBa","CaBaAc","CaBcAa","CcBaAa","CaDaAa","BbAdAa","DcAaAa","AaAbBd","AaAdBb","AbAaBd","AbAdBa","AdAaBb","AdAbBa","AaBbAd","AaBdAb","AbBaAd","AbBdAa","AdBaAb","AdBbAa","BdAbAa","BbAaAd","DaCaAa","BdAaAb","AcDaAa","AaAbDb","AbAaDb","AbAbDa","AaDbAb","AbDaAb","AbDbAa","DaAbAb","DbAaAb","DbAbAa","BaBaDa","BaDaBa","DaBaBa","AaAaDc","AaAcDa","AcAaDa","AaDaAc","AaDcAa","DaAaAc","DaAcAa","AaCaDa","AaDaCa","CaAaDa","DaAaCa","BaAdAb","BaAbAd","BaAbCb","BcCaAaB"];
+window.mechBarcodeSVG=function(raw){
+ const value=String(raw||'').trim().toUpperCase();
+ if(!value || !/^[\x20-\x7e]+$/.test(value))return '<span>Código inválido</span>';
+ const seq=[104];let sum=104;
+ for(let i=0;i<value.length;i++){let n=value.charCodeAt(i)-32;seq.push(n);sum+=n*(i+1);}
+ seq.push(sum%103,106);
+ let x=8;const rects=[];
+ for(const n of seq){const p=P[n];if(!p)return '<span>Erro de codificação</span>';
+   for(const c of p){const w=({a:1,b:2,c:3,d:4})[c.toLowerCase()]*1.5;
+     if(c===c.toUpperCase())rects.push('<rect x="'+x+'" y="3" width="'+w+'" height="37" fill="#000"/>');x+=w;
+   }
+ }
+ const total=x+8;
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+total+'" height="56" viewBox="0 0 '+total+' 56" style="display:block;background:#fff" aria-label="Código de barras '+value+'"><rect width="100%" height="100%" fill="white"/>'+rects.join('')+'<text x="'+(total/2)+'" y="52" text-anchor="middle" font-family="Arial" font-size="12" fill="#000">'+value+'</text></svg>';
+ return '<div class="mech-barcode-direct" style="display:inline-block;background:#fff;padding:3px;max-width:100%;overflow:hidden"><img loading="lazy" decoding="async" alt="Código de barras '+value+'" style="display:block;width:176px;height:56px;object-fit:fill;max-width:none" src="data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)+'"></div>';
+};
+})();
+</script>
 </head>
 <body>
 
@@ -3239,7 +3261,7 @@ auth.onAuthStateChanged(async (user) => {
           <td>${item.custoUnitario || "—"}</td>
           <td title="${item.fornecedor}">${item.fornecedor || "—"}</td>
           <td>${status}</td>
-          ${showActions ? `<td><svg class="v1999-barcode" data-code="${String(item.codigo||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}" style="width:150px;max-height:45px" aria-label="Código de barras ${String(item.codigo||'').replace(/"/g,'&quot;')}"></svg></td>` : ''}
+          ${showActions ? `<td>${window.mechBarcodeSVG(item.codigo)}</td>` : ''}
           ${actions}
         </tr>`;
       }).join("");
