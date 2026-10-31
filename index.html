@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.10.5 Leitor QR / Barras e Inventário</title>
+  <title>Gestão de Compras — V19.10.6 Leitor QR / Barras e Inventário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -720,7 +720,7 @@ window.mechBarcodeSVG=function(raw){
    }
  }
  const total=x+8;
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+total+'" height="56" viewBox="0 0 '+total+' 56" style="display:block;background:#fff" aria-label="Código de barras '+value+'"><rect width="100%" height="100%" fill="white"/>'+rects.join('')+'<text x="'+(total/2)+'" y="52" text-anchor="middle" font-family="Arial" font-size="12" fill="#000">'+value+'</text></svg>';
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+total+'" height="56" viewBox="0 0 '+total+' 56" style="display:block;background:#fff;shape-rendering:crispEdges" aria-label="Código de barras '+value+'"><rect width="100%" height="100%" fill="white"/>'+rects.join('')+'<text x="'+(total/2)+'" y="52" text-anchor="middle" font-family="Arial" font-size="12" fill="#000">'+value+'</text></svg>';
  return '<div class="mech-barcode-direct" style="display:inline-block;background:#fff;padding:3px;max-width:100%;overflow:hidden"><img loading="lazy" decoding="async" alt="Código de barras '+value+'" style="display:block;width:176px;height:56px;object-fit:fill;max-width:none" src="data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)+'"></div>';
 };
 })();
@@ -15712,8 +15712,19 @@ function userRole(){return typeof currentUserData!=='undefined'?currentUserData?
 function uid(){return typeof getUsuarioUid==='function'?getUsuarioUid():null}
 function currentName(){return typeof getUsuarioNome==='function'?getUsuarioNome():''}
 function stockCenter(v){return typeof estoqueFisicoPadraoV109==='function'?estoqueFisicoPadraoV109(v):v}
-function codeOf(x){return String(x||'').trim().toUpperCase()}
-function matFind(c){const code=codeOf(c);return (typeof allItems!=='undefined'?allItems:[]).filter(m=>codeOf(m.codigo)===code)}
+function codeOf(x){return String(x||'').normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/g,"").trim().toUpperCase().replace(/\s*[-–—]\s*/g,"-")}
+function matFind(c){const code=codeOf(c);return (typeof allItems!=='undefined'&&Array.isArray(allItems)?allItems:[]).filter(m=>codeOf(m.codigo)===code)}
+async function matFindSeguro(c){
+ const local=matFind(c);if(local.length)return local;
+ // Consulta pontual: nunca recarregar a coleção inteira nem inventar material.
+ const col=dbRef().collection('materiais');const found=new Map();
+ for(const candidate of [...new Set([c,c.toUpperCase(),c.toLowerCase()])]){
+  const snap=await col.where('codigo','==',candidate).limit(3).get();
+  snap.docs.forEach(d=>{const m={id:d.id,...d.data()};if(codeOf(m.codigo)===c)found.set(d.id,m)});
+  if(found.size>1)break;
+ }
+ return [...found.values()];
+}
 function physicalFor(c,centro){const stock=stockCenter(centro);return (typeof almoxItensV107!=='undefined'?almoxItensV107:[]).filter(x=>codeOf(x.codigoMaterial)===codeOf(c)&&stockCenter(x.estoqueFisico||x.centroCusto)===stock&&x.status!=='INATIVO')}
 function qty(x){const n=Number(x);return Number.isFinite(n)?n:0}
 function currency(x){return Number(x||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
@@ -15779,7 +15790,7 @@ async function loadQrLibrary(){
 }
 function scanResult(value){
  const c=codeOf(value);if(!c||Date.now()-scanLock<1800)return;
- scanLock=Date.now();$('qrme-code').value=c;identify();
+ scanLock=Date.now();$('qrme-code').value=c;void identify();
 }
 async function startNativeScanner(){
  const formats=await BarcodeDetector.getSupportedFormats();
@@ -15823,7 +15834,14 @@ async function startCamera(){
   const formats=window.Html5QrcodeSupportedFormats;
   const options={fps:10,qrbox:(w,h)=>({width:Math.min(340,Math.floor(w*.85)),height:Math.min(180,Math.floor(h*.7))}),aspectRatio:1.777778};
   if(formats)options.formatsToSupport=[formats.CODE_128,formats.QR_CODE,formats.CODE_39,formats.EAN_13,formats.EAN_8].filter(x=>x!==undefined);
-  await instance.start({facingMode:'environment'},options,scanResult,()=>{});
+  try{await instance.start({facingMode:'environment'},options,scanResult,()=>{});}
+  catch(firstError){
+   // Androids antigos podem rejeitar facingMode mesmo com a câmera disponível.
+   const cameras=await window.Html5Qrcode.getCameras();
+   if(!cameras?.length)throw firstError;
+   const back=cameras.find(x=>/back|rear|traseira|environment/i.test(x.label))||cameras[cameras.length-1];
+   await instance.start(back.id,options,scanResult,()=>{});
+  }
   msg('Câmera ativa. Aponte para o código de barras Code 128 ou QR Code.');
  }catch(e){await stopCamera();
   const message=String(e?.message||e);
@@ -15844,7 +15862,9 @@ async function stopCamera(){
  }finally{$('qrme-reader').replaceChildren()}
 }
 
-function identify(){const c=codeOf($('qrme-code').value);if(!c)return msg('Leia ou informe um código de material.',true);const matches=matFind(c);if(matches.length!==1){$('qrme-material').innerHTML='';return msg(matches.length?'Mais de um material possui esse código. A operação foi bloqueada para evitar movimentação incorreta.':'Código não encontrado no cadastro. Confira a etiqueta e sincronize os materiais.',true)}material=matches[0];const inv=$('qrme-mode').value==='INVENTARIO';const m=material;const saldo=physicalFor(c,inv?(session?.estoqueFisico||$('qrme-centro').value):($('baixaCentro')?.value||'SANTOS'));$('qrme-material').innerHTML=`<div class="qrme-box"><b>${esc(c)} — ${esc(m.descricao||m.nome||'')}</b><p>${epi(m)?'EPI':'Material'} · Estoque físico encontrado: ${saldo.length?saldo.map(x=>qty(x.quantidadeAtual)).join(' + '):'não localizado'}</p>${inv?`<label>Quantidade contada</label><input id="qrme-qty" type="number" step="0.0001" min="0" value="1"><button id="qrme-add" type="button">Adicionar à contagem</button><button id="qrme-replace" type="button">Substituir quantidade</button>`:`<label>Quantidade a baixar</label><input id="qrme-qty" type="number" step="0.0001" min="0.0001" value="1"><button id="qrme-to-baixa" type="button">Preencher formulário de baixa</button><p class="qrme-muted">O destino, colaborador, CA (quando EPI), saldo e autorização são validados pelo fluxo original de baixa.</p>`}</div>`;msg('Material identificado: '+c)}
+async function identify(){const c=codeOf($('qrme-code').value);if(!c)return msg('Leia ou informe um código de material.',true);let matches;
+ try{matches=await matFindSeguro(c)}catch(e){$('qrme-material').innerHTML='';return msg('Não foi possível consultar o cadastro do material '+c+': '+(e?.message||e)+'. Verifique conexão e permissões de leitura.',true)}
+ if(matches.length!==1){$('qrme-material').innerHTML='';return msg(matches.length?'Mais de um material possui esse código. A operação foi bloqueada para evitar movimentação incorreta.':'Material '+c+' não encontrado nem na lista local nem na consulta pontual ao Firebase. Confira se o código foi cadastrado e aprovado.',true)}material=matches[0];const inv=$('qrme-mode').value==='INVENTARIO';const m=material;const saldo=physicalFor(c,inv?(session?.estoqueFisico||$('qrme-centro').value):($('baixaCentro')?.value||'SANTOS'));$('qrme-material').innerHTML=`<div class="qrme-box"><b>${esc(c)} — ${esc(m.descricao||m.nome||'')}</b><p>${epi(m)?'EPI':'Material'} · Estoque físico encontrado: ${saldo.length?saldo.map(x=>qty(x.quantidadeAtual)).join(' + '):'não localizado'}</p>${inv?`<label>Quantidade contada</label><input id="qrme-qty" type="number" step="0.0001" min="0" value="1"><button id="qrme-add" type="button">Adicionar à contagem</button><button id="qrme-replace" type="button">Substituir quantidade</button>`:`<label>Quantidade a baixar</label><input id="qrme-qty" type="number" step="0.0001" min="0.0001" value="1"><button id="qrme-to-baixa" type="button">Preencher formulário de baixa</button><p class="qrme-muted">O destino, colaborador, CA (quando EPI), saldo e autorização são validados pelo fluxo original de baixa.</p>`}</div>`;msg('Material identificado: '+c)}
 function transferBaixa(){if(!material)return;const q=Number($('qrme-qty')?.value);if(!(q>0))return msg('Informe quantidade maior que zero.',true);const form=$('formBaixaAlmox');if(!form)return msg('Abra primeiro a operação BAIXA DE ALMOXARIFADO na aba Recebimentos/NF e tente novamente.',true);const code=$('baixaMaterialCodigo'),search=$('baixaMaterialBusca'),quant=$('baixaQuantidade'),type=$('baixaTipo');if(!code||!search||!quant)return msg('Formulário de baixa indisponível. Selecione BAIXA DE ALMOXARIFADO.',true);code.value=material.codigo;search.value=`${material.codigo} — ${material.descricao||material.nome||''}`;quant.value=q;if(type){type.value=epi(material)?'EPI':'MATERIAL';type.dispatchEvent(new Event('change',{bubbles:true}))}code.dispatchEvent(new Event('change',{bubbles:true}));quant.dispatchEvent(new Event('input',{bubbles:true}));$('qrme-overlay').style.display='none';stopCamera();form.scrollIntoView({behavior:'smooth',block:'start'});msg('Material transferido. Informe destino e colaborador e confirme a baixa pelo formulário original.');}
 function open(){const form=$('formBaixaAlmox');$('qrme-overlay').style.display='block';$('qrme-mode').value=form?'BAIXA':'INVENTARIO';modeChange();$('qrme-data').value=dateISO();$('qrme-hora').value=now().toTimeString().slice(0,5);$('qrme-responsavel').value=currentName();$('qrme-code').focus()}
 function modeChange(){const inv=$('qrme-mode').value==='INVENTARIO';$('qrme-inv-head').style.display=inv?'block':'none';$('qrme-reader-box').style.display=inv||$('formBaixaAlmox')?'block':'none';$('qrme-material').innerHTML='';material=null;if(!inv&& !$('formBaixaAlmox'))msg('Para realizar uma baixa, abra a operação BAIXA DE ALMOXARIFADO na aba Recebimentos/NF.',true);else msg('Selecione um código ou ative a câmera.');}
@@ -15933,7 +15953,9 @@ function printLabels(){
  const labels=[];
  for(const m of rows){
    const codigo=code(m);
-   const barcode=window.mechBarcodeSVG(codigo);
+   const barcodeHTML=window.mechBarcodeSVG(codigo);
+   const encoded=barcodeHTML.match(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/);
+   const barcode=encoded?decodeURIComponent(encoded[1]):barcodeHTML;
    if(barcode.includes('Erro de codificação')||barcode.includes('Código inválido')){alert('Código inválido para impressão: '+codigo);return;}
    labels.push(`<div class="label"><div class="name">${esc(desc(m))}</div><div class="bars">${barcode}</div><div class="code">${esc(codigo)}</div></div>`);
  }
@@ -15947,7 +15969,7 @@ function printLabels(){
  .bars{width:100%;display:flex;justify-content:center;align-items:center;overflow:visible}
  .bars .mech-barcode-direct{display:block!important;max-width:100%!important;padding:0!important;overflow:visible!important}
  .bars img{display:block!important;width:50mm!important;height:16mm!important;max-width:100%!important;object-fit:fill!important}
- .bars svg{display:block!important;width:50mm!important;height:16mm!important;max-width:100%!important}
+ .bars svg{display:block!important;width:56mm!important;height:16mm!important;max-width:100%!important;shape-rendering:crispEdges!important} .bars svg rect{shape-rendering:crispEdges!important}
  .code{font-size:11px;font-weight:bold;letter-spacing:.5px}
  @media print{.controls{display:none}.sheet{gap:3mm}.label{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
  </style></head><body><div class="controls"><button onclick="window.print()">Imprimir / Salvar PDF</button> · ${rows.length} etiquetas</div><div class="sheet">${labels.join('')}</div></body></html>`);
