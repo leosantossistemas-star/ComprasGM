@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.9.9 Leitor QR / Barras e Inventário</title>
+  <title>Gestão de Compras — V19.10.0 Leitor QR / Barras e Inventário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -702,7 +702,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <meta name="theme-color" content="#0d0f0d">
   <link rel="apple-touch-icon" href="./icon-192.png">
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" defer></script>
+<!-- Code 128 locally generated: no external barcode dependency -->
 </head>
 <body>
 
@@ -15730,6 +15730,28 @@ const observer=new MutationObserver(()=>addButtons());observer.observe(document.
 <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap"><button type="button" id="v1999-select-all">Selecionar todos</button><button type="button" id="v1999-select-filtered">Selecionar filtrados</button><button type="button" id="v1999-clear">Limpar seleção</button><span id="v1999-count" style="align-self:center;font-size:13px"></span></div>
 <div id="v1999-label-list"></div><div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" id="v1999-print-selected" class="primary">Imprimir selecionados</button></div>
 </div></div>
+<script id="v19100-local-code128">
+/* Code 128 subset B: self-contained SVG encoder, no CDN required. */
+(function(){'use strict';
+const P=["BaBbBb","BbBaBb","BbBbBa","AbAbBc","AbAcBb","AcAbBb","AbBbAc","AbBcAb","AcBbAb","BbAbAc","BbAcAb","BcAbAb","AaBbCb","AbBaCb","AbBbCa","AaCbBb","AbCaBb","AbCbBa","BbCbAa","BbAaCb","BbAbCa","BaCbAb","BbCaAb","CaBaCa","CaAbBb","CbAaBb","CbAbBa","CaBbAb","CbBaAb","CbBbAa","BaBaBc","BaBcBa","BcBaBa","AaAcBc","AcAaBc","AcAcBa","AaBcAc","AcBaAc","AcBcAa","BaAcAc","BcAaAc","BcAcAa","AaBaCc","AaBcCa","AcBaCa","AaCaBc","AaCcBa","AcCaBa","CaCaBa","BaAcCa","BcAaCa","BaCaAc","BaCcAa","BaCaCa","CaAaBc","CaAcBa","CcAaBa","CaBaAc","CaBcAa","CcBaAa","CaDaAa","BbAdAa","DcAaAa","AaAbBd","AaAdBb","AbAaBd","AbAdBa","AdAaBb","AdAbBa","AaBbAd","AaBdAb","AbBaAd","AbBdAa","AdBaAb","AdBbAa","BdAbAa","BbAaAd","DaCaAa","BdAaAb","AcDaAa","AaAbDb","AbAaDb","AbAbDa","AaDbAb","AbDaAb","AbDbAa","DaAbAb","DbAaAb","DbAbAa","BaBaDa","BaDaBa","DaBaBa","AaAaDc","AaAcDa","AcAaDa","AaDaAc","AaDcAa","DaAaAc","DaAcAa","AaCaDa","AaDaCa","CaAaDa","DaAaCa","BaAdAb","BaAbAd","BaAbCb","BcCaAaB"];
+window.JsBarcode=function(svg,value,opts){
+  opts=opts||{};value=String(value||'').trim();
+  if(!value||![...value].every(c=>c.charCodeAt(0)>=32&&c.charCodeAt(0)<=126))throw Error('Código contém caracteres incompatíveis com Code 128 B');
+  const seq=[104];let checksum=104;
+  for(let i=0;i<value.length;i++){const n=value.charCodeAt(i)-32;seq.push(n);checksum+=n*(i+1)}
+  seq.push(checksum%103,106);
+  const width=Number(opts.width)||1.15,height=Number(opts.height)||30,margin=Number(opts.margin??2);
+  const show=opts.displayValue!==false, font=Number(opts.fontSize)||11;
+  let x=margin;const bars=[];
+  for(const n of seq){const pat=P[n];for(const c of pat){const w=({a:1,b:2,c:3,d:4})[c.toLowerCase()]*width;if(c===c.toUpperCase())bars.push('<rect x="'+x.toFixed(2)+'" y="'+margin+'" width="'+w.toFixed(2)+'" height="'+height+'" fill="black"/>');x+=w;}}
+  const total=x+margin,fullHeight=height+2*margin+(show?font+5:0);
+  svg.setAttribute('xmlns','http://www.w3.org/2000/svg');svg.setAttribute('viewBox','0 0 '+total.toFixed(2)+' '+fullHeight.toFixed(2));
+  svg.setAttribute('width',total.toFixed(2));svg.setAttribute('height',fullHeight.toFixed(2));
+  svg.innerHTML=bars.join('')+(show?'<text x="'+(total/2).toFixed(2)+'" y="'+(height+margin+font+2)+'" text-anchor="middle" font-family="Arial,sans-serif" font-size="'+font+'" fill="black">'+value.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</text>':'');
+  return svg;
+};
+})();
+</script>
 <script>
 (function(){'use strict';
 const selected=new Set();let materials=[];
@@ -15742,7 +15764,7 @@ function filter(){const q=$('v1999-label-search').value.trim().toLocaleLowerCase
 function render(){const a=filter();$('v1999-label-list').innerHTML=a.map(m=>`<label><input type="checkbox" data-v1999-code="${esc(code(m))}" ${selected.has(code(m))?'checked':''}><strong>${esc(code(m))}</strong><span>${esc(desc(m))}</span></label>`).join('')||'<p style="padding:12px">Nenhum material encontrado.</p>';$('v1999-count').textContent=`${selected.size} selecionado(s) · ${a.length} na busca`;}
 function renderVisibleBarcodes(){if(typeof JsBarcode!=='function')return;document.querySelectorAll('svg.v1999-barcode:not([data-rendered])').forEach(svg=>{try{JsBarcode(svg,svg.dataset.code,{format:'CODE128',width:1.15,height:30,displayValue:true,fontSize:11,margin:2});svg.dataset.rendered='1';}catch(e){svg.outerHTML='<span title="Código não compatível com Code 128">'+esc(svg.dataset.code)+'</span>';}});}
 let scheduled=false;const observer=new MutationObserver(()=>{if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;renderVisibleBarcodes();});});
-observer.observe(document.body,{childList:true,subtree:true});window.addEventListener('load',renderVisibleBarcodes);
+observer.observe(document.body,{childList:true,subtree:true});window.addEventListener('load',renderVisibleBarcodes);document.addEventListener('DOMContentLoaded',renderVisibleBarcodes);setTimeout(renderVisibleBarcodes,500);
 document.addEventListener('click',e=>{if(e.target.closest('#v1999-open-print')){materials=getMaterials();selected.clear();$('v1999-label-search').value='';$('v1999-label-modal').classList.add('open');render();}if(e.target.closest('#v1999-close-print'))$('v1999-label-modal').classList.remove('open');if(e.target.id==='v1999-label-modal')$('v1999-label-modal').classList.remove('open');if(e.target.closest('#v1999-select-all')){materials.forEach(m=>selected.add(code(m)));render();}if(e.target.closest('#v1999-select-filtered')){filter().forEach(m=>selected.add(code(m)));render();}if(e.target.closest('#v1999-clear')){selected.clear();render();}if(e.target.closest('#v1999-print-selected'))printLabels();});
 $('v1999-label-search').addEventListener('input',render);
 $('v1999-label-list').addEventListener('change',e=>{const c=e.target.dataset.v1999Code;if(!c)return;e.target.checked?selected.add(c):selected.delete(c);$('v1999-count').textContent=`${selected.size} selecionado(s)`;});
