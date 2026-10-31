@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.10.4 Leitor QR / Barras e Inventário</title>
+  <title>Gestão de Compras — V19.10.5 Leitor QR / Barras e Inventário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -15727,7 +15727,33 @@ async function saveCount(c,q,replace=false){if(!session||session.status!=='ABERT
 async function finish(){if(!session||session.status!=='ABERTA')return;try{await dbRef().runTransaction(async tx=>{const ref=dbRef().collection('almox_inventarios_qr').doc(session.id);const snap=await tx.get(ref);if(!snap.exists||snap.data().status!=='ABERTA')throw Error('Sessão já encerrada.');tx.update(ref,{status:'ENCERRADA',fimISO:new Date().toISOString(),encerradoPorUid:uid(),atualizadoEm:firebase.firestore.FieldValue.serverTimestamp(),totalItens:lines.length});});await loadSession(session.id);msg('Contagem encerrada. Os saldos de estoque NÃO foram alterados.')}catch(e){msg('Falha ao encerrar: '+e.message,true)}}
 async function reopen(){if(!session||session.status!=='ENCERRADA')return;const reason=prompt('Motivo obrigatório para reabrir a contagem:');if(reason===null)return;if(!reason.trim())return msg('Informe o motivo da reabertura.',true);try{await dbRef().runTransaction(async tx=>{const ref=dbRef().collection('almox_inventarios_qr').doc(session.id);const snap=await tx.get(ref);if(!snap.exists||snap.data().status!=='ENCERRADA')throw Error('Situação da sessão alterada.');tx.update(ref,{status:'ABERTA',reabertaEm:firebase.firestore.FieldValue.serverTimestamp(),reabertaPorUid:uid(),motivoReabertura:reason.trim(),atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()})});await loadSession(session.id)}catch(e){msg('Não foi possível reabrir: '+e.message+' (somente gerente/admin).',true)}}
 function printReport(){if(!session)return msg('Selecione uma contagem para imprimir.',true);const start=new Date(session.inicioISO||Date.now()),end=session.fimISO?new Date(session.fimISO):new Date(),minutes=Math.max(0,Math.round((end-start)/60000));const total=lines.reduce((s,l)=>s+qty(l.quantidadeContada)*qty(l.valorUnitario),0);const w=window.open('','_blank');if(!w)return msg('Permita pop-ups para imprimir ou salvar o relatório em PDF.',true);const html=`<!doctype html><html><head><meta charset="utf-8"><title>Inventário ${esc(session.id)}</title><style>body{font:12px Arial;margin:24px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #888;padding:7px;text-align:left}h1{font-size:19px}@media print{button{display:none}}</style></head><body><h1>GRUPO MECHATRONICS · RELATÓRIO DE CONTAGEM FÍSICA</h1><p><b>Sessão:</b> ${esc(session.id)} · <b>Status:</b> ${esc(session.status)} · <b>Estoque:</b> ${esc(session.estoqueFisico)}</p><p><b>Responsável:</b> ${esc(session.responsavel)} · <b>Data/hora informada:</b> ${esc(session.dataInicio)} ${esc(session.horaInicio)}</p><p><b>Início registrado:</b> ${esc(start.toLocaleString('pt-BR'))} · <b>Fim:</b> ${esc(session.fimISO?end.toLocaleString('pt-BR'):'Em andamento')} · <b>Duração:</b> ${minutes} minutos</p><table><thead><tr><th>Código</th><th>Descrição</th><th>Quantidade contada</th><th>Valor unitário de referência</th><th>Valor contado</th></tr></thead><tbody>${lines.map(l=>`<tr><td>${esc(l.codigo)}</td><td>${esc(l.descricao)}</td><td>${qty(l.quantidadeContada)}</td><td>${currency(l.valorUnitario)}</td><td>${currency(qty(l.quantidadeContada)*qty(l.valorUnitario))}</td></tr>`).join('')}</tbody></table><p><b>Materiais contados:</b> ${lines.length} · <b>Valor total estimado:</b> ${currency(total)}</p><p>Relatório de contagem física. Não constitui ajuste automático de estoque. Valores são referenciais conforme cadastro.</p><button onclick="window.print()">Imprimir / Salvar PDF</button></body></html>`;w.document.write(html);w.document.close();}
-// V19.10.4: scanner with native BarcodeDetector when available and resilient CDN fallback.
+// V19.10.5: explicit permission request on user gesture before loading the scanner.
+// The browser/OS owns the permission prompt and its persistence.
+let cameraPermissionChecked=false;
+async function requestCameraAccess(){
+ if(!window.isSecureContext)throw new Error('HTTPS_REQUIRED');
+ if(!navigator.mediaDevices?.getUserMedia)throw new Error('CAMERA_UNSUPPORTED');
+ // getUserMedia is invoked immediately from the click path, before any library downloads.
+ let stream;
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+  cameraPermissionChecked=true;
+ }finally{
+  if(stream)stream.getTracks().forEach(track=>track.stop());
+ }
+}
+function cameraPermissionHelp(error){
+ const name=String(error?.name||'');const message=String(error?.message||error||'');
+ if(message==='HTTPS_REQUIRED')return 'Abra o endereço oficial HTTPS do Sistema de Compras no navegador do celular.';
+ if(message==='CAMERA_UNSUPPORTED')return 'O navegador não oferece acesso à câmera. Abra o sistema diretamente no Chrome (Android) ou Safari (iPhone), não dentro de outro aplicativo.';
+ if(name==='NotAllowedError'||name==='PermissionDeniedError'||/permission denied|permission dismissed|not allowed|denied by system/i.test(message))return 'A câmera foi bloqueada ou a autorização foi recusada. Abra as permissões do site no navegador e permita Câmera. Confira também a permissão de câmera do Chrome/Safari nas configurações do celular.';
+ if(name==='NotFoundError'||name==='DevicesNotFoundError')return 'Nenhuma câmera foi encontrada. Verifique se o aparelho possui câmera disponível.';
+ if(name==='NotReadableError'||name==='TrackStartError'||name==='AbortError')return 'A câmera está ocupada ou indisponível. Feche outros aplicativos que usam a câmera e tente novamente.';
+ if(name==='OverconstrainedError')return 'A câmera solicitada não está disponível. Tente atualizar o navegador.';
+ if(name==='SecurityError')return 'O navegador bloqueou o acesso por segurança. Abra o site diretamente em HTTPS no navegador.';
+ return 'Se o acesso à câmera foi permitido, confira a conexão e tente novamente. Você também pode usar leitor USB ou digitar o código.';
+}
+// V19.10.5: scanner with native BarcodeDetector when available and resilient CDN fallback.
 let cameraStarting=false;
 const cameraSources=[
  'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js',
@@ -15780,7 +15806,11 @@ async function startCamera(){
  try{
   if(!window.isSecureContext)throw Error('Abra o sistema pelo endereço HTTPS oficial para utilizar a câmera.');
   if(!navigator.mediaDevices?.getUserMedia)throw Error('Este navegador não disponibiliza acesso à câmera. Atualize o navegador ou use outro dispositivo.');
-  msg('Preparando leitor de código de barras e QR Code...');
+  msg('Solicitando autorização para usar a câmera do celular...');
+  try{await requestCameraAccess()}catch(permissionError){
+   throw permissionError; // Never disguise a denied camera permission as a missing barcode library.
+  }
+  msg('Permissão da câmera concedida. Preparando leitor de códigos...');
   let nativeError=null;
   if(typeof BarcodeDetector!=='undefined'){
    try{await startNativeScanner();msg('Câmera ativa. Aponte para o código de barras Code 128 ou QR Code.');return}
@@ -15797,8 +15827,7 @@ async function startCamera(){
   msg('Câmera ativa. Aponte para o código de barras Code 128 ou QR Code.');
  }catch(e){await stopCamera();
   const message=String(e?.message||e);
-  const advice=/NotAllowedError|Permission denied|permission/i.test(message)?'Autorize a câmera nas configurações do navegador e tente novamente.':/NotFoundError|DevicesNotFound/i.test(message)?'Nenhuma câmera foi encontrada. Verifique o dispositivo.':/NotReadableError|TrackStartError/i.test(message)?'A câmera está ocupada por outro aplicativo. Feche-o e tente novamente.':'Use leitor USB ou digite o código como alternativa.';
-  msg('Não foi possível ativar a câmera: '+message+' '+advice,true);
+  msg('Não foi possível ativar a câmera: '+cameraPermissionHelp(e)+(message.startsWith('Biblioteca de leitura')?' '+message:''),true);
  }finally{cameraStarting=false;$('qrme-camera').disabled=false}
 }
 async function stopCamera(){
