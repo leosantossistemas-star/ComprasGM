@@ -15811,7 +15811,33 @@ observer.observe(document.body,{childList:true,subtree:true});window.addEventLis
 document.addEventListener('click',e=>{if(e.target.closest('#v1999-open-print')){materials=getMaterials();selected.clear();$('v1999-label-search').value='';$('v1999-label-modal').classList.add('open');render();}if(e.target.closest('#v1999-close-print'))$('v1999-label-modal').classList.remove('open');if(e.target.id==='v1999-label-modal')$('v1999-label-modal').classList.remove('open');if(e.target.closest('#v1999-select-all')){materials.forEach(m=>selected.add(code(m)));render();}if(e.target.closest('#v1999-select-filtered')){filter().forEach(m=>selected.add(code(m)));render();}if(e.target.closest('#v1999-clear')){selected.clear();render();}if(e.target.closest('#v1999-print-selected'))printLabels();});
 $('v1999-label-search').addEventListener('input',render);
 $('v1999-label-list').addEventListener('change',e=>{const c=e.target.dataset.v1999Code;if(!c)return;e.target.checked?selected.add(c):selected.delete(c);$('v1999-count').textContent=`${selected.size} selecionado(s)`;});
-function printLabels(){const rows=materials.filter(m=>selected.has(code(m)));if(!rows.length){alert('Selecione pelo menos um material para imprimir.');return;}if(typeof JsBarcode!=='function'){alert('Biblioteca de códigos de barras indisponível. Verifique a conexão com a internet e recarregue o sistema.');return;}const labels=[];for(const m of rows){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');try{JsBarcode(svg,code(m),{format:'CODE128',width:1.55,height:48,displayValue:false,margin:2});labels.push(`<div class="label"><div class="name">${esc(desc(m))}</div>${svg.outerHTML}<div class="code">${esc(code(m))}</div></div>`);}catch(err){alert('Não foi possível gerar o código de barras para '+code(m)+': '+err.message);return;}}const w=window.open('','_blank');if(!w){alert('Permita pop-ups para imprimir as etiquetas.');return;}w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas Grupo Mechatronics</title><style>@page{size:A4;margin:9mm}body{font-family:Arial,sans-serif;color:#111;margin:0}.sheet{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm}.label{height:30mm;box-sizing:border-box;border:1px dashed #aaa;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:center;break-inside:avoid;overflow:hidden}.name{font-size:9px;font-weight:bold;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}svg{max-width:100%;height:15mm}.code{font-size:12px;font-weight:bold;letter-spacing:1px}@media print{.controls{display:none}}.controls{padding:12px}</style></head><body><div class="controls"><button onclick="window.print()">Imprimir / Salvar PDF</button> · ${rows.length} etiquetas</div><div class="sheet">${labels.join('')}</div></body></html>`);w.document.close();}
+function printLabels(){
+ const rows=materials.filter(m=>selected.has(code(m)));
+ if(!rows.length){alert('Selecione pelo menos um material para imprimir.');return;}
+ if(typeof window.mechBarcodeSVG!=='function'){alert('Gerador Code 128 indisponível. Atualize a página.');return;}
+ const labels=[];
+ for(const m of rows){
+   const codigo=code(m);
+   const barcode=window.mechBarcodeSVG(codigo);
+   if(barcode.includes('Erro de codificação')||barcode.includes('Código inválido')){alert('Código inválido para impressão: '+codigo);return;}
+   labels.push(`<div class="label"><div class="name">${esc(desc(m))}</div><div class="bars">${barcode}</div><div class="code">${esc(codigo)}</div></div>`);
+ }
+ const w=window.open('','_blank');
+ if(!w){alert('Permita pop-ups para imprimir as etiquetas.');return;}
+ w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas Grupo Mechatronics</title><style>
+ @page{size:A4;margin:9mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;background:#fff}
+ .controls{padding:12px}.sheet{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3mm}
+ .label{height:34mm;border:1px dashed #aaa;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:center;break-inside:avoid;overflow:hidden;background:white}
+ .name{font-size:9px;font-weight:bold;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+ .bars{width:100%;display:flex;justify-content:center;align-items:center;overflow:visible}
+ .bars .mech-barcode-direct{display:block!important;max-width:100%!important;padding:0!important;overflow:visible!important}
+ .bars img{display:block!important;width:50mm!important;height:16mm!important;max-width:100%!important;object-fit:fill!important}
+ .bars svg{display:block!important;width:50mm!important;height:16mm!important;max-width:100%!important}
+ .code{font-size:11px;font-weight:bold;letter-spacing:.5px}
+ @media print{.controls{display:none}.sheet{gap:3mm}.label{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+ </style></head><body><div class="controls"><button onclick="window.print()">Imprimir / Salvar PDF</button> · ${rows.length} etiquetas</div><div class="sheet">${labels.join('')}</div></body></html>`);
+ w.document.close();
+}
 })();
 </script>
 </body>
