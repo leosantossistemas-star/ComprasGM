@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.10.1 Leitor QR / Barras e Inventário</title>
+  <title>Gestão de Compras — V19.10.4 Leitor QR / Barras e Inventário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -15727,8 +15727,94 @@ async function saveCount(c,q,replace=false){if(!session||session.status!=='ABERT
 async function finish(){if(!session||session.status!=='ABERTA')return;try{await dbRef().runTransaction(async tx=>{const ref=dbRef().collection('almox_inventarios_qr').doc(session.id);const snap=await tx.get(ref);if(!snap.exists||snap.data().status!=='ABERTA')throw Error('Sessão já encerrada.');tx.update(ref,{status:'ENCERRADA',fimISO:new Date().toISOString(),encerradoPorUid:uid(),atualizadoEm:firebase.firestore.FieldValue.serverTimestamp(),totalItens:lines.length});});await loadSession(session.id);msg('Contagem encerrada. Os saldos de estoque NÃO foram alterados.')}catch(e){msg('Falha ao encerrar: '+e.message,true)}}
 async function reopen(){if(!session||session.status!=='ENCERRADA')return;const reason=prompt('Motivo obrigatório para reabrir a contagem:');if(reason===null)return;if(!reason.trim())return msg('Informe o motivo da reabertura.',true);try{await dbRef().runTransaction(async tx=>{const ref=dbRef().collection('almox_inventarios_qr').doc(session.id);const snap=await tx.get(ref);if(!snap.exists||snap.data().status!=='ENCERRADA')throw Error('Situação da sessão alterada.');tx.update(ref,{status:'ABERTA',reabertaEm:firebase.firestore.FieldValue.serverTimestamp(),reabertaPorUid:uid(),motivoReabertura:reason.trim(),atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()})});await loadSession(session.id)}catch(e){msg('Não foi possível reabrir: '+e.message+' (somente gerente/admin).',true)}}
 function printReport(){if(!session)return msg('Selecione uma contagem para imprimir.',true);const start=new Date(session.inicioISO||Date.now()),end=session.fimISO?new Date(session.fimISO):new Date(),minutes=Math.max(0,Math.round((end-start)/60000));const total=lines.reduce((s,l)=>s+qty(l.quantidadeContada)*qty(l.valorUnitario),0);const w=window.open('','_blank');if(!w)return msg('Permita pop-ups para imprimir ou salvar o relatório em PDF.',true);const html=`<!doctype html><html><head><meta charset="utf-8"><title>Inventário ${esc(session.id)}</title><style>body{font:12px Arial;margin:24px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #888;padding:7px;text-align:left}h1{font-size:19px}@media print{button{display:none}}</style></head><body><h1>GRUPO MECHATRONICS · RELATÓRIO DE CONTAGEM FÍSICA</h1><p><b>Sessão:</b> ${esc(session.id)} · <b>Status:</b> ${esc(session.status)} · <b>Estoque:</b> ${esc(session.estoqueFisico)}</p><p><b>Responsável:</b> ${esc(session.responsavel)} · <b>Data/hora informada:</b> ${esc(session.dataInicio)} ${esc(session.horaInicio)}</p><p><b>Início registrado:</b> ${esc(start.toLocaleString('pt-BR'))} · <b>Fim:</b> ${esc(session.fimISO?end.toLocaleString('pt-BR'):'Em andamento')} · <b>Duração:</b> ${minutes} minutos</p><table><thead><tr><th>Código</th><th>Descrição</th><th>Quantidade contada</th><th>Valor unitário de referência</th><th>Valor contado</th></tr></thead><tbody>${lines.map(l=>`<tr><td>${esc(l.codigo)}</td><td>${esc(l.descricao)}</td><td>${qty(l.quantidadeContada)}</td><td>${currency(l.valorUnitario)}</td><td>${currency(qty(l.quantidadeContada)*qty(l.valorUnitario))}</td></tr>`).join('')}</tbody></table><p><b>Materiais contados:</b> ${lines.length} · <b>Valor total estimado:</b> ${currency(total)}</p><p>Relatório de contagem física. Não constitui ajuste automático de estoque. Valores são referenciais conforme cadastro.</p><button onclick="window.print()">Imprimir / Salvar PDF</button></body></html>`;w.document.write(html);w.document.close();}
-async function startCamera(){if(camera)return;try{if(!window.isSecureContext)throw Error('A câmera exige HTTPS. Abra o endereço oficial do sistema.');if(!window.Html5Qrcode){msg('Carregando leitor de QR Code e código de barras...');await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';script.onload=resolve;script.onerror=()=>reject(Error('Biblioteca de leitura indisponível. Verifique a conexão ou use o leitor USB.'));document.head.appendChild(script)})}camera=new Html5Qrcode('qrme-reader');await camera.start({facingMode:'environment'},{fps:8,qrbox:{width:240,height:180}},value=>{if(Date.now()-scanLock<1800)return;scanLock=Date.now();$('qrme-code').value=value;identify();},()=>{});msg('Câmera ativa. Aponte para QR Code ou código de barras.')}catch(e){camera=null;msg('Não foi possível ativar a câmera: '+e.message+' Use leitor USB ou digite o código.',true)}}
-async function stopCamera(){if(camera){try{await camera.stop();await camera.clear()}catch(_){}camera=null;$('qrme-reader').innerHTML=''}}
+// V19.10.4: scanner with native BarcodeDetector when available and resilient CDN fallback.
+let cameraStarting=false;
+const cameraSources=[
+ 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js',
+ 'https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js',
+ 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'
+];
+async function loadQrLibrary(){
+ if(window.Html5Qrcode)return;
+ const failures=[];
+ for(const url of cameraSources){
+  try{
+   await new Promise((resolve,reject)=>{
+    const el=document.createElement('script');let done=false;
+    const timer=setTimeout(()=>{if(!done){done=true;el.remove();reject(Error('tempo de resposta excedido'))}},8500);
+    el.src=url;el.async=true;el.onload=()=>{if(done)return;done=true;clearTimeout(timer);window.Html5Qrcode?resolve():reject(Error('biblioteca não inicializada'))};
+    el.onerror=()=>{if(done)return;done=true;clearTimeout(timer);el.remove();reject(Error('download bloqueado'))};
+    document.head.appendChild(el);
+   });
+   if(window.Html5Qrcode)return;
+  }catch(e){failures.push(e.message)}
+ }
+ throw Error('Biblioteca de leitura não carregou nas fontes disponíveis. Verifique acesso à internet, bloqueio de scripts ou firewall. Você pode usar leitor USB ou digitar o código.');
+}
+function scanResult(value){
+ const c=codeOf(value);if(!c||Date.now()-scanLock<1800)return;
+ scanLock=Date.now();$('qrme-code').value=c;identify();
+}
+async function startNativeScanner(){
+ const formats=await BarcodeDetector.getSupportedFormats();
+ const wanted=['code_128','qr_code','code_39','ean_13','ean_8','upc_a'];
+ const supported=wanted.filter(f=>formats.includes(f));
+ if(!supported.includes('code_128')||!supported.includes('qr_code'))throw Error('Leitura nativa incompleta');
+ const detector=new BarcodeDetector({formats:supported});
+ const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+ const video=document.createElement('video');video.setAttribute('playsinline','');video.muted=true;video.autoplay=true;
+ video.style.cssText='width:100%;max-width:440px;display:block;margin:auto;border-radius:8px';
+ $('qrme-reader').replaceChildren(video);video.srcObject=stream;
+ try{await video.play()}catch(e){stream.getTracks().forEach(t=>t.stop());video.remove();throw e}
+ const state={kind:'native',stream,video,stopped:false,frame:0};camera=state;
+ const tick=async()=>{
+  if(state.stopped||camera!==state)return;
+  try{if(video.readyState>=2){const results=await detector.detect(video);if(results?.length)scanResult(results[0].rawValue)}}catch(e){if(!state.warned){state.warned=true;msg('A câmera abriu, mas a leitura nativa falhou: '+e.message,true)}}
+  if(!state.stopped&&camera===state)state.frame=setTimeout(tick,160);
+ };
+ tick();
+}
+async function startCamera(){
+ if(camera||cameraStarting)return;
+ cameraStarting=true;$('qrme-camera').disabled=true;
+ try{
+  if(!window.isSecureContext)throw Error('Abra o sistema pelo endereço HTTPS oficial para utilizar a câmera.');
+  if(!navigator.mediaDevices?.getUserMedia)throw Error('Este navegador não disponibiliza acesso à câmera. Atualize o navegador ou use outro dispositivo.');
+  msg('Preparando leitor de código de barras e QR Code...');
+  let nativeError=null;
+  if(typeof BarcodeDetector!=='undefined'){
+   try{await startNativeScanner();msg('Câmera ativa. Aponte para o código de barras Code 128 ou QR Code.');return}
+   catch(e){nativeError=e;await stopCamera()}
+  }
+  msg('Carregando componente de leitura compatível com este navegador...');
+  await loadQrLibrary();
+  const instance=new window.Html5Qrcode('qrme-reader',{verbose:false});
+  camera={kind:'html5',instance};
+  const formats=window.Html5QrcodeSupportedFormats;
+  const options={fps:10,qrbox:(w,h)=>({width:Math.min(340,Math.floor(w*.85)),height:Math.min(180,Math.floor(h*.7))}),aspectRatio:1.777778};
+  if(formats)options.formatsToSupport=[formats.CODE_128,formats.QR_CODE,formats.CODE_39,formats.EAN_13,formats.EAN_8].filter(x=>x!==undefined);
+  await instance.start({facingMode:'environment'},options,scanResult,()=>{});
+  msg('Câmera ativa. Aponte para o código de barras Code 128 ou QR Code.');
+ }catch(e){await stopCamera();
+  const message=String(e?.message||e);
+  const advice=/NotAllowedError|Permission denied|permission/i.test(message)?'Autorize a câmera nas configurações do navegador e tente novamente.':/NotFoundError|DevicesNotFound/i.test(message)?'Nenhuma câmera foi encontrada. Verifique o dispositivo.':/NotReadableError|TrackStartError/i.test(message)?'A câmera está ocupada por outro aplicativo. Feche-o e tente novamente.':'Use leitor USB ou digite o código como alternativa.';
+  msg('Não foi possível ativar a câmera: '+message+' '+advice,true);
+ }finally{cameraStarting=false;$('qrme-camera').disabled=false}
+}
+async function stopCamera(){
+ const current=camera;camera=null;if(!current)return;
+ try{
+  if(current.kind==='native'){
+   current.stopped=true;clearTimeout(current.frame);
+   current.stream?.getTracks().forEach(t=>t.stop());
+   if(current.video)current.video.srcObject=null;
+  }else if(current.instance){
+   try{await current.instance.stop()}catch(_){}
+   try{current.instance.clear()}catch(_){}
+  }
+ }finally{$('qrme-reader').replaceChildren()}
+}
+
 function identify(){const c=codeOf($('qrme-code').value);if(!c)return msg('Leia ou informe um código de material.',true);const matches=matFind(c);if(matches.length!==1){$('qrme-material').innerHTML='';return msg(matches.length?'Mais de um material possui esse código. A operação foi bloqueada para evitar movimentação incorreta.':'Código não encontrado no cadastro. Confira a etiqueta e sincronize os materiais.',true)}material=matches[0];const inv=$('qrme-mode').value==='INVENTARIO';const m=material;const saldo=physicalFor(c,inv?(session?.estoqueFisico||$('qrme-centro').value):($('baixaCentro')?.value||'SANTOS'));$('qrme-material').innerHTML=`<div class="qrme-box"><b>${esc(c)} — ${esc(m.descricao||m.nome||'')}</b><p>${epi(m)?'EPI':'Material'} · Estoque físico encontrado: ${saldo.length?saldo.map(x=>qty(x.quantidadeAtual)).join(' + '):'não localizado'}</p>${inv?`<label>Quantidade contada</label><input id="qrme-qty" type="number" step="0.0001" min="0" value="1"><button id="qrme-add" type="button">Adicionar à contagem</button><button id="qrme-replace" type="button">Substituir quantidade</button>`:`<label>Quantidade a baixar</label><input id="qrme-qty" type="number" step="0.0001" min="0.0001" value="1"><button id="qrme-to-baixa" type="button">Preencher formulário de baixa</button><p class="qrme-muted">O destino, colaborador, CA (quando EPI), saldo e autorização são validados pelo fluxo original de baixa.</p>`}</div>`;msg('Material identificado: '+c)}
 function transferBaixa(){if(!material)return;const q=Number($('qrme-qty')?.value);if(!(q>0))return msg('Informe quantidade maior que zero.',true);const form=$('formBaixaAlmox');if(!form)return msg('Abra primeiro a operação BAIXA DE ALMOXARIFADO na aba Recebimentos/NF e tente novamente.',true);const code=$('baixaMaterialCodigo'),search=$('baixaMaterialBusca'),quant=$('baixaQuantidade'),type=$('baixaTipo');if(!code||!search||!quant)return msg('Formulário de baixa indisponível. Selecione BAIXA DE ALMOXARIFADO.',true);code.value=material.codigo;search.value=`${material.codigo} — ${material.descricao||material.nome||''}`;quant.value=q;if(type){type.value=epi(material)?'EPI':'MATERIAL';type.dispatchEvent(new Event('change',{bubbles:true}))}code.dispatchEvent(new Event('change',{bubbles:true}));quant.dispatchEvent(new Event('input',{bubbles:true}));$('qrme-overlay').style.display='none';stopCamera();form.scrollIntoView({behavior:'smooth',block:'start'});msg('Material transferido. Informe destino e colaborador e confirme a baixa pelo formulário original.');}
 function open(){const form=$('formBaixaAlmox');$('qrme-overlay').style.display='block';$('qrme-mode').value=form?'BAIXA':'INVENTARIO';modeChange();$('qrme-data').value=dateISO();$('qrme-hora').value=now().toTimeString().slice(0,5);$('qrme-responsavel').value=currentName();$('qrme-code').focus()}
