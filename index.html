@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.10.0 Leitor QR / Barras e Inventário</title>
+  <title>Gestão de Compras — V19.10.1 Leitor QR / Barras e Inventário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -15762,7 +15762,28 @@ const desc=m=>String(m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||
 function getMaterials(){return (typeof allItems!=='undefined'&&Array.isArray(allItems)?allItems:[]).filter(m=>code(m));}
 function filter(){const q=$('v1999-label-search').value.trim().toLocaleLowerCase('pt-BR');return materials.filter(m=>(code(m)+' '+desc(m)).toLocaleLowerCase('pt-BR').includes(q));}
 function render(){const a=filter();$('v1999-label-list').innerHTML=a.map(m=>`<label><input type="checkbox" data-v1999-code="${esc(code(m))}" ${selected.has(code(m))?'checked':''}><strong>${esc(code(m))}</strong><span>${esc(desc(m))}</span></label>`).join('')||'<p style="padding:12px">Nenhum material encontrado.</p>';$('v1999-count').textContent=`${selected.size} selecionado(s) · ${a.length} na busca`;}
-function renderVisibleBarcodes(){if(typeof JsBarcode!=='function')return;document.querySelectorAll('svg.v1999-barcode:not([data-rendered])').forEach(svg=>{try{JsBarcode(svg,svg.dataset.code,{format:'CODE128',width:1.15,height:30,displayValue:true,fontSize:11,margin:2});svg.dataset.rendered='1';}catch(e){svg.outerHTML='<span title="Código não compatível com Code 128">'+esc(svg.dataset.code)+'</span>';}});}
+function renderVisibleBarcodes(){
+  if(typeof window.JsBarcode!=='function')return;
+  document.querySelectorAll('svg.v1999-barcode:not([data-rendered])').forEach(svg=>{
+    const codigo=String(svg.getAttribute('data-code')||'').trim();
+    try{
+      const desenho=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      window.JsBarcode(desenho,codigo,{format:'CODE128',width:1.45,height:42,displayValue:true,fontSize:13,margin:5});
+      // Renderização como imagem isolada: estilos globais da tabela não podem ocultar as barras.
+      const img=document.createElement('img');
+      img.className='v19101-barcode-image';
+      img.alt='Código de barras '+codigo;
+      img.title='Código de barras '+codigo;
+      img.width=176;
+      img.height=58;
+      img.style.cssText='display:block!important;width:176px!important;height:58px!important;max-width:none!important;object-fit:contain!important;background:#fff!important;border:0!important;padding:2px!important;border-radius:3px!important;';
+      const xml=new XMLSerializer().serializeToString(desenho);
+      img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+      img.onerror=()=>{img.replaceWith(document.createTextNode('Falha ao desenhar '+codigo));};
+      svg.replaceWith(img);
+    }catch(e){svg.replaceWith(document.createTextNode('Código '+codigo+' — erro de geração: '+e.message));}
+  });
+}
 let scheduled=false;const observer=new MutationObserver(()=>{if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;renderVisibleBarcodes();});});
 observer.observe(document.body,{childList:true,subtree:true});window.addEventListener('load',renderVisibleBarcodes);document.addEventListener('DOMContentLoaded',renderVisibleBarcodes);setTimeout(renderVisibleBarcodes,500);
 document.addEventListener('click',e=>{if(e.target.closest('#v1999-open-print')){materials=getMaterials();selected.clear();$('v1999-label-search').value='';$('v1999-label-modal').classList.add('open');render();}if(e.target.closest('#v1999-close-print'))$('v1999-label-modal').classList.remove('open');if(e.target.id==='v1999-label-modal')$('v1999-label-modal').classList.remove('open');if(e.target.closest('#v1999-select-all')){materials.forEach(m=>selected.add(code(m)));render();}if(e.target.closest('#v1999-select-filtered')){filter().forEach(m=>selected.add(code(m)));render();}if(e.target.closest('#v1999-clear')){selected.clear();render();}if(e.target.closest('#v1999-print-selected'))printLabels();});
