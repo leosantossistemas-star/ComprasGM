@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.11.1 Baixa QR / EPI e Inventário</title>
+  <title>Gestão de Compras — V19.11.2 Pesquisa Dinâmica QR / EPI e Inventário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -17049,6 +17049,12 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 
 <style>
 #qrme-overlay{position:fixed;inset:0;background:#000b;z-index:999999;display:none;overflow:auto;padding:16px}#qrme-panel{max-width:850px;margin:20px auto;background:#17222c;color:#f6f8fb;border:1px solid #607180;border-radius:15px;padding:20px;font-family:Arial,sans-serif}#qrme-panel input,#qrme-panel select{padding:10px;border-radius:6px;border:1px solid #667887;background:#fff;color:#111;max-width:100%;width:100%;box-sizing:border-box}#qrme-panel label{display:block;margin:8px 0 4px;font-weight:600}#qrme-panel button,.qrme-open{padding:10px 15px;border-radius:7px;border:0;cursor:pointer;background:#b4ef43;color:#17200a;font-weight:700;margin:4px}#qrme-panel button:disabled{opacity:.5;cursor:wait}#qrme-panel .qrme-muted{color:#bac8d1;font-size:13px}#qrme-panel .qrme-box{border:1px solid #506372;padding:12px;border-radius:8px;margin:12px 0}#qrme-panel table{border-collapse:collapse;width:100%;font-size:13px}#qrme-panel td,#qrme-panel th{padding:7px;border-bottom:1px solid #455560;text-align:left}#qrme-reader{max-width:440px;margin:10px auto}#qrme-message{padding:10px;white-space:pre-wrap}#qrme-panel .qrme-error{color:#ffb3a9}#qrme-panel .qrme-ok{color:#b4ef43}
+#qrme-panel .qrme-suggestions{margin-top:7px;max-height:320px;overflow-y:auto;border:1px solid #607180;border-radius:9px;background:#101b23}
+#qrme-panel .qrme-suggestions[hidden]{display:none}
+#qrme-panel .qrme-suggestion{display:block;width:100%;margin:0;padding:11px 13px;text-align:left;background:transparent;color:#f6f8fb;border:0;border-bottom:1px solid #344652;border-radius:0;white-space:normal;overflow-wrap:anywhere}
+#qrme-panel .qrme-suggestion:hover,#qrme-panel .qrme-suggestion:focus{background:#293d36;outline:1px solid #b4ef43}
+#qrme-panel .qrme-suggestion strong{color:#b4ef43}
+#qrme-panel .qrme-suggestion small{display:block;margin-top:4px;color:#bac8d1;font-weight:400}
 @media print{body>*:not(#qrme-print-root){display:none!important}#qrme-print-root{display:block!important;color:#111!important;background:#fff!important;font:11px Arial}#qrme-print-root table{border-collapse:collapse;width:100%}#qrme-print-root td,#qrme-print-root th{border:1px solid #777;padding:5px}}
 </style>
 <div id="qrme-overlay"><div id="qrme-panel">
@@ -17057,7 +17063,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 <label>Operação</label><select id="qrme-mode"><option value="BAIXA">Baixa de estoque / EPI</option><option value="INVENTARIO">Inventário físico</option></select>
 <div id="qrme-inv-head" style="display:none" class="qrme-box"><label>Estoque físico</label><select id="qrme-centro"><option value="SANTOS">SANTOS (inclui Mechatronics quando compartilhado)</option><option value="CAMAÇARI">CAMAÇARI</option></select><label>Responsável pela contagem</label><input id="qrme-responsavel" maxlength="140" placeholder="Nome completo"/><label>Data da contagem</label><input id="qrme-data" type="date"/><label>Hora de início</label><input id="qrme-hora" type="time"/><button id="qrme-open-session" type="button">Abrir nova contagem</button><button id="qrme-list-sessions" type="button">Consultar contagens salvas</button><div id="qrme-sessions"></div></div>
 <div id="qrme-session" style="display:none" class="qrme-box"><b id="qrme-session-title"></b><div id="qrme-session-actions"><button id="qrme-end-session" type="button">Encerrar contagem</button><button id="qrme-reopen-session" type="button" style="display:none">Reabrir para editar (autorizado)</button><button id="qrme-report" type="button">Imprimir / Salvar PDF</button></div><div id="qrme-lines"></div></div>
-<div id="qrme-reader-box" class="qrme-box"><button id="qrme-camera" type="button">📷 Ativar câmera</button><button id="qrme-stop" type="button">Parar câmera</button><div id="qrme-reader"></div><label>Código lido / leitor USB</label><input id="qrme-code" autocomplete="off" placeholder="Leia o QR, código de barras ou digite o código e pressione Enter"/><button id="qrme-identify" type="button">Identificar material</button><div id="qrme-material"></div></div>
+<div id="qrme-reader-box" class="qrme-box"><button id="qrme-camera" type="button">📷 Ativar câmera</button><button id="qrme-stop" type="button">Parar câmera</button><div id="qrme-reader"></div><label>Código lido / leitor USB</label><input id="qrme-code" autocomplete="off" placeholder="Leia o QR, código de barras ou digite o código e pressione Enter"/><div id="qrme-suggestions" class="qrme-suggestions" role="listbox" aria-label="Materiais encontrados" hidden></div><button id="qrme-identify" type="button">Identificar material</button><div id="qrme-material"></div></div>
 <div id="qrme-message" role="status" aria-live="polite"></div></div></div>
 <script>
 (function(){'use strict';
@@ -17082,6 +17088,37 @@ async function matFindSeguro(c){
   if(found.size>1)break;
  }
  return [...found.values()];
+}
+// V19.11.2: pesquisa incremental exclusivamente sobre o cadastro já carregado.
+const normalizeSearch=v=>String(v??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toUpperCase().trim();
+let suggestionMatches=[];
+function hideSuggestions(){const panel=$('qrme-suggestions');panel.hidden=true;panel.replaceChildren();suggestionMatches=[];}
+function searchSuggestions(){
+ const term=normalizeSearch($('qrme-code').value);
+ material=null;$('qrme-material').replaceChildren();
+ const panel=$('qrme-suggestions');panel.replaceChildren();suggestionMatches=[];
+ if(!term){panel.hidden=true;return;}
+ const compact=term.replace(/[^A-Z0-9]/g,'');
+ const list=typeof allItems!=='undefined'&&Array.isArray(allItems)?allItems:[];
+ const ranked=[];
+ for(const item of list){
+  const code=normalizeSearch(item.codigo),description=normalizeSearch([item.descricaoSimples,item.descricaoCurta,item.descricaoCompleta,item.descricao,item.nome].filter(Boolean).join(' '));
+  const codeCompact=code.replace(/[^A-Z0-9]/g,'');
+  const score=code===term?0:code.startsWith(term)?1:compact&&codeCompact.includes(compact)?2:description.startsWith(term)?3:description.includes(term)?4:99;
+  if(score!==99)ranked.push({item,score});
+ }
+ ranked.sort((a,b)=>a.score-b.score||String(a.item.codigo).localeCompare(String(b.item.codigo),'pt-BR'));
+ suggestionMatches=ranked.slice(0,40).map(x=>x.item);
+ panel.hidden=false;
+ if(!ranked.length){const empty=document.createElement('div');empty.style.padding='12px';empty.textContent='Nenhum material encontrado no cadastro carregado. Para consultar um código exato no Firebase, use Identificar material.';panel.appendChild(empty);return;}
+ const info=document.createElement('div');info.style.cssText='padding:8px 12px;color:#bac8d1;font-size:12px';info.textContent=ranked.length+' resultado(s) — exibindo até 40. Continue digitando para refinar.';panel.appendChild(info);
+ suggestionMatches.forEach((item,index)=>{
+  const button=document.createElement('button');button.type='button';button.className='qrme-suggestion';button.dataset.qrmePick=String(index);button.setAttribute('role','option');
+  const strong=document.createElement('strong');strong.textContent=String(item.codigo||'');
+  const desc=document.createElement('span');desc.textContent=' — '+String(item.descricaoSimples||item.descricaoCurta||item.descricaoCompleta||item.descricao||item.nome||'');
+  const small=document.createElement('small');small.textContent=epi(item)?'EPI':'Material';
+  button.append(strong,desc,small);panel.appendChild(button);
+ });
 }
 function physicalFor(c,centro){const stock=stockCenter(centro);return (typeof almoxItensV107!=='undefined'?almoxItensV107:[]).filter(x=>codeOf(x.codigoMaterial)===codeOf(c)&&stockCenter(x.estoqueFisico||x.centroCusto)===stock&&x.status!=='INATIVO')}
 function qty(x){const n=Number(x);return Number.isFinite(n)?n:0}
@@ -17220,7 +17257,7 @@ async function stopCamera(){
  }finally{$('qrme-reader').replaceChildren()}
 }
 
-async function identify(){const c=codeOf($('qrme-code').value);if(!c)return msg('Leia ou informe um código de material.',true);let matches;
+async function identify(){hideSuggestions();const c=codeOf($('qrme-code').value);if(!c)return msg('Leia ou informe um código de material.',true);let matches;
  try{matches=await matFindSeguro(c)}catch(e){$('qrme-material').innerHTML='';return msg('Não foi possível consultar o cadastro do material '+c+': '+(e?.message||e)+'. Verifique conexão e permissões de leitura.',true)}
  if(matches.length!==1){$('qrme-material').innerHTML='';return msg(matches.length?'Mais de um material possui esse código. A operação foi bloqueada para evitar movimentação incorreta.':'Material '+c+' não encontrado nem na lista local nem na consulta pontual ao Firebase. Confira se o código foi cadastrado e aprovado.',true)}material=matches[0];const inv=$('qrme-mode').value==='INVENTARIO';const m=material;const saldo=physicalFor(c,inv?(session?.estoqueFisico||$('qrme-centro').value):($('baixaCentro')?.value||'SANTOS'));$('qrme-material').innerHTML=`<div class="qrme-box"><b>${esc(c)} — ${esc(m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||m.descricao||m.nome||'')}</b><p>${epi(m)?'EPI':'Material'} · Estoque físico encontrado: ${saldo.length?saldo.map(x=>qty(x.quantidadeAtual)).join(' + '):'não localizado'}</p>${inv?`<label>Quantidade contada</label><input id="qrme-qty" type="number" step="0.0001" min="0" value="1"><button id="qrme-add" type="button">Adicionar à contagem</button><button id="qrme-replace" type="button">Substituir quantidade</button>`:`<label>Quantidade a baixar</label><input id="qrme-qty" type="number" step="0.0001" min="0.0001" value="1"><button id="qrme-to-baixa" type="button">Preencher formulário de baixa</button><p class="qrme-muted">O destino, colaborador, CA (quando EPI), saldo e autorização são validados pelo fluxo original de baixa.</p>`}</div>`;msg('Material identificado: '+c)}
 async function transferBaixa(){
@@ -17255,11 +17292,13 @@ function modeChange(){
  const inv=$('qrme-mode').value==='INVENTARIO';
  $('qrme-inv-head').style.display=inv?'block':'none';
  $('qrme-reader-box').style.display='block';
- $('qrme-material').innerHTML='';material=null;
+ $('qrme-material').innerHTML='';material=null;hideSuggestions();
  msg(inv?'Selecione um código ou ative a câmera para a contagem.':'Leia ou digite o material. Após identificar, o sistema abrirá automaticamente o formulário de baixa.');
 }
 function addButtons(){const form=$('formBaixaAlmox');if(form&&!$('qrme-launch-baixa')){const b=document.createElement('button');b.type='button';b.id='qrme-launch-baixa';b.className='btn btn-accent qrme-open';b.textContent='▣ Leitor QR / Código de Barras · Baixa / Inventário';b.onclick=open;form.parentNode.insertBefore(b,form)}const a=document.getElementById('centroA107');if(a&&!$('qrme-launch-inv')){const b=document.createElement('button');b.type='button';b.id='qrme-launch-inv';b.className='btn btn-accent qrme-open';b.textContent='▣ Inventário QR / Código de Barras · Contagens';b.onclick=()=>{open();$('qrme-mode').value='INVENTARIO';modeChange()};a.closest('.card')?.insertBefore(b,a.closest('.filters-grid')||a);}}
-$('qrme-close').onclick=()=>{stopCamera();$('qrme-overlay').style.display='none'};$('qrme-mode').onchange=modeChange;$('qrme-open-session').onclick=openSession;$('qrme-list-sessions').onclick=listSessions;$('qrme-end-session').onclick=finish;$('qrme-reopen-session').onclick=reopen;$('qrme-report').onclick=printReport;$('qrme-camera').onclick=startCamera;$('qrme-stop').onclick=stopCamera;$('qrme-identify').onclick=identify;$('qrme-code').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();identify()}};
+$('qrme-close').onclick=()=>{stopCamera();$('qrme-overlay').style.display='none'};$('qrme-mode').onchange=modeChange;$('qrme-open-session').onclick=openSession;$('qrme-list-sessions').onclick=listSessions;$('qrme-end-session').onclick=finish;$('qrme-reopen-session').onclick=reopen;$('qrme-report').onclick=printReport;$('qrme-camera').onclick=startCamera;$('qrme-stop').onclick=stopCamera;$('qrme-identify').onclick=identify;$('qrme-code').addEventListener('input',searchSuggestions);
+$('qrme-code').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();const first=$('qrme-suggestions').querySelector('[data-qrme-pick]');if(first&&!$('qrme-suggestions').hidden){first.click()}else{identify()}}if(e.key==='Escape')hideSuggestions()};
+$('qrme-suggestions').addEventListener('click',e=>{const button=e.target.closest('[data-qrme-pick]');if(!button)return;const chosen=suggestionMatches[Number(button.dataset.qrmePick)];if(!chosen)return;$('qrme-code').value=chosen.codigo;hideSuggestions();identify()});
 $('qrme-panel').addEventListener('click',e=>{const t=e.target;if(t.id==='qrme-add'||t.id==='qrme-replace'){if(busy)return msg('Aguarde a gravação anterior.',true);saveCount(material?.codigo,$('qrme-qty')?.value,t.id==='qrme-replace')}if(t.id==='qrme-to-baixa')transferBaixa();if(t.dataset.qrmeSession)loadSession(t.dataset.qrmeSession).catch(err=>msg(err.message,true));if(t.dataset.qrmeEdit){$('qrme-code').value=t.dataset.qrmeEdit;identify();const old=lines.find(l=>l.codigo===t.dataset.qrmeEdit);if(old)$('qrme-qty').value=old.quantidadeContada;}});
 const observer=new MutationObserver(()=>addButtons());observer.observe(document.body,{childList:true,subtree:true});addButtons();window.abrirLeitorAlmoxQR=open;
 })();
