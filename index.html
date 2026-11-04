@@ -3294,7 +3294,7 @@ auth.onAuthStateChanged(async (user) => {
           // Não persistir o token auxiliar no Firestore.
           const {_versaoEdicao, sincronizadoRev07, ...dados} = material;
           const novaVersao = versaoAtual + 1;
-          tx.update(ref, {...dados, ...(Object.prototype.hasOwnProperty.call(atual,'sincronizadoRev07')?{sincronizadoRev07:atual.sincronizadoRev07}:{}), id:ref.id, codigo:codigoOriginal,
+          tx.update(ref, {...dados, id:ref.id, codigo:codigoOriginal,
             versaoCadastro:novaVersao, alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
           return {...dados,id:ref.id,codigo:codigoOriginal,versaoCadastro:novaVersao};
         });
@@ -6376,9 +6376,7 @@ auth.onAuthStateChanged(async (user) => {
       } else {
         const baixaEd = ed?.tipoDocumento === 'BAIXA_ESTOQUE' ? ed : {};
         const centroBaixa = getCentroCustoRegistro(baixaEd);
-        const destinosBaixa = [...new Set(frotas
-          .filter(fr=>getCentroCustoRegistro(fr)===centroBaixa)
-          .map(fr=>fr.nome))].sort();
+        const destinosBaixa = [...new Set([...DESTINOS_PADRAO.filter(fr=>fr.centroCusto===centroBaixa).map(fr=>fr.nome),...frotas.filter(fr=>getCentroCustoRegistro(fr)===centroBaixa).map(fr=>fr.nome)])].sort();
         if (baixaEd.destino && !destinosBaixa.includes(baixaEd.destino)) destinosBaixa.unshift(baixaEd.destino);
 
         formulario = `
@@ -6396,7 +6394,12 @@ auth.onAuthStateChanged(async (user) => {
                 </select>
               </div>
               <div class="field"><label>Data da retirada / entrega *</label><input type="date" id="baixaData" required value="${baixaEd.dataDocumento||hojeISO()}"></div>
-              <div class="field"><label>Empresa / Centro *</label>
+              <div class="field"><label>Estoque físico de origem *</label>
+                <select id="baixaEstoqueOrigem" required>
+                  ${['SANTOS','CAMAÇARI'].map(c=>`<option value="${c}" ${((baixaEd.estoqueOrigem||'SANTOS')===c)?'selected':''}>${c}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field"><label>Empresa / Centro de custo que utilizará *</label>
                 <select id="baixaCentro" required>
                   ${CENTROS_CUSTO.map(c=>`<option value="${c}" ${centroBaixa===c?'selected':''}>${c}</option>`).join('')}
                 </select>
@@ -6436,6 +6439,9 @@ auth.onAuthStateChanged(async (user) => {
               <div class="field" style="grid-column:span 2"><label>Colaborador que retirou / recebeu *</label>
                 <input id="baixaColaborador" required value="${baixaEd.colaboradorRetirada||''}" placeholder="Nome completo do colaborador">
                 <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Para EPI, este campo identifica obrigatoriamente quem recebeu o equipamento.</div>
+              </div>
+              <div class="field" style="grid-column:span 2"><label>Local específico / equipamento / finalidade *</label>
+                <input id="baixaLocalUso" required value="${baixaEd.localUso||''}" placeholder="Ex.: Oficina Santos, frota 326, máquina...">
               </div>
               <div class="field"><label>Valor total</label><input id="baixaValorTotalVisual" readonly value="${fmt.money(baixaEd.valorTotal||0)}"></div>
 
@@ -9753,9 +9759,15 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const descBaixa=item=>item.descricaoSimples||item.descricaoCurta||item.descricaoCompleta||'Material';
 
       // V19.9.5 — categoria e flag legado são critérios de classificação; saldo é independente.
-      const materialEhEpiV1995 = m => !!m && (m.ehEPI===true ||
-        String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM' ||
-        String(m.categoria||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase()==='EPI');
+      const materialEhEpiV1995 = m => {
+        if(!m) return false;
+        const categoria = String(m.categoria||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
+        if(m.ehEPI===true || String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM' ||
+           categoria==='EPI' || categoria.includes('PROTECAO INDIVIDUAL')) return true;
+        // Cadastros do inventário físico possuem classificação própria.
+        const estoque=almoxItensV107.find(x=>String(x.codigoMaterial||'').toUpperCase()===String(m.codigo||'').toUpperCase());
+        return !!estoque && (String(estoque.categoria||'').toUpperCase()==='EPI' || String(estoque.codigoImportacao||'').startsWith('INV-EPI-'));
+      };
       const saldoLocalV1995 = (m, centro) => {
         const ef=estoqueFisicoPadraoV109(centro||'SANTOS');
         const itens=almoxItensV107.filter(x=>
@@ -9827,7 +9839,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const cc = centroCustoNormalizado(e.target.value);
         const destino = document.getElementById('baixaDestino');
         if (!destino) return;
-        const nomes = [...new Set(frotas.filter(fr=>getCentroCustoRegistro(fr)===cc).map(fr=>fr.nome))]
+        const nomes = [...new Set([...DESTINOS_PADRAO.filter(fr=>fr.centroCusto===cc).map(fr=>fr.nome),...frotas.filter(fr=>getCentroCustoRegistro(fr)===cc).map(fr=>fr.nome)])]
           .sort((a,b)=>a.localeCompare(b,'pt-BR'));
         destino.innerHTML = '<option value="">Selecione</option>' + nomes.map(n=>`<option value="${n}">${n}</option>`).join('');
       });
@@ -9996,12 +10008,17 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         const centro = centroCustoNormalizado(document.getElementById('baixaCentro')?.value);
         const destino = document.getElementById('baixaDestino')?.value || '';
         const fornecedor = (document.getElementById('baixaFornecedor')?.value || '').trim();
+        const estoqueOrigem = document.getElementById('baixaEstoqueOrigem')?.value || 'SANTOS';
+        const localUso = (document.getElementById('baixaLocalUso')?.value || '').trim();
 
         // V14.9.3: lote tem prioridade sobre o lançamento unitário.
         if (!editId && Array.isArray(window.baixaLoteV148) && window.baixaLoteV148.length) {
           if (!centro) return showToast('Selecione o centro/empresa.', true);
           if (!destino) return showToast('Selecione o local de uso/destino.', true);
+        if (!localUso) return showToast('Informe o local específico de utilização do material.', true);
           if (!colaborador) return showToast('Informe o colaborador que retirou/recebeu os itens.', true);
+          if(!localUso) return showToast('Informe o local específico de uso.',true);
+          if(centro==='MECHATRONICS' || window.baixaLoteV148.some(it=>{const x=acharA107PorEstoque(it.codigo,it.descricao,estoqueOrigem);return x && String(x.proprietarioEstoque||'').toUpperCase()==='MECHATRONICS';})) return showToast('Movimentações entre empresas devem ser feitas individualmente para gerar a conta corrente vinculada.',true);
           const dataLote=document.getElementById('baixaData')?.value||hojeISO();
           if(tipoBaixa==='EPI'){
             for(const it of window.baixaLoteV148){
@@ -10015,7 +10032,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
             formBaixa.dataset.saving='1';
             if(btn){btn.disabled=true;btn.textContent='Salvando lote...';}
             const comum={
-              tipoBaixa,dataDocumento:dataLote,centroCusto:centro,destino,
+              tipoBaixa,dataDocumento:dataLote,centroCusto:centro,destino,estoqueOrigem,localUso,
               colaboradorRetirada:colaborador,fornecedor,
               observacoes:document.getElementById('baixaObservacao')?.value||''
             };
@@ -10066,6 +10083,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           rcNumero: '',
           dataDocumento: document.getElementById('baixaData')?.value || hojeISO(),
           centroCusto: centro,
+          estoqueOrigem,localUso,
           fornecedor,
           destino,
           descricao: desc,
@@ -10111,6 +10129,17 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           formBaixa.dataset.saving='1';
           if (btn) { btn.disabled=true; btn.textContent='Salvando...'; }
           if (!editId) {
+            // A confirmação definitiva ocorre antes da transação; nenhuma escrita antes do OK.
+            const itemOrigem=acharA107PorEstoque(material.codigo,desc,estoqueOrigem);
+            if(!itemOrigem) throw new Error('Material não encontrado no estoque físico de origem selecionado.');
+            const fornecedora=(String(itemOrigem.proprietarioEstoque||'SANTOS').toUpperCase()==='MECHATRONICS')?'MECHATRONICS':'CRYOTRONICS';
+            const recebedora=centro==='MECHATRONICS'?'MECHATRONICS':'CRYOTRONICS';
+            registro.empresaFornecedoraConfirmada=fornecedora;
+            if(fornecedora!==recebedora){
+              if(!almoxConfigV107.vinculoAtivo) throw new Error('Vínculo com estoque físico precisa estar ativo para transferência intercompanhias.');
+              const confirmar=window.confirm(`CONFIRMAR BAIXA ENTRE EMPRESAS?\n\n${fornecedora} → ${recebedora}\nMaterial: ${material.codigo} — ${desc}\nQuantidade: ${qtd}\nValor: ${fmt.money(total)}\nLocal: ${localUso}\nRetirado por: ${colaborador}\n\nSerá debitado do estoque de origem, apropriado como custo no destino e gerará pendência financeira entre empresas.`);
+              if(!confirmar) return;
+            }
             await salvarNovaBaixaAtomicaV115(material,qtd,registro);
           } else {
             await salvarRecebimentoNF(registro);
@@ -11527,9 +11556,9 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           marca: getVal('editMarca'),
           modelo: getVal('editModelo'),
           tipoMaterial: getVal('editTipoMat'),
-          ehEPI: getVal('editEhEPI') === 'SIM' || String(getVal('editCategoria')||'').trim().toUpperCase()==='EPI',
-          caNumero: (getVal('editEhEPI') === 'SIM' || String(getVal('editCategoria')||'').trim().toUpperCase()==='EPI') ? getVal('editCANumero').trim() : '',
-          caValidade: (getVal('editEhEPI') === 'SIM' || String(getVal('editCategoria')||'').trim().toUpperCase()==='EPI') ? getVal('editCAValidade') : '',
+          ehEPI: getVal('editEhEPI') === 'SIM' || categoriaEpiV1910(getVal('editCategoria')),
+          caNumero: (getVal('editEhEPI') === 'SIM' || categoriaEpiV1910(getVal('editCategoria'))) ? getVal('editCANumero').trim() : '',
+          caValidade: (getVal('editEhEPI') === 'SIM' || categoriaEpiV1910(getVal('editCategoria'))) ? getVal('editCAValidade') : '',
           dimensoes: getVal('editDimensoes'),
           cor: getVal('editCor'),
           peso: getVal('editPeso'),
@@ -11711,6 +11740,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
     }
 
+    function categoriaEpiV1910(categoria){
+      const c=String(categoria||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
+      return c==='EPI'||c.includes('PROTECAO INDIVIDUAL');
+    }
+
     /* ============================================================
        EDIÇÃO DE MATERIAL (MODAL) (mantido)
     ============================================================ */
@@ -11731,10 +11765,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       document.getElementById('editMarca').value = item.marca || '';
       document.getElementById('editModelo').value = item.modelo || '';
       document.getElementById('editTipoMat').value = item.tipoMaterial || '';
-      document.getElementById('editEhEPI').value = (item.ehEPI === true || String(item.categoria||'').trim().toUpperCase()==='EPI') ? 'SIM' : 'NAO';
+      document.getElementById('editEhEPI').value = (item.ehEPI === true || categoriaEpiV1910(item.categoria)) ? 'SIM' : 'NAO';
       document.getElementById('editCANumero').value = item.caNumero || '';
       document.getElementById('editCAValidade').value = item.caValidade || '';
-      document.querySelectorAll('.epi-edit-field').forEach(el=>el.style.display=item.ehEPI===true?'':'none');
+      document.querySelectorAll('.epi-edit-field').forEach(el=>el.style.display=(item.ehEPI===true||categoriaEpiV1910(item.categoria))?'':'none');
       document.getElementById('editDimensoes').value = item.dimensoes || '';
       document.getElementById('editCor').value = item.cor || '';
       document.getElementById('editPeso').value = item.peso || '';
@@ -16624,7 +16658,7 @@ async function salvarNovaBaixaAtomicaV115(mat,q,r){
     return r;
   }
 
-  const estoqueFisico = estoqueFisicoPadraoV109(r.centroCusto||r.destino||'SANTOS');
+  const estoqueFisico = estoqueFisicoPadraoV109(r.estoqueOrigem||r.centroCusto||'SANTOS');
   const a = acharA107PorEstoque(
     mat.codigo,
     mat.descricaoSimples||mat.descricaoCurta||mat.descricaoCompleta,
@@ -16637,11 +16671,18 @@ async function salvarNovaBaixaAtomicaV115(mat,q,r){
 
   const itemRef = db.collection('almoxarifado_itens').doc(a.id);
   const movRef = db.collection('almoxarifado_movimentacoes').doc();
+  const credRef = db.collection('intercompanhias_movimentacoes').doc(recRef.id);
+  const empresaDestino = r.centroCusto==='MECHATRONICS'?'MECHATRONICS':'CRYOTRONICS';
 
   await db.runTransaction(async tr=>{
     const snap = await tr.get(itemRef);
     if(!snap.exists) throw new Error('ESTOQUE INSUFICIENTE.');
 
+    const proprietario=String(snap.data().proprietarioEstoque||'SANTOS').toUpperCase()==='MECHATRONICS'?'MECHATRONICS':'CRYOTRONICS';
+    const intercompanhias=proprietario!==empresaDestino;
+    if(r.empresaFornecedoraConfirmada && r.empresaFornecedoraConfirmada!==proprietario) throw new Error('A propriedade do material mudou durante a operação. Reabra o formulário e confirme novamente.');
+    if(intercompanhias && !(numeroSeguro(r.valorUnitario)>0)) throw new Error('Movimentação entre empresas exige custo unitário positivo para registrar a pendência financeira.');
+    if(intercompanhias && (!r.localUso||!r.colaboradorRetirada)) throw new Error('Informe local de uso e responsável pela retirada.');
     const saldo = numeroSeguro(snap.data().quantidadeAtual);
     if(saldo<=0 || saldo+0.000001<q){
       throw new Error(`ESTOQUE INSUFICIENTE. Saldo disponível: ${saldo}. Quantidade solicitada: ${q}.`);
@@ -16673,6 +16714,19 @@ async function salvarNovaBaixaAtomicaV115(mat,q,r){
       criadoEm:firebase.firestore.FieldValue.serverTimestamp()
     }));
 
+    if(intercompanhias){
+      tr.set(credRef,{
+        referenciaBaixaId:recRef.id, referenciaMovimentacaoId:movRef.id,
+        empresaCredora:proprietario, empresaDevedora:empresaDestino,
+        codigoMaterial:mat.codigo||'', descricaoMaterial:r.descricao||'',
+        quantidade:q, valorUnitario:numeroSeguro(r.valorUnitario), valorOriginal:q*numeroSeguro(r.valorUnitario),
+        saldoAberto:q*numeroSeguro(r.valorUnitario), status:'ABERTO',
+        estoqueFisicoOrigem:estoqueFisico, centroCustoDestino:r.centroCusto,
+        destino:r.destino||'', localUso:r.localUso||'', retiradoPor:r.colaboradorRetirada||'',
+        entreguePor:getUsuarioNome(), dataMovimentacao:r.dataDocumento,
+        criadoPorUid:getUsuarioUid(), criadoEm:firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
     tr.set(recRef,dadosBaixa);
   });
 
@@ -17017,7 +17071,7 @@ async function matFindSeguro(c){
 function physicalFor(c,centro){const stock=stockCenter(centro);return (typeof almoxItensV107!=='undefined'?almoxItensV107:[]).filter(x=>codeOf(x.codigoMaterial)===codeOf(c)&&stockCenter(x.estoqueFisico||x.centroCusto)===stock&&x.status!=='INATIVO')}
 function qty(x){const n=Number(x);return Number.isFinite(n)?n:0}
 function currency(x){return Number(x||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
-function epi(m){return m?.ehEPI===true||String(m?.ehEPI||'').toUpperCase()==='SIM'||String(m?.categoria||'').trim().toUpperCase()==='EPI'}
+function epi(m){return m?.ehEPI===true||String(m?.ehEPI||'').toUpperCase()==='SIM'||categoriaEpiV1910(m?.categoria)}
 function sessionView(){const has=!!session;$('qrme-session').style.display=has?'block':'none';if(!has)return;const ended=session.status==='ENCERRADA';$('qrme-session-title').textContent=`Contagem ${session.id} · ${session.estoqueFisico} · ${session.responsavel} · ${ended?'ENCERRADA':'ABERTA'}`;$('qrme-end-session').style.display=ended?'none':'inline-block';$('qrme-reopen-session').style.display=ended?'inline-block':'none';renderLines();}
 function renderLines(){if(!session)return;const total=lines.reduce((s,l)=>s+qty(l.quantidadeContada)*qty(l.valorUnitario),0);$('qrme-lines').innerHTML=`<p>${lines.length} material(is) · Valor contado estimado: ${currency(total)}</p><div style="overflow-x:auto"><table><thead><tr><th>Código</th><th>Material</th><th>Qtd contada</th><th>Valor unit.</th><th>Subtotal</th><th>Ação</th></tr></thead><tbody>${lines.map(l=>`<tr><td>${esc(l.codigo)}</td><td>${esc(l.descricao)}</td><td>${qty(l.quantidadeContada)}</td><td>${currency(l.valorUnitario)}</td><td>${currency(qty(l.quantidadeContada)*qty(l.valorUnitario))}</td><td>${session.status==='ABERTA'?`<button type="button" data-qrme-edit="${esc(l.codigo)}">Editar</button>`:''}</td></tr>`).join('')}</tbody></table></div>`;}
 async function loadSession(id){const snap=await dbRef().collection('almox_inventarios_qr').doc(id).get();if(!snap.exists)throw Error('Contagem não encontrada.');session={id:snap.id,...snap.data()};const ls=await dbRef().collection('almox_inventarios_qr').doc(id).collection('itens').get();lines=ls.docs.map(d=>({id:d.id,...d.data()}));sessionView();msg('Contagem carregada do Firebase.');}
