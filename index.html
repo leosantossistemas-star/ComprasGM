@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.11.2 Pesquisa Dinâmica QR / EPI e Inventário</title>
+  <title>Gestão de Compras — V19.11.3 Pesquisa Dinâmica Almoxarifado / EPI e Inventário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -17063,7 +17063,7 @@ document.addEventListener('submit',async e=>{if(e.target.id==='formA107'){e.prev
 <label>Operação</label><select id="qrme-mode"><option value="BAIXA">Baixa de estoque / EPI</option><option value="INVENTARIO">Inventário físico</option></select>
 <div id="qrme-inv-head" style="display:none" class="qrme-box"><label>Estoque físico</label><select id="qrme-centro"><option value="SANTOS">SANTOS (inclui Mechatronics quando compartilhado)</option><option value="CAMAÇARI">CAMAÇARI</option></select><label>Responsável pela contagem</label><input id="qrme-responsavel" maxlength="140" placeholder="Nome completo"/><label>Data da contagem</label><input id="qrme-data" type="date"/><label>Hora de início</label><input id="qrme-hora" type="time"/><button id="qrme-open-session" type="button">Abrir nova contagem</button><button id="qrme-list-sessions" type="button">Consultar contagens salvas</button><div id="qrme-sessions"></div></div>
 <div id="qrme-session" style="display:none" class="qrme-box"><b id="qrme-session-title"></b><div id="qrme-session-actions"><button id="qrme-end-session" type="button">Encerrar contagem</button><button id="qrme-reopen-session" type="button" style="display:none">Reabrir para editar (autorizado)</button><button id="qrme-report" type="button">Imprimir / Salvar PDF</button></div><div id="qrme-lines"></div></div>
-<div id="qrme-reader-box" class="qrme-box"><button id="qrme-camera" type="button">📷 Ativar câmera</button><button id="qrme-stop" type="button">Parar câmera</button><div id="qrme-reader"></div><label>Código lido / leitor USB</label><input id="qrme-code" autocomplete="off" placeholder="Leia o QR, código de barras ou digite o código e pressione Enter"/><div id="qrme-suggestions" class="qrme-suggestions" role="listbox" aria-label="Materiais encontrados" hidden></div><button id="qrme-identify" type="button">Identificar material</button><div id="qrme-material"></div></div>
+<div id="qrme-reader-box" class="qrme-box"><button id="qrme-camera" type="button">📷 Ativar câmera</button><button id="qrme-stop" type="button">Parar câmera</button><div id="qrme-reader"></div><label>Código lido / leitor USB</label><input id="qrme-code" autocomplete="off" placeholder="Pesquise por código ou descrição; resultados aparecem ao digitar"/><div id="qrme-suggestions" class="qrme-suggestions" role="listbox" aria-label="Materiais encontrados" hidden></div><button id="qrme-identify" type="button">Identificar material</button><div id="qrme-material"></div></div>
 <div id="qrme-message" role="status" aria-live="polite"></div></div></div>
 <script>
 (function(){'use strict';
@@ -17089,8 +17089,9 @@ async function matFindSeguro(c){
  }
  return [...found.values()];
 }
-// V19.11.2: pesquisa incremental exclusivamente sobre o cadastro já carregado.
-const normalizeSearch=v=>String(v??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toUpperCase().trim();
+// V19.11.3 — pesquisa incremental no cadastro de materiais E no estoque físico.
+// As sugestões não fazem leituras remotas nem alteram saldos.
+const normalizeSearch=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 let suggestionMatches=[];
 function hideSuggestions(){const panel=$('qrme-suggestions');panel.hidden=true;panel.replaceChildren();suggestionMatches=[];}
 function searchSuggestions(){
@@ -17099,24 +17100,38 @@ function searchSuggestions(){
  const panel=$('qrme-suggestions');panel.replaceChildren();suggestionMatches=[];
  if(!term){panel.hidden=true;return;}
  const compact=term.replace(/[^A-Z0-9]/g,'');
- const list=typeof allItems!=='undefined'&&Array.isArray(allItems)?allItems:[];
+ // A aba Almoxarifado usa almoxItensV107; o cadastro geral usa allItems.
+ // Juntar apenas para a busca, sem criar ou gravar materiais.
+ const combined=new Map();
+ const catalog=typeof allItems!=='undefined'&&Array.isArray(allItems)?allItems:[];
+ const stock=typeof almoxItensV107!=='undefined'&&Array.isArray(almoxItensV107)?almoxItensV107:[];
+ for(const m of catalog){const code=codeOf(m.codigo);if(code)combined.set(code,{codigo:code,descricao:m.descricaoSimples||m.descricaoCurta||m.descricaoCompleta||m.descricao||m.nome||'',material:m,stock:null});}
+ for(const x of stock){
+  if(x.status==='INATIVO'||String(x.nome||'').startsWith('LEGADO INATIVO'))continue;
+  const code=codeOf(x.codigoMaterial||x.codigoImportacao);if(!code)continue;
+  const existing=combined.get(code);
+  if(existing){existing.stock=x;if(!existing.descricao)existing.descricao=x.nome||'';}
+  else combined.set(code,{codigo:code,descricao:x.nome||'',material:null,stock:x});
+ }
  const ranked=[];
- for(const item of list){
-  const code=normalizeSearch(item.codigo),description=normalizeSearch([item.descricaoSimples,item.descricaoCurta,item.descricaoCompleta,item.descricao,item.nome].filter(Boolean).join(' '));
+ for(const item of combined.values()){
+  const code=normalizeSearch(item.codigo),description=normalizeSearch(item.descricao);
   const codeCompact=code.replace(/[^A-Z0-9]/g,'');
   const score=code===term?0:code.startsWith(term)?1:compact&&codeCompact.includes(compact)?2:description.startsWith(term)?3:description.includes(term)?4:99;
   if(score!==99)ranked.push({item,score});
  }
- ranked.sort((a,b)=>a.score-b.score||String(a.item.codigo).localeCompare(String(b.item.codigo),'pt-BR'));
- suggestionMatches=ranked.slice(0,40).map(x=>x.item);
+ ranked.sort((a,b)=>a.score-b.score||a.item.codigo.localeCompare(b.item.codigo,'pt-BR',{numeric:true}));
+ suggestionMatches=ranked.slice(0,60).map(x=>x.item);
  panel.hidden=false;
- if(!ranked.length){const empty=document.createElement('div');empty.style.padding='12px';empty.textContent='Nenhum material encontrado no cadastro carregado. Para consultar um código exato no Firebase, use Identificar material.';panel.appendChild(empty);return;}
- const info=document.createElement('div');info.style.cssText='padding:8px 12px;color:#bac8d1;font-size:12px';info.textContent=ranked.length+' resultado(s) — exibindo até 40. Continue digitando para refinar.';panel.appendChild(info);
+ if(!ranked.length){const empty=document.createElement('div');empty.style.padding='12px';empty.textContent='Nenhum material correspondente nas listas carregadas. Para consultar um código exato no Firebase, use Identificar material.';panel.appendChild(empty);return;}
+ const info=document.createElement('div');info.style.cssText='padding:8px 12px;color:#bac8d1;font-size:12px';info.textContent=ranked.length+' resultado(s) — exibindo até 60. Continue digitando para refinar.';panel.appendChild(info);
  suggestionMatches.forEach((item,index)=>{
   const button=document.createElement('button');button.type='button';button.className='qrme-suggestion';button.dataset.qrmePick=String(index);button.setAttribute('role','option');
-  const strong=document.createElement('strong');strong.textContent=String(item.codigo||'');
-  const desc=document.createElement('span');desc.textContent=' — '+String(item.descricaoSimples||item.descricaoCurta||item.descricaoCompleta||item.descricao||item.nome||'');
-  const small=document.createElement('small');small.textContent=epi(item)?'EPI':'Material';
+  const strong=document.createElement('strong');strong.textContent=item.codigo;
+  const desc=document.createElement('span');desc.textContent=' — '+item.descricao;
+  const small=document.createElement('small');
+  const m=item.material;
+  small.textContent=(m&&epi(m))||(!m&&String(item.stock?.categoria||'').toUpperCase().includes('EPI'))?'EPI':'Material';
   button.append(strong,desc,small);panel.appendChild(button);
  });
 }
