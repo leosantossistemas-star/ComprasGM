@@ -3303,7 +3303,7 @@ auth.onAuthStateChanged(async (user) => {
       }
       // V15: não reler TODA a coleção a cada cadastro (centenas de leituras por clique).
       // Consulta compartilhada e cacheada; confirmação e numeração permanecem no servidor.
-      await v125CarregarColecao('materiais',false);
+      await v125CarregarColecao('materiais',true);
       const existentes = Array.isArray(allItems) ? allItems : [];
       for (const m of existentes) {
         const atual = normalizarDescricaoMaterial(m.descricaoCurta || m.descricaoSimples || m.descricaoCompleta);
@@ -3518,6 +3518,19 @@ auth.onAuthStateChanged(async (user) => {
        A proteção completa entre RCs distintas exige contador de reservas
        compartilhado e atualização de TODOS os demais escritores. */
     function v192StatusRC(v){return String(v||'').trim().toLowerCase();}
+    // V19.10.8: comparação sem dependência da ordem das propriedades JSON.
+    // Preserva a verificação de versão e não ignora alterações reais dos itens.
+    function v19108ValorCanonico(v){
+      if(Array.isArray(v)) return v.map(v19108ValorCanonico);
+      if(v && typeof v==='object'){
+        if(typeof v.toMillis==='function')return {__timestamp:v.toMillis()};
+        return Object.fromEntries(Object.keys(v).sort().map(k=>[k,v19108ValorCanonico(v[k])]));
+      }
+      return v;
+    }
+    function v19108ItensIguais(a,b){
+      return JSON.stringify(v19108ValorCanonico(a||[]))===JSON.stringify(v19108ValorCanonico(b||[]));
+    }
     function v192ConferirSnapshotRC(atual,local){
       if(!atual) throw new Error('RC excluída em outro terminal. Recarregue.');
       if(!local) throw new Error('RC não carregada localmente. Atualize os dados.');
@@ -3525,7 +3538,7 @@ auth.onAuthStateChanged(async (user) => {
       if(va!==vl)throw new Error('Conflito: RC modificada em outro terminal. Recarregue antes de continuar.');
       if(v192StatusRC(atual.status)!==v192StatusRC(local.status))
         throw new Error('Conflito: situação da RC alterada em outro terminal. Recarregue.');
-      if(JSON.stringify(atual.itens||[])!==JSON.stringify(local.itens||[]))
+      if(!v19108ItensIguais(atual.itens,local.itens))
         throw new Error('Conflito: itens da RC alterados em outro terminal. Recarregue.');
     }
     async function salvarRC(rc) {
@@ -3876,7 +3889,7 @@ auth.onAuthStateChanged(async (user) => {
           throw new Error('Aprovação bloqueada: a RC não está aguardando aprovação.');
         if(['rejeitado','rejeitada'].includes(depois) && newData.status && !['em_aprovacao','pendente_aprovacao'].includes(antes))
           throw new Error('Rejeição bloqueada: a RC não está aguardando aprovação.');
-        if(antes==='aprovado' && newData.itens && JSON.stringify(newData.itens)!==JSON.stringify(atual.itens||[]))
+        if(antes==='aprovado' && newData.itens && !v19108ItensIguais(newData.itens,atual.itens))
           throw new Error('Itens de RC aprovada não podem ser alterados diretamente.');
         const prox=Number(atual.versaoConcorrenciaV192||0)+1;
         tx.update(ref,{...newData,versaoConcorrenciaV192:prox,atualizadoEmV192:firebase.firestore.FieldValue.serverTimestamp()});
@@ -7202,16 +7215,16 @@ auth.onAuthStateChanged(async (user) => {
       // Sua substituição por índice de pendências exige migração transacional e auditoria.
       // Reutiliza snapshot integral já carregado e dentro do TTL; nunca consulta
       // novamente todas as RCs por clique. Sem snapshot confiável, bloqueia.
-      const cacheRC=v126LerCache('requisicoes');
-      const ttlRC=typeof V126_CACHE_MS==='number'?V126_CACHE_MS:60000;
-      const cacheValido=cacheRC&&Array.isArray(cacheRC.data)&&
-        Date.now()-Number(cacheRC.ts)<ttlRC;
-      const memoriaValida=Array.isArray(rcs)&&rcs.length>0&&
-        Date.now()-Number(v125UltimaCarga['requisicoes']||0)<ttlRC;
-      if(!cacheValido&&!memoriaValida)
-        throw new Error('RCs pendentes sem cache válido. Atualize os dados antes de validar a compra.');
-      const requisicoes=cacheValido?cacheRC.data:rcs;
-      await Promise.all(tarefas);
+      // V19.10.9: decisão de compra nunca usa RCs em cache local.
+      // Leitura do servidor antes da validação; falha de rede bloqueia o envio.
+      // Não grava, altera ou elimina requisições existentes.
+      const [snapRC] = await Promise.all([
+        db.collection('requisicoes').get({source:'server'}),
+        ...tarefas
+      ]);
+      v19AuditarLeitura('requisicoes',snapRC.size,'validacao_limite_servidor');
+      const requisicoes=[];
+      snapRC.forEach(doc=>requisicoes.push({id:doc.id,...doc.data()}));
       const materiais=[...materiaisPorId.values()];
       const solicitados = new Map();
       for(const item of itens){
@@ -7246,7 +7259,9 @@ auth.onAuthStateChanged(async (user) => {
       return true;
     }
 
+    let v19108RCEmGravacao=false;
     async function salvarRascunho(enviar = false) {
+      if(v19108RCEmGravacao){showToast('Aguarde a conclusão da gravação anterior.',true);return;}
       const getVal = id => document.getElementById(id)?.value || '';
       const numero=getVal('rcNumero'), data=getVal('rcData'), fornecedor=getVal('rcFornecedor'),
             prazoEntrega=getVal('rcPrazoEntrega'), condicaoPagamento=getVal('rcCondicaoPagamento'), dataBase=getVal('rcDataBase'),
@@ -7282,13 +7297,15 @@ auth.onAuthStateChanged(async (user) => {
         if(!validacao.ok){showToast(validacao.motivo,true);return;}
       }
 
-      // Bloqueia antes da gravação. Falha de conexão também impede a compra.
-      try {
-        await validarTetoEstoqueRC2026(itens, centroCusto, numero);
-      } catch(erroEstoque) {
-        showToast(erroEstoque.message||String(erroEstoque),true);
-        alert(erroEstoque.message||String(erroEstoque));
-        return;
+      // V19.10.8: rascunhos podem ser salvos sem criar autorização de compra.
+      // O limite continua obrigatório no envio para aprovação; nunca é contornado.
+      if(enviar){
+        try {
+          await validarTetoEstoqueRC2026(itens, centroCusto, numero);
+        } catch(erroEstoque) {
+          showToast(erroEstoque.message||String(erroEstoque),true);
+          return;
+        }
       }
 
       const status=enviar?'em_aprovacao':'rascunho';
@@ -7305,6 +7322,7 @@ auth.onAuthStateChanged(async (user) => {
         criadoPorNome:existing?.criadoPorNome||getUsuarioNome(),
         justificativa:existing?.justificativa||''};
 
+      v19108RCEmGravacao=true;
       try {
         if(existing) await updateRC(numero,rcData);
         else await addRC(rcData);
@@ -7316,6 +7334,8 @@ auth.onAuthStateChanged(async (user) => {
       } catch(err) {
         console.error('Erro ao salvar/enviar RC:',err);
         showToast('Erro ao salvar/enviar RC: '+(err.message||err),true);
+      } finally {
+        v19108RCEmGravacao=false;
       }
     }
 
@@ -11915,11 +11935,11 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const ttl=V126_CACHE_MS; // V19.9.3: estoque compartilha cache de sessão; atualização explícita continua disponível.
       // Protege contra rajadas de atualização manual entre seções que
       // compartilham coleções, sem alterar consultas transacionais.
-      if(force && v198UltimaConsultaForcada[nome] && agora-v198UltimaConsultaForcada[nome]<180000 &&
+      if(force && !['materiais','requisicoes'].includes(nome) && v198UltimaConsultaForcada[nome] && agora-v198UltimaConsultaForcada[nome]<180000 &&
          v125UltimaCarga[nome] && agora-v125UltimaCarga[nome]<180000){
         v19AuditarLeitura(nome,0,'reuso_atualizacao_recente','cache');return;
       }
-      if(!force && v125UltimaCarga[nome]) {v19AuditarLeitura(nome,0,'memoria_sessao_sem_releitura','cache');return;}
+      if(!force && v125UltimaCarga[nome] && agora-Number(v125UltimaCarga[nome])<ttl) {v19AuditarLeitura(nome,0,'memoria_sessao_ttl','cache');return;}
 
 
       // V12.6/V13.0: antes de tocar no Firestore, tenta cache desta aba e depois outra aba aberta.
@@ -11962,7 +11982,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         }catch(err){
           // Se a cota estiver temporariamente indisponível, tenta cache expirado antes de falhar.
           const local=v126LerCache(nome);
-          if(!critico && err?.code!=='permission-denied' && local&&Array.isArray(local.data)&&local.data.length){
+          if(!critico && !['materiais','requisicoes'].includes(nome) && err?.code!=='permission-denied' && local&&Array.isArray(local.data)&&local.data.length){
             v125AplicarSnapshot(nome,local.data);
             v125UltimaCarga[nome]=Number(local.ts)||Date.now();
             console.warn('V12.6 — usando cache local expirado para '+nome+' devido a falha do Firestore.');
