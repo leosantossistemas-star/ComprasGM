@@ -3365,8 +3365,16 @@ auth.onAuthStateChanged(async (user) => {
             throw new Error('Material alterado por outro usuário. Atualize o cadastro antes de salvar.');
           // Não persistir o token auxiliar no Firestore.
           const {_versaoEdicao, sincronizadoRev07, ...dados} = material;
+          // A gravação parte do documento efetivamente lido na transação.
+          // Campos protegidos e legados permanecem exatamente como estão no servidor.
+          const alteracoes = {};
+          for (const [chave, valor] of Object.entries(dados)) {
+            if (['id','codigo','criadoEm','sincronizadoRev07','versaoCadastro','alteradoEm'].includes(chave)) continue;
+            if (valor === undefined) continue;
+            if (JSON.stringify(valor) !== JSON.stringify(atual[chave])) alteracoes[chave] = valor;
+          }
           const novaVersao = versaoAtual + 1;
-          tx.update(ref, {...dados, id:ref.id, codigo:codigoOriginal,
+          tx.update(ref, {...alteracoes,
             versaoCadastro:novaVersao, alteradoEm:firebase.firestore.FieldValue.serverTimestamp()});
           return {...dados,id:ref.id,codigo:codigoOriginal,versaoCadastro:novaVersao};
         });
@@ -11726,12 +11734,16 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
           document.getElementById('editEstMax')?.focus();
           return;
         }
+        // Compatibilidade com cadastros legados: N/A, NÃO SE APLICA e traços
+        // representam campo não informado; nunca forçar recadastro.
         const loteDigitado = getVal('editLoteMin').trim();
-        if (loteDigitado && !/^(?:\d+)(?:[.,]\d+)?$/.test(loteDigitado)) {
-          showToast('Lote mínimo inválido: informe uma quantidade numérica maior ou igual a zero, ou deixe vazio se não se aplica. Não utilize N/A.', true);
+        const loteNaoAplicavel = /^(?:N\s*\/?\s*A|N[ÃA]O\s+SE\s+APLICA|N[ÃA]O\s+APLIC[ÃA]VEL|[-–—])$/i.test(loteDigitado);
+        if (loteNaoAplicavel) newData.loteMinimo = '';
+        else if (loteDigitado && !/^(?:\d+)(?:[.,]\d+)?$/.test(loteDigitado)) {
+          showToast('Lote mínimo inválido: informe uma quantidade numérica maior ou igual a zero, ou deixe vazio se não se aplica.', true);
           document.getElementById('editLoteMin')?.focus();
           return;
-        }
+        } else newData.loteMinimo = loteDigitado;
         // Não alterar o indicador EPI de registros legados apenas por abrir e salvar o modal.
         updateItem(codigo, newData);
       });
