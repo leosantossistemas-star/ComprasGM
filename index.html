@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.11.5 Consolidação Auditada — Cadastros e EPI</title>
+  <title>Gestão de Compras — V19.11.8.2 — Edição de NCM legado e materiais</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -3183,7 +3183,7 @@ auth.onAuthStateChanged(async (user) => {
         if(!String(m[campo]||'').trim())throw new Error(rotulo+': preenchimento obrigatório. Informe '+({'descricaoSimples':'o nome do material','categoria':'uma categoria existente','subcategoria':'uma subcategoria','unid':'a unidade de medida (por exemplo: un, kg ou m)','usuario':'o responsável pelo cadastro'}[campo]||'um valor válido')+' antes de salvar.');
       }
       const ncm=tipo==='MATERIAL'?String(m.ncm||m.NCM||'').trim():'';
-      if(ncm&&!/^\d{8}$/.test(ncm))throw new Error('NCM: informe exatamente 8 dígitos, sem pontos ou letras.');
+      // NCM legado: preservar formatos históricos, inclusive textos descritivos.
       if(tipo==='MATERIAL'&&(m.ehEPI===true||String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM') && (!String(m.caNumero||m.CA||'').trim()||!String(m.caValidade||'').trim()))throw new Error('Material marcado como EPI: informe o número do Certificado de Aprovação (CA) e sua data de validade. Se o material não for EPI, selecione NÃO no campo EPI.');
       for(const [campo,rotulo] of [['estoqueMin','Estoque mínimo'],['estoqueMax','Estoque máximo'],['loteMinimo','Lote mínimo'],['leadTime','Lead time'],['custoUnitarioNum','Custo unitário']]){
         const valor=m[campo];if(valor!==''&&valor!=null&&(!Number.isFinite(Number(String(valor).replace(',','.')))||Number(String(valor).replace(',','.'))<0))throw new Error(rotulo+' inválido. Informe um número igual ou superior a zero (exemplo: 10). Se o campo for opcional e não houver valor definido, deixe-o vazio; não digite N/A.');
@@ -3343,9 +3343,7 @@ auth.onAuthStateChanged(async (user) => {
       const codigo = String(material.codigo || '').trim().toUpperCase();
       const descricao = normalizarDescricaoMaterial(material.descricaoCurta || material.descricaoSimples || material.descricaoCompleta);
       if (!descricao) throw new Error('Informe a descrição do material.');
-      const ncm=String(material.ncm||material.NCM||'').replace(/\D/g,'');
-      if((material.ncm||material.NCM) && ncm.length!==8)throw new Error('NCM deve ter exatamente 8 dígitos numéricos.');
-      if((material.ncm||material.NCM) && !/^\d{8}$/.test(String(material.ncm||material.NCM).replace(/[.\s]/g,'')))throw new Error('NCM inválido: use 8 dígitos, sem letras.');
+      // NCM é texto de cadastro legado e pode conter código e descrição. Não normalizar nem rejeitar.
       const custo=Number(material.custoUnitarioNum);
       if(material.custoUnitarioNum!=null && material.custoUnitarioNum!=='' && (!Number.isFinite(custo)||custo<0))throw new Error('Custo unitário inválido.');
       // O número é atribuído exclusivamente no Firebase, nunca por planilha ou cache local.
@@ -6659,7 +6657,7 @@ auth.onAuthStateChanged(async (user) => {
               <div class="field"><label>Subcategoria *</label><select id="novoSubcategoria" required><option value="">Selecione</option>${subcategorias.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
               <div class="field"><label>Unidade *</label><select id="novoUnid" required><option value="">Selecione</option>${unidades.map(u => `<option value="${u}">${u}</option>`).join('')}</select></div>
               <div class="field"><label>Unidade Detalhe</label><input type="text" id="novoUnidDetalhe" /></div>
-              <div class="field"><label>NCM</label><input type="text" id="novoNcm" inputmode="numeric" maxlength="8" pattern="[0-9]{8}" title="8 dígitos numéricos, sem pontos ou letras" /></div>
+              <div class="field"><label>NCM</label><input type="text" id="novoNcm" title="NCM conforme cadastro original, incluindo descrições históricas" /></div>
               <div class="field"><label>Marca</label><input type="text" id="novoMarca" /></div>
               <div class="field"><label>Modelo</label><input type="text" id="novoModelo" /></div>
               <div class="field"><label>Tipo Material</label><input type="text" id="novoTipoMat" /></div>
