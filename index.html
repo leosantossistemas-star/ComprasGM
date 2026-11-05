@@ -5,7 +5,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Compras — V19.11.3 Pesquisa Dinâmica Almoxarifado / EPI e Inventário</title>
+  <title>Gestão de Compras — V19.11.5 Consolidação Auditada — Cadastros e EPI</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -3129,15 +3129,62 @@ auth.onAuthStateChanged(async (user) => {
     // V17 — solicitações separadas do cadastro operacional; nenhum código é reservado antes da aprovação.
     let v17SolicitacoesMateriais=[];
     let v17SolicitacoesCarregadasEm=0;
+    let v19114Minhas=[],v19114MinhasCarregadas=false,v19114Editando=null;
+    const v19114Tipos=['MATERIAL','SERVICO','LOCACAO'];
+    const v19114Tipo=m=>v19114Tipos.includes(String(m?.tipoCadastro||'').toUpperCase())?String(m.tipoCadastro).toUpperCase():'MATERIAL';
+    const v19114Esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function v19114CarregarMinhas(force=false){
+      const uid=getUsuarioUid();if(!uid)return;
+      if(v19114MinhasCarregadas&&!force)return;
+      const snap=await db.collection('solicitacoes_materiais').where('solicitanteUid','==',uid).limit(200).get();
+      v19114Minhas=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.atualizadoEm?.seconds||b.criadoEm?.seconds||0)-(a.atualizadoEm?.seconds||a.criadoEm?.seconds||0));
+      v19114MinhasCarregadas=true;
+    }
+    function v19115SimNao(v){
+      if(v==null||String(v).trim()==='')return 'Não informado';
+      const n=String(v).trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+      if(['TRUE','SIM','S','1','YES'].includes(n))return 'Sim';
+      if(['FALSE','NAO','N','0','NO'].includes(n))return 'Não';
+      return 'Não informado';
+    }
+    function v19114RenderMinhas(){
+      return `<div class="card" style="margin-bottom:18px"><div class="card-header"><div><div class="card-title">Minhas solicitações de cadastro</div><div class="card-sub">Consulte devoluções, justificativas e reenvie correções no mesmo protocolo.</div></div><button type="button" class="btn btn-ghost" data-v19114-atualizar>Atualizar</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Protocolo</th><th>Tipo</th><th>Descrição</th><th>Status</th><th>Justificativa</th><th>Ação</th></tr></thead><tbody>${v19114Minhas.map(x=>`<tr><td>${v19114Esc(x.id)}</td><td>${v19114Esc(v19114Tipo(x.material))}</td><td>${v19114Esc(x.material?.descricaoSimples)}</td><td>${v19114Esc(x.status)}</td><td style="white-space:normal">${v19114Esc(x.motivo||'—')}</td><td>${x.status==='DEVOLVIDO'?`<button type="button" class="btn btn-accent btn-sm" data-v19114-corrigir="${v19114Esc(x.id)}">Corrigir e reenviar</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="6">Clique em Atualizar para consultar suas solicitações.</td></tr>'}</tbody></table></div></div>`;
+    }
+    function v19114CarregarFormulario(x){
+      if(!x||x.status!=='DEVOLVIDO'||x.solicitanteUid!==getUsuarioUid())throw new Error('Solicitação não disponível para correção.');
+      v19114Editando=x.id;
+      const m=x.material||{};
+      const ids={novoUsuario:'usuario',novoDescSimples:'descricaoSimples',novoDescCurta:'descricaoCurta',novoDescCompleta:'descricaoCompleta',novoCategoria:'categoria',novoSubcategoria:'subcategoria',novoUnid:'unid',novoUnidDetalhe:'unidDetalhe',novoNcm:'ncm',novoMarca:'marca',novoModelo:'modelo',novoTipoMat:'tipoMaterial',novoCANumero:'caNumero',novoCAValidade:'caValidade',novoDimensoes:'dimensoes',novoCor:'cor',novoPeso:'peso',novoTensao:'tensao',novoPressao:'pressao',novoTemperatura:'temperatura',novoCertificacoes:'certificacoes',novoLocal:'localArmazenagem',novoEstMin:'estoqueMin',novoEstMax:'estoqueMax',novoPontoPedido:'pontoPedido',novoLoteMin:'loteMinimo',novoLeadTime:'leadTime',novoCondArm:'condicoesArmazenamento',novoFornecedor:'fornecedor',novoFornecedoresAlt:'fornecedoresAlt',novoCodFornecedor:'codigoFornecedor',novoMoeda:'moeda',novoUnidDetalhe:'unidDetalhe'};
+      for(const [id,key] of Object.entries(ids)){const el=document.getElementById(id);if(!el)continue;const val=String(m[key]??'');if(el.tagName==='SELECT'&&val&&![...el.options].some(o=>o.value===val))el.add(new Option(val,val));el.value=val;}
+      const set=(id,val)=>{const el=document.getElementById(id);if(el)el.value=String(val??'')};
+      set('novoEmpresaCodigo',m.empresaCodigo||'CRYO');set('novoTipoCadastro',v19114Tipo(m));set('novoEhEPI',v19115SimNao(m.ehEPI)==='Sim'?'SIM':'NAO');set('novoCustoUnit',m.custoUnitarioNum||'');set('novoPeriodoContrato',m.periodoContrato||'');set('novoObjetoContrato',m.objetoContrato||'');set('novoCodigo',m.codigo||getNextCode(m.empresaCodigo||'CRYO'));
+      v19114AtualizarTipo();document.getElementById('v19114AvisoEdicao').textContent='Corrigindo protocolo '+x.id+' — '+(x.motivo||'');
+      document.getElementById('formNovo').scrollIntoView({behavior:'smooth',block:'start'});
+    }
+    function v19114AtualizarTipo(){
+      const tipo=document.getElementById('novoTipoCadastro')?.value||'MATERIAL';
+      document.querySelectorAll('.v19114-contrato').forEach(el=>el.style.display=tipo==='MATERIAL'?'none':'');
+      const epi=document.getElementById('novoEhEPI');if(epi){epi.disabled=tipo!=='MATERIAL';if(tipo!=='MATERIAL')epi.value='NAO';}
+      document.querySelectorAll('.epi-novo-field').forEach(el=>el.style.display=tipo==='MATERIAL'&&epi?.value==='SIM'?'':'none');
+      for(const id of ['novoEstMin','novoEstMax','novoNcm']){const el=document.getElementById(id);if(el)el.disabled=tipo!=='MATERIAL';}
+    }
+    document.addEventListener('change',e=>{if(e.target?.id==='novoTipoCadastro'||e.target?.id==='novoEhEPI')v19114AtualizarTipo()});
+    document.addEventListener('click',async e=>{
+      const atualizar=e.target.closest('[data-v19114-atualizar]'),corrigir=e.target.closest('[data-v19114-corrigir]');if(!atualizar&&!corrigir)return;
+      try{if(atualizar){await v19114CarregarMinhas(true);render();}else{const x=v19114Minhas.find(x=>x.id===corrigir.dataset.v19114Corrigir);v19114CarregarFormulario(x);}}catch(err){showToast('Solicitações: '+(err.message||err),true)}
+    });
     const v17Canon=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
     function v17PodeAprovar(){return ['admin','gerente'].includes(getPerfil());}
     function v17ValidarMaterial(m){
+      const tipo=v19114Tipo(m);
+      if(tipo!=='MATERIAL'){if(!String(m.objetoContrato||'').trim()||!String(m.periodoContrato||'').trim())throw new Error('Informe objeto/escopo e unidade ou período de contratação.');}
       for(const [campo,rotulo] of [['descricaoSimples','Descrição simples'],['categoria','Categoria'],['subcategoria','Subcategoria'],['unid','Unidade'],['usuario','Responsável']]){
         if(!String(m[campo]||'').trim())throw new Error(rotulo+': preenchimento obrigatório. Informe '+({'descricaoSimples':'o nome do material','categoria':'uma categoria existente','subcategoria':'uma subcategoria','unid':'a unidade de medida (por exemplo: un, kg ou m)','usuario':'o responsável pelo cadastro'}[campo]||'um valor válido')+' antes de salvar.');
       }
-      const ncm=String(m.ncm||m.NCM||'').trim();
+      const ncm=tipo==='MATERIAL'?String(m.ncm||m.NCM||'').trim():'';
       if(ncm&&!/^\d{8}$/.test(ncm))throw new Error('NCM: informe exatamente 8 dígitos, sem pontos ou letras.');
-      if((m.ehEPI===true||String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM') && (!String(m.caNumero||m.CA||'').trim()||!String(m.caValidade||'').trim()))throw new Error('Material marcado como EPI: informe o número do Certificado de Aprovação (CA) e sua data de validade. Se o material não for EPI, selecione NÃO no campo EPI.');
+      if(tipo==='MATERIAL'&&(m.ehEPI===true||String(m.ehEPI||m.ePI||'').toUpperCase()==='SIM') && (!String(m.caNumero||m.CA||'').trim()||!String(m.caValidade||'').trim()))throw new Error('Material marcado como EPI: informe o número do Certificado de Aprovação (CA) e sua data de validade. Se o material não for EPI, selecione NÃO no campo EPI.');
       for(const [campo,rotulo] of [['estoqueMin','Estoque mínimo'],['estoqueMax','Estoque máximo'],['loteMinimo','Lote mínimo'],['leadTime','Lead time'],['custoUnitarioNum','Custo unitário']]){
         const valor=m[campo];if(valor!==''&&valor!=null&&(!Number.isFinite(Number(String(valor).replace(',','.')))||Number(String(valor).replace(',','.'))<0))throw new Error(rotulo+' inválido. Informe um número igual ou superior a zero (exemplo: 10). Se o campo for opcional e não houver valor definido, deixe-o vazio; não digite N/A.');
       }
@@ -3152,7 +3199,7 @@ auth.onAuthStateChanged(async (user) => {
       const uid=getUsuarioUid();if(!uid)throw new Error('É necessário estar autenticado.');
       const payload={material:{...material,id:null,codigo:null},status:'PENDENTE',solicitanteUid:uid,solicitanteEmail:getUsuarioEmail(),solicitanteNome:getUsuarioNome(),criadoEm:firebase.firestore.FieldValue.serverTimestamp(),atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
       const ref=await db.collection('solicitacoes_materiais').add(payload);
-      v17SolicitacoesMateriais.unshift({...payload,id:ref.id,criadoEm:new Date()});
+      v17SolicitacoesMateriais.unshift({...payload,id:ref.id,criadoEm:new Date()});v19114MinhasCarregadas=false;
       return ref.id;
     }
     async function v17CarregarSolicitacoes(force=false){
@@ -3161,6 +3208,14 @@ auth.onAuthStateChanged(async (user) => {
       const snap=await db.collection('solicitacoes_materiais').where('status','==','PENDENTE').limit(200).get();
       v17SolicitacoesMateriais=snap.docs.map(d=>({id:d.id,...d.data()}));v17SolicitacoesCarregadasEm=Date.now();
     }
+    // V19.11.6: catálogo de contratações separado do estoque físico.
+    let v19116Contratacoes=[];
+    async function v19116CarregarContratacoes(){
+      const snap=await db.collection('catalogo_contratacoes').limit(500).get({source:'server'});
+      v19116Contratacoes=snap.docs.map(d=>({id:d.id,...d.data()}));
+    }
+    function v19116EhContratoCodigo(c){return /^(SRV|LOC)-[A-Z0-9_-]+$/i.test(String(c||''));}
+    function v19116ContratoRC(c){return v19116Contratacoes.find(x=>x.codigo===c&&x.ativo!==false);}
     async function v17DecidirMaterial(id,aprovar){
       if(!v17PodeAprovar())throw new Error('Aprovação restrita ao gerente ou administrador.');
       const item=v17SolicitacoesMateriais.find(x=>x.id===id);
@@ -3168,6 +3223,23 @@ auth.onAuthStateChanged(async (user) => {
       if(item.solicitanteUid===getUsuarioUid() && getPerfil()!=='admin')throw new Error('Gerente não pode aprovar o próprio cadastro.');
       const ref=db.collection('solicitacoes_materiais').doc(id);
       if(aprovar){
+        if(v19114Tipo(item.material)!=='MATERIAL'){
+          v17ValidarMaterial(item.material);
+          const tipo=v19114Tipo(item.material), catalogo=db.collection('catalogo_contratacoes').doc(id);
+          await db.runTransaction(async tx=>{
+            const [pedido,existente]=await Promise.all([tx.get(ref),tx.get(catalogo)]);
+            if(!pedido.exists||pedido.data().status!=='PENDENTE')throw new Error('Solicitação já processada.');
+            if(existente.exists)throw new Error('Este protocolo já consta no catálogo de contratações.');
+            if(pedido.data().solicitanteUid===getUsuarioUid()&&getPerfil()!=='admin')throw new Error('Não é permitido aprovar o próprio cadastro.');
+            const agora=firebase.firestore.FieldValue.serverTimestamp();
+            const codigo=(tipo==='SERVICO'?'SRV-':'LOC-')+id;
+            tx.set(catalogo,{...pedido.data().material, codigo, tipoCadastro:tipo, origemSolicitacaoId:id,ativo:true,estoqueControlado:false,criadoEm:agora,aprovadoEm:agora,aprovadoPorUid:getUsuarioUid()});
+            tx.update(ref,{status:'APROVADO',materialId:id,codigoGerado:codigo,decididoPorUid:getUsuarioUid(),decididoPorEmail:getUsuarioEmail(),decididoEm:agora});
+          });
+          await v19116CarregarContratacoes();
+          v17SolicitacoesMateriais=v17SolicitacoesMateriais.filter(x=>x.id!==id);v19114MinhasCarregadas=false;render();
+          return;
+        }
         v17ValidarMaterial(item.material);
         // V17: solicitação, contador e material são gravados na MESMA transação.
         // Dois aprovadores não conseguem concluir a mesma solicitação duas vezes.
@@ -3194,7 +3266,7 @@ auth.onAuthStateChanged(async (user) => {
         if(!motivo.trim())throw new Error('Informe a justificativa.');
         await ref.update({status:'DEVOLVIDO',motivo:motivo.trim(),decididoPorUid:getUsuarioUid(),decididoPorEmail:getUsuarioEmail(),decididoEm:firebase.firestore.FieldValue.serverTimestamp()});
       }
-      v17SolicitacoesMateriais=v17SolicitacoesMateriais.filter(x=>x.id!==id);render();
+      v17SolicitacoesMateriais=v17SolicitacoesMateriais.filter(x=>x.id!==id);v19114MinhasCarregadas=false;render();
     }
     // V19.3 — análise técnica integral, sem consultas adicionais ao Firestore.
     let v193DetalheSolicitacaoId=null;
@@ -3203,7 +3275,7 @@ auth.onAuthStateChanged(async (user) => {
       const m=x.material||{};
       const grupos=[
         ['Identificação', [['Código solicitado',m.codigo],['Descrição simples',m.descricaoSimples],['Descrição curta',m.descricaoCurta],['Descrição completa',m.descricaoCompleta],['Categoria',m.categoria],['Subcategoria',m.subcategoria],['Unidade',m.unid],['NCM',m.ncm||m.NCM],['Cadastro completo',m.cadastroCompleto]]],
-        ['Especificações técnicas', [['Marca',m.marca],['Modelo',m.modelo],['Tipo de material',m.tipoMaterial],['É EPI?',m.ehEPI??m.ePI],['Número CA',m.caNumero],['Validade CA',m.caValidade],['Dimensões',m.dimensoes],['Cor',m.cor],['Peso',m.peso],['Tensão',m.tensao],['Pressão',m.pressao],['Temperatura',m.temperatura],['Certificações',m.certificacoes]]],
+        ['Especificações técnicas', [['Marca',m.marca],['Modelo',m.modelo],['Tipo de material',m.tipoMaterial],['É EPI?',v19115SimNao(m.ehEPI??m.ePI)],['Número CA',m.caNumero],['Validade CA',m.caValidade],['Dimensões',m.dimensoes],['Cor',m.cor],['Peso',m.peso],['Tensão',m.tensao],['Pressão',m.pressao],['Temperatura',m.temperatura],['Certificações',m.certificacoes]]],
         ['Compras e estoque', [['Fornecedor',m.fornecedor],['Fornecedores alternativos',m.fornecedoresAlt],['Código fornecedor',m.codigoFornecedor],['Moeda',m.moeda],['Custo unitário',m.custoUnitario??m.custoUnitarioNum],['Local de armazenamento',m.localArmazenagem],['Estoque mínimo',m.estoqueMin],['Estoque máximo',m.estoqueMax],['Ponto de pedido',m.pontoPedido],['Lote mínimo',m.loteMinimo],['Lead time (dias)',m.leadTime],['Condições de armazenamento',m.condicoesArmazenamento]]]
       ];
       const exibidos=new Set();
@@ -6552,10 +6624,14 @@ auth.onAuthStateChanged(async (user) => {
       const fornecedoresList = getUniqueValues('fornecedor');
 
       return `
+        ${v19114RenderMinhas()}
         <div class="card">
           <div class="card-header"><div><div class="card-title">Novo Cadastro de Material</div><div class="card-sub">Preencha os campos. Código gerado automaticamente.</div></div></div>
-          <form id="formNovo">
+          <div id="v19114AvisoEdicao" style="color:var(--warning);margin-bottom:10px"></div><form id="formNovo">
             <div class="form-grid">
+              <div class="field"><label>Tipo de cadastro *</label><select id="novoTipoCadastro"><option value="MATERIAL">Material / EPI</option><option value="SERVICO">Serviço</option><option value="LOCACAO">Locação</option></select></div>
+              <div class="field v19114-contrato" style="display:none"><label>Objeto / escopo *</label><input id="novoObjetoContrato" placeholder="Descrição do serviço ou bem locado"></div>
+              <div class="field v19114-contrato" style="display:none"><label>Unidade / período de contratação *</label><input id="novoPeriodoContrato" placeholder="hora, diária, mês, contrato..."></div>
               <div class="field"><label>Empresa / Prefixo do código *</label>
                 <select id="novoEmpresaCodigo" required>
                   <option value="CRYO" ${(state.novoMaterialEmpresa||'CRYO')==='CRYO'?'selected':''}>Cryotronics — CRYO</option>
@@ -6995,7 +7071,8 @@ auth.onAuthStateChanged(async (user) => {
         if (unidadeInput) unidadeInput.value = item.unidade || item.un || item.um || '';
         const qtdCadastro = numeroSeguro(item.quantidade || item.qtd || item.estoqueMin);
         qtdInput.value = qtdCadastro > 0 ? qtdCadastro : 1;
-        if (item.custoUnitario) unitInput.value = String(item.custoUnitario).replace('R$','').trim();
+        const valor=item.custoUnitarioNum??item.custoUnitario??item.valorUnitario??0;
+        if(numeroSeguro(valor)>0)unitInput.value=String(valor).replace('R$','').trim();
         sugestoes.style.display = 'none';
         updateTotal();
       };
@@ -7003,8 +7080,8 @@ auth.onAuthStateChanged(async (user) => {
       const renderSugestoes = termo => {
         const tx=normalize(termo);
         if(!tx){fecharPainelV117(sugestoes);return;}
-        const matches=allItems.filter(item=>normalize(materialTextoPesquisaV116(item)).includes(tx)).slice(0,60);
-        abrirPainelV117(buscaInput,sugestoes,matches,item=>selecionarMaterial(item),'Selecione o material da RC');
+        const matches=[...allItems,...v19116Contratacoes].filter(item=>normalize(materialTextoPesquisaV116(item)).includes(tx)).slice(0,60);
+        abrirPainelV117(buscaInput,sugestoes,matches,item=>selecionarMaterial(item),'Selecione material, serviço ou locação aprovado');
         manterFocoPesquisaV117(buscaInput);
       };
 
@@ -7216,6 +7293,21 @@ auth.onAuthStateChanged(async (user) => {
     // Não modifica saldos nem migra dados existentes.
     async function validarTetoEstoqueRC2026(itens, centroCusto, numeroAtual) {
       const estoque = estoqueFisicoPadraoV109(centroCusto);
+      // Contratações aprovadas não são materiais físicos. Validação no servidor,
+      // impedindo que códigos SRV/LOC inexistentes contornem o bloqueio de estoque.
+      const contratos=itens.filter(i=>v19116EhContratoCodigo(i.codigo));
+      if(contratos.length){
+        const ids=[...new Set(contratos.map(i=>String(i.materialId||'').trim()))];
+        if(ids.some(id=>!id))throw new Error('Selecione o serviço ou locação aprovado no catálogo.');
+        const snaps=await Promise.all(ids.map(id=>db.collection('catalogo_contratacoes').doc(id).get({source:'server'})));
+        const aprovados=new Map(snaps.filter(x=>x.exists).map(x=>[x.id,x.data()]));
+        for(const item of contratos){const c=aprovados.get(String(item.materialId));
+          if(!c||c.ativo===false||c.estoqueControlado!==false||!['SERVICO','LOCACAO'].includes(c.tipoCadastro)||c.codigo!==item.codigo)
+            throw new Error('Contratação não aprovada ou código divergente: '+item.codigo);
+        }
+      }
+      itens=itens.filter(i=>!v19116EhContratoCodigo(i.codigo));
+      if(!itens.length)return true;
       // V19: buscar apenas códigos solicitados, sem varrer todo o almoxarifado.
       // A regra original usa codigoMaterial OU codigoImportacao, não o campo codigo.
       const codigos = [...new Set(itens.map(i=>String(i.codigo||'').trim().toUpperCase()).filter(Boolean))];
@@ -7252,6 +7344,7 @@ auth.onAuthStateChanged(async (user) => {
         solicitados.set(codigo,(solicitados.get(codigo)||0)+numeroSeguro(item.qtd));
       }
       for(const [codigo,quantidade] of solicitados){
+        if(v19116EhContratoCodigo(codigo))continue;
         const material = materiais.find(x=>
           (String(x.codigoMaterial||'').toUpperCase()===codigo||String(x.codigoImportacao||'').toUpperCase()===codigo) &&
           nomeEstoqueFisicoV109(x.estoqueFisico||x.centroCusto)===estoque && x.status!=='INATIVO');
@@ -7298,7 +7391,7 @@ auth.onAuthStateChanged(async (user) => {
       if(!frota){showToast('Frota selecionada não encontrada.',true);return;}
 
       const itens=[]; let total=0;
-      document.querySelectorAll('.rc-item-row').forEach(row=>{
+      document.querySelectorAll('#rcItensContainer .rc-item-row').forEach(row=>{
         const desc=row.querySelector('.rc-item-busca')?.value.trim()||'';
         const codigo=row.querySelector('.rc-item-codigo')?.value||'';
         const materialId=row.querySelector('.rc-item-id')?.value||'';
@@ -7309,6 +7402,15 @@ auth.onAuthStateChanged(async (user) => {
         if(desc && qtd>0){itens.push({codigo,materialId,descricao:desc,unidade,qtd,valorUnit:unit,total:totalItem});total+=totalItem;}
       });
       if(!itens.length){showToast('Adicione pelo menos um item.',true);return;}
+      // RC de serviços/locações: código e vínculo obrigatórios, custo direto,
+      // nunca destino ESTOQUE. Mantém a rotina de aprovação e limite financeiro.
+      const temContrato=itens.some(i=>v19116EhContratoCodigo(i.codigo));
+      if(temContrato&&String(aplicacao).toUpperCase()==='ESTOQUE'){
+        showToast('Serviços e locações devem ser vinculados a frota, projeto ou centro de custo; nunca a ESTOQUE.',true);return;
+      }
+      if(itens.some(i=>!i.codigo||!i.materialId)){
+        showToast('Selecione todos os itens pelo catálogo. Não é permitido cadastrar código livre na RC.',true);return;
+      }
 
       const existing=rcs.find(r=>r.numero===numero);
       if(enviar){
@@ -7335,6 +7437,7 @@ auth.onAuthStateChanged(async (user) => {
       const vencimento=vencimentos[0]||dataBase;
       const rcData={numero,data,fornecedor,prazoEntrega,condPag,condicaoPagamento,numeroParcelas,parcelasPagamento,vencimentos,dataBase,vencimento,solicitante,
         aplicacao:frota.nome,frotaId:frota.id,centroCusto,observacoes,itens,total,status,
+        possuiContratacao:temContrato,tipoApropriacao:temContrato?'CUSTO_DIRETO':'PADRAO',
         criadoPor:existing?.criadoPor||perfilAtual,
         criadoPorUid:existing?.criadoPorUid||getUsuarioUid(),
         criadoPorEmail:existing?.criadoPorEmail||getUsuarioEmail(),
@@ -9800,8 +9903,13 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         if(baixaBusca)baixaBusca.value=`${material.codigo||''} — ${descBaixa(material)}`;
         const unit=document.getElementById('baixaValorUnitario');
         const fornecedor=document.getElementById('baixaFornecedor');
-        const custo=numeroSeguro(material.custoUnitario);
-        if(unit && custo)unit.value=custo.toFixed(2);
+        // V19.11.7: o custo da baixa vem prioritariamente do registro físico
+        // do estoque selecionado, e não apenas do cadastro mestre de materiais.
+        const estoqueSelecionado=nomeEstoqueFisicoV109(document.getElementById('baixaEstoqueOrigem')?.value||document.getElementById('baixaCentro')?.value||'SANTOS');
+        const registrosFisicos=almoxItensV107.filter(x=>String(x.codigoMaterial||x.codigoImportacao||'').trim().toUpperCase()===String(material.codigo||'').trim().toUpperCase() && nomeEstoqueFisicoV109(x.estoqueFisico||x.centroCusto)===estoqueSelecionado && x.status!=='INATIVO');
+        const registroFisico=registrosFisicos.find(x=>numeroSeguro(x.quantidadeAtual)>0)||registrosFisicos[0];
+        const valorCadastrado=(registroFisico && numeroSeguro(registroFisico.valorUnitario||registroFisico.valorPago)) || numeroSeguro(material.custoUnitario||material.valorUnitario||material.precoUnitario||material.valorUnit||material.preco||material.valor);
+        if(unit)unit.value=valorCadastrado>0?valorCadastrado.toFixed(2):'';
         if(fornecedor)fornecedor.value=material.fornecedor||'';
         const caInfo=document.getElementById('baixaCAInfo');
         const tipo=document.getElementById('baixaTipo')?.value||'MATERIAL';
@@ -10657,7 +10765,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       });
 
       const formNovo = document.getElementById('formNovo');
-      if (formNovo) formNovo.addEventListener('submit', (e) => { e.preventDefault(); handleFormNovo(); });
+      if (formNovo) {formNovo.addEventListener('submit', (e) => { e.preventDefault(); handleFormNovo(); });v19114AtualizarTipo();if(!v19114MinhasCarregadas)v19114CarregarMinhas().then(()=>{if(state.section==='novo')render()}).catch(err=>console.warn('Minhas solicitações:',err.message));}
 
       // Atualiza imediatamente o código ao trocar a empresa do material.
       document.getElementById('novoEmpresaCodigo')?.addEventListener('change', e => {
@@ -11105,7 +11213,10 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }));
 
       // ===== RCs =====
-      document.getElementById('btnNovaRC')?.addEventListener('click', handleNovaRC);
+      document.getElementById('btnNovaRC')?.addEventListener('click', async()=>{
+        try{await v19116CarregarContratacoes();handleNovaRC();}
+        catch(e){showToast('Não foi possível consultar o catálogo de contratações: '+e.message,true);}
+      });
       document.getElementById('btnNovaRCEstoque')?.addEventListener('click', () => {
         handleNovaRC();
         setTimeout(()=>{
@@ -11635,6 +11746,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const getVal = (id) => document.getElementById(id)?.value || '';
       const getNum = (id) => parseFloat(document.getElementById(id)?.value) || 0;
 
+      const tipoCadastro=getVal('novoTipoCadastro')||'MATERIAL';
+      if(tipoCadastro!=='MATERIAL'&&(!getVal('novoObjetoContrato').trim()||!getVal('novoPeriodoContrato').trim())){showToast('Informe objeto/escopo e unidade ou período do serviço/locação.',true);return;}
       const empresaCodigo = getVal('novoEmpresaCodigo') || 'CRYO';
       const codigo = getNextCode(empresaCodigo);
       const dataCadastro = getVal('novoData') || new Date().toLocaleDateString('pt-BR');
@@ -11651,7 +11764,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       const marca = getVal('novoMarca');
       const modelo = getVal('novoModelo');
       const tipoMaterial = getVal('novoTipoMat');
-      const ehEPI = getVal('novoEhEPI') === 'SIM';
+      const ehEPI = tipoCadastro==='MATERIAL'&&getVal('novoEhEPI') === 'SIM';
       const caNumero = getVal('novoCANumero').trim();
       const caValidade = getVal('novoCAValidade');
       if (ehEPI && (!caNumero || !caValidade)) {
@@ -11684,6 +11797,7 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       }
 
       const newItem = {
+        tipoCadastro, objetoContrato:tipoCadastro==='MATERIAL'?'':getVal('novoObjetoContrato').trim(), periodoContrato:tipoCadastro==='MATERIAL'?'':getVal('novoPeriodoContrato').trim(),
         item: allItems.length + 1,
         dataCadastro,
         usuario,
@@ -11712,8 +11826,8 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
         temperatura,
         certificacoes,
         localArmazenagem,
-        estoqueMin: String(estoqueMin),
-        estoqueMax: String(estoqueMax),
+        estoqueMin: tipoCadastro==='MATERIAL'?String(estoqueMin):'0',
+        estoqueMax: tipoCadastro==='MATERIAL'?String(estoqueMax):'0',
         pontoPedido,
         loteMinimo,
         leadTime,
@@ -11736,9 +11850,21 @@ function renderTabelaSolicitacoes(lista, podeConverter, podeOperarSolicitacoes) 
       if (botaoSalvar?.disabled) return;
       if (botaoSalvar) { botaoSalvar.disabled = true; botaoSalvar.textContent = 'Salvando…'; }
       try {
-        const solicitacaoId = await v17EnviarSolicitacaoMaterial(newItem);
+        let solicitacaoId;
+        if(v19114Editando){
+          const id=v19114Editando,ref=db.collection('solicitacoes_materiais').doc(id);
+          await db.runTransaction(async tx=>{
+            const doc=await tx.get(ref);if(!doc.exists||doc.data().status!=='DEVOLVIDO'||doc.data().solicitanteUid!==getUsuarioUid())throw new Error('Solicitação já processada ou não pertence ao usuário.');
+            if(v19114Tipo(doc.data().material)!==tipoCadastro)throw new Error('Não altere o tipo de cadastro durante a correção; solicite devolução para outro tipo.');
+            v17ValidarMaterial(newItem);
+            const historico=Array.isArray(doc.data().historicoDevolucoes)?doc.data().historicoDevolucoes.slice(-19):[];
+            historico.push({motivo:doc.data().motivo||'',decididoPorEmail:doc.data().decididoPorEmail||'',decididoEm:doc.data().decididoEm||null});
+            tx.update(ref,{material:{...newItem,id:null,codigo:null},status:'PENDENTE',motivo:'',historicoDevolucoes:historico,atualizadoEm:firebase.firestore.FieldValue.serverTimestamp(),reenviadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+          });solicitacaoId=id;v19114Editando=null;v17SolicitacoesCarregadasEm=0;
+        }else solicitacaoId=await v17EnviarSolicitacaoMaterial(newItem);
+        v19114MinhasCarregadas=false;
         showToast('Cadastro enviado para aprovação do gerente/administrador. Protocolo: '+solicitacaoId);
-        formCadastro?.reset();
+        formCadastro?.reset();v19114AtualizarTipo();document.getElementById('v19114AvisoEdicao').textContent='';
         const campoCodigo = document.getElementById('novoCodigo');
         if (campoCodigo) campoCodigo.value = getNextCode(getVal('novoEmpresaCodigo') || 'CRYO');
         const campoData = document.getElementById('novoData');
@@ -16554,7 +16680,7 @@ function renderAlmoxarifadoV107(){
  <div class="card" style="margin-top:18px"><div class="card-title">Histórico de Movimentações</div><div class="card-sub">Antes de 22/10/2026: baixas documentais sem impacto no estoque físico ou novo custo. A partir da implantação: entradas e saídas físicas reais. Use os filtros de data.</div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Item</th><th>Qtd.</th><th>Valor</th><th>Centro</th><th>Destino/Pessoa</th><th>Origem</th><th>Observação</th></tr></thead><tbody>${movs.slice(0,500).map(m=>`<tr><td>${fmt.date(m.data)}</td><td>${m.tipo}</td><td>${m.codigo||''} — ${m.itemNome||''}</td><td>${m.quantidade}</td><td>${fmt.money(numeroSeguro(m.valorTotal))}</td><td>${m.centroCusto||'—'}</td><td>${m.destino||m.colaborador||'—'}</td><td>${m.legadoSemImpacto?'HISTÓRICO — SEM BAIXA FÍSICA':(m.origem||'MANUAL')}</td><td>${m.observacoes||''}</td></tr>`).join('')||'<tr><td colspan="9">Nenhuma movimentação.</td></tr>'}</tbody></table></div></div>`;
 }
 function modalA107(i={}){
- return `<div class="modal active" id="modalA107"><div class="modal-content" style="max-width:900px"><div class="modal-header"><h3>${i.id?'Editar':'Adicionar'} item</h3><button class="modal-close" data-close-a107>×</button></div><form id="formA107"><input type="hidden" id="idA107" value="${i.id||''}"><div class="form-grid">
+ return `<div class="modal active" id="modalA107" style="position:fixed!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:20px!important;overflow-y:auto!important;z-index:99990!important;background:rgba(0,0,0,.78)!important"><div class="modal-content" style="position:relative!important;margin:auto!important;width:min(900px,100%)!important;max-width:900px!important;max-height:calc(100vh - 40px)!important;overflow-y:auto!important;transform:none!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important"><div class="modal-header"><h3>${i.id?'Editar':'Adicionar'} item</h3><button class="modal-close" data-close-a107>×</button></div><form id="formA107"><input type="hidden" id="idA107" value="${i.id||''}"><div class="form-grid">
  <div class="field"><label>Categoria *</label><select id="icatA107">${['INSUMO','EPI','FERRAMENTA','MAQUINA'].map(x=>`<option ${i.categoria===x?'selected':''}>${x}</option>`).join('')}</select></div>
  <div class="field"><label>Código</label><input id="icodA107" value="${i.codigoMaterial||i.codigoImportacao||''}"></div><div class="field" style="grid-column:span 2"><label>Nome *</label><input id="inomeA107" required value="${i.nome||''}"></div>
  <div class="field"><label>Estoque físico *</label><select id="icentroA107">${['SANTOS','CAMAÇARI'].map(x=>`<option ${nomeEstoqueFisicoV109(i.estoqueFisico||i.centroCusto)===x?'selected':''}>${x}</option>`).join('')}</select></div>
@@ -16938,7 +17064,7 @@ document.addEventListener('input',e=>{if(e.target.id==='buscaA107'){
  const pos=e.target.selectionStart;render();const campo=document.getElementById('buscaA107');
  if(campo){campo.focus();try{campo.setSelectionRange(pos,pos);}catch(_){}}
 }});
-document.addEventListener('click',async e=>{if(e.target.closest('#novoA107')){document.body.insertAdjacentHTML('beforeend',modalA107({categoria:'INSUMO',centroCusto:'SANTOS'}));return;}let ed=e.target.closest('[data-ed-a107]');if(ed){let i=almoxItensV107.find(x=>x.id===ed.dataset.edA107);if(i)document.body.insertAdjacentHTML('beforeend',modalA107(i));return;}let dl=e.target.closest('[data-del-a107]');if(dl){if(confirm('Excluir este item?')){try{
+document.addEventListener('click',async e=>{if(e.target.closest('#novoA107')){document.body.insertAdjacentHTML('beforeend',modalA107({categoria:'INSUMO',centroCusto:'SANTOS'}));return;}let ed=e.target.closest('[data-ed-a107]');if(ed){let i=almoxItensV107.find(x=>x.id===ed.dataset.edA107);if(i){document.getElementById('modalA107')?.remove();document.body.insertAdjacentHTML('beforeend',modalA107(i));}return;}let dl=e.target.closest('[data-del-a107]');if(dl){if(confirm('Excluir este item?')){try{
   const id=dl.dataset.delA107;
   await db.collection('almoxarifado_itens').doc(id).delete();
   almoxItensV107=almoxItensV107.filter(x=>x.id!==id);
